@@ -1,0 +1,182 @@
+import Link from "next/link";
+import { Activity, Plus, ArrowUp, ArrowDown, Minus, Pause, Circle, Bell } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { getAccessToken } from "@/lib/server-token";
+import { api } from "@/lib/api";
+import type { Monitor } from "@/lib/api";
+import { MonitorActions } from "@/components/monitor-actions";
+import { MonitorSparkline } from "@/components/monitor-sparkline";
+
+function statusIcon(status: Monitor["status"]) {
+  switch (status) {
+    case "up": return <ArrowUp className="h-4 w-4 text-emerald-500" />;
+    case "down": return <ArrowDown className="h-4 w-4 text-red-500" />;
+    case "degraded": return <Minus className="h-4 w-4 text-amber-500" />;
+    case "paused": return <Pause className="h-4 w-4 text-slate-400" />;
+    default: return <Circle className="h-4 w-4 text-slate-400" />;
+  }
+}
+
+function statusBadgeVariant(status: Monitor["status"]) {
+  switch (status) {
+    case "up": return "success";
+    case "down": return "destructive";
+    case "degraded": return "warning";
+    default: return "secondary";
+  }
+}
+
+function uptimeColor(pct: number | null) {
+  if (pct === null) return "text-muted-foreground";
+  if (pct >= 99) return "text-emerald-600";
+  if (pct >= 95) return "text-amber-500";
+  return "text-red-500";
+}
+
+function fmt(ms: number | null) {
+  if (ms === null) return "—";
+  if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
+export default async function MonitorsPage() {
+  const token = await getAccessToken();
+  const monitors = await api.get<Monitor[]>("/api/v1/monitors/", token ?? "").catch(() => [] as Monitor[]);
+
+  const up = monitors.filter((m) => m.status === "up").length;
+  const down = monitors.filter((m) => m.status === "down").length;
+  const degraded = monitors.filter((m) => m.status === "degraded").length;
+
+  return (
+    <div className="p-8 space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Uptime Monitors</h1>
+          <p className="text-muted-foreground mt-1">Track availability and response times for your services</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href="/monitors/channels">
+            <Button variant="outline">
+              <Bell className="h-4 w-4 mr-2" />
+              Channels
+            </Button>
+          </Link>
+          <Link href="/monitors/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              Add monitor
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Summary row */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Monitors</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent><div className="text-2xl font-bold">{monitors.length}</div></CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Up</CardTitle>
+            <ArrowUp className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent><div className="text-2xl font-bold text-emerald-600">{up}</div></CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Issues</CardTitle>
+            <ArrowDown className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent><div className="text-2xl font-bold text-red-600">{down + degraded}</div></CardContent>
+        </Card>
+      </div>
+
+      {/* Monitor table */}
+      {monitors.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+            <Activity className="h-10 w-10 text-muted-foreground" />
+            <p className="text-lg font-medium">No monitors yet</p>
+            <p className="text-muted-foreground text-sm">Add a monitor to start tracking uptime and response times</p>
+            <Link href="/monitors/new">
+              <Button variant="outline" className="mt-2">
+                <Plus className="h-4 w-4 mr-2" />
+                Add monitor
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/30">
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">URL / Target</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Type</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Response</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Uptime 24h</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Uptime 7d</th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Last 20</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Interval</th>
+                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {monitors.map((m) => (
+                  <tr key={m.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        {statusIcon(m.status)}
+                        <Badge variant={statusBadgeVariant(m.status) as never} className="capitalize text-xs">
+                          {m.status}
+                        </Badge>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link href={`/monitors/${m.id}`} className="font-medium hover:underline">
+                        {m.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground max-w-xs truncate">
+                      {m.url}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant="outline" className="uppercase text-xs">{m.monitor_type}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs">
+                      {fmt(m.last_response_time)}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono text-xs font-semibold ${uptimeColor(m.uptime_24h)}`}>
+                      {m.uptime_24h !== null ? `${m.uptime_24h.toFixed(2)}%` : "—"}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono text-xs font-semibold ${uptimeColor(m.uptime_7d)}`}>
+                      {m.uptime_7d !== null ? `${m.uptime_7d.toFixed(2)}%` : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <MonitorSparkline statuses={m.recent_statuses ?? []} />
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">
+                      {m.check_interval}s
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <MonitorActions monitor={m} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}

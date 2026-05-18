@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self';" />
+  <link rel="stylesheet" href="popup.css" />
+  <title>Digivault</title>
+</head>
+<body>
+  <header>
+    <img src="../icons/icon48.png" alt="Digivault" width="24" height="24" />
+    <span>Digivault</span>
+    <a class="settings-link" href="#" id="open-options" title="Settings" aria-label="Open settings">⚙</a>
+  </header>
+  <main id="root" aria-live="polite">
+    <p class="muted loading">Loading…</p>
+  </main>
+  <div id="scdb-auth" style="display:none" aria-live="polite"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

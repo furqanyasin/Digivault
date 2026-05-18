@@ -1,0 +1,59 @@
+from rest_framework import serializers
+
+from apps.alerts.models import AlertRule, Notification
+from apps.common.serializers import BaseModelSerializer
+
+
+class AlertRuleSerializer(BaseModelSerializer):
+    class Meta:
+        model = AlertRule
+        fields = (
+            "id",
+            "website",
+            "channel",
+            "min_severity",
+            "change_types",
+            "delivery_mode",
+            "slack_webhook_url",
+            "sms_phone_number",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at")
+        extra_kwargs = {
+            "slack_webhook_url": {"write_only": True},
+            "sms_phone_number": {"write_only": True},
+        }
+
+
+class NotificationSerializer(BaseModelSerializer):
+    website_name = serializers.SerializerMethodField()
+    change_description = serializers.SerializerMethodField()
+    change_severity = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notification
+        fields = (
+            "id",
+            "website",
+            "website_name",
+            "channel",
+            "delivery_status",
+            "delivered_at",
+            "change_description",
+            "change_severity",
+            "read",
+            "read_at",
+            "created_at",
+        )
+        read_only_fields = fields
+
+    def get_website_name(self, obj) -> str:
+        return obj.website.name if obj.website_id else ""
+
+    def get_change_description(self, obj) -> str:
+        return obj.script_change.description if obj.script_change_id else ""
+
+    def get_change_severity(self, obj) -> str:
+        return obj.script_change.severity if obj.script_change_id else ""

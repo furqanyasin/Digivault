@@ -1,0 +1,265 @@
+"""Celery tasks for script processing.
+
+The ingest view accepts the HTTP request immediately (202 Accepted) and
+delegates all heavy work here so the snippet endpoint stays under 50ms.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+
+from celery import shared_task
+from django.db import transaction
+from django.utils import timezone
+
+from apps.scripts.classifier import ScriptClassifier
+from apps.scripts.diff_engine import DiffEngine
+from apps.scripts.models import Script, ScriptChange, ScriptSnapshot
+from apps.websites.models import Website
+
+logger = logging.getLogger(__name__)
+
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=10,
+    name="scripts.process_ingest_payload",
+)
+def process_ingest_payload(self, site_id: str, payload: dict) -> None:
+    """Process a snippet ingest payload.
+
+    Steps:
+    1. Resolve website by site_id.
+    2. Save ScriptSnapshot.
+    3. Retrieve the previous snapshot for the same page_url.
+    4. Run the diff engine.
+    5. Upsert Script records.
+    6. Persist ScriptChange records.
+    7. Touch website.last_seen_at.
+    """
+    try:
+        website = Website.objects.get(site_id=site_id)
+    except Website.DoesNotExist:
+        logger.warning("process_ingest_payload: unknown site_id %s", site_id)
+        return
+
+    page_url: str = payload["page_url"]
+    scripts_data: list[dict] = payload.get("scripts", [])
+
+    try:
+        with transaction.atomic():
+            # --- 1. Save snapshot ---
+            snapshot = ScriptSnapshot.objects.create(
+                website=website,
+                page_url=page_url,
+                scripts_data=scripts_data,
+                user_agent=payload.get("user_agent", ""),
+                snippet_version=payload.get("snippet_version", ""),
+            )
+
+            # --- 2. Get previous snapshot for same page ---
+            previous_snapshot = (
+                ScriptSnapshot.objects.filter(
+                    website=website, page_url=page_url
+                )
+                .exclude(pk=snapshot.pk)
+                .order_by("-captured_at")
+                .first()
+            )
+            previous_scripts = (
+                previous_snapshot.scripts_data if previous_snapshot else []
+            )
+
+            # --- 3. Run diff engine ---
+            changes = DiffEngine.diff(previous_scripts, scripts_data)
+
+            # --- 4. Upsert Script records ---
+            for script_data in scripts_data:
+                src = script_data.get("src", "")
+                if not src:
+                    continue
+                _upsert_script(website, script_data, page_url)
+
+            # Mark scripts not seen in this snapshot as inactive
+            # (only for scripts scoped globally — page-specific is handled separately)
+            current_urls = {s["src"] for s in scripts_data if s.get("src")}
+            Script.objects.filter(
+                website=website,
+                scope=Script.Scope.GLOBAL,
+                is_active=True,
+            ).exclude(src_url__in=current_urls).update(is_active=False)
+
+            # --- 5. Persist ScriptChange records ---
+            for change in changes:
+                script_obj = None
+                if change.src_url:
+                    script_obj = Script.objects.filter(
+                        website=website, src_url=change.src_url
+                    ).first()
+                ScriptChange.objects.create(
+                    website=website,
+                    script=script_obj,
+                    change_type=change.change_type,
+                    severity=change.severity,
+                    description=change.description,
+                    old_value=change.old_value,
+                    new_value=change.new_value,
+                )
+
+            # --- 5b. Dispatch alert notifications for each change ---
+            from apps.alerts.services import AlertService
+            from apps.alerts.tasks import deliver_notification
+
+            for change_record in ScriptChange.objects.filter(
+                website=website,
+                created_at__gte=snapshot.captured_at,
+            ):
+                notifications = AlertService.dispatch_for_change(change_record)
+                for notif in notifications:
+                    if notif.rule and notif.rule.delivery_mode == "immediate":
+                        deliver_notification.delay(str(notif.pk))
+
+            # --- 6. Update scope labels ---
+            _update_script_scopes(website)
+
+            # --- 7. Touch website ---
+            website.last_seen_at = timezone.now()
+            website.save(update_fields=["last_seen_at"])
+
+            if changes:
+                _update_website_status(website)
+
+    except Exception as exc:
+        logger.exception("process_ingest_payload failed for site_id=%s", site_id)
+        raise self.retry(exc=exc)
+
+
+def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script:
+    """Create or update a Script record from one snippet script entry."""
+    src = script_data["src"]
+    classification = ScriptClassifier.classify(src)
+    domain = ScriptClassifier.extract_domain(src)
+
+    script, created = Script.objects.get_or_create(
+        website=website,
+        src_url=src,
+        defaults={
+            "src_domain": domain,
+            "provider": classification.provider,
+            "category": classification.category,
+            "location": script_data.get("location", Script.Location.UNKNOWN),
+            "is_async": script_data.get("is_async", False),
+            "is_defer": script_data.get("is_defer", False),
+            "is_inline": script_data.get("is_inline", False),
+            "inline_hash": script_data.get("inline_hash", ""),
+            "wp_plugin": script_data.get("wp_plugin", ""),
+            "wp_post_id": script_data.get("wp_post_id"),
+            "seen_on_pages": [page_url],
+        },
+    )
+
+    if not created:
+        # Update mutable fields and keep seen_on_pages current
+        seen = script.seen_on_pages or []
+        if page_url not in seen:
+            seen.append(page_url)
+        Script.objects.filter(pk=script.pk).update(
+            is_active=True,
+            src_domain=domain,
+            provider=classification.provider,
+            category=classification.category,
+            location=script_data.get("location", script.location),
+            is_async=script_data.get("is_async", script.is_async),
+            is_defer=script_data.get("is_defer", script.is_defer),
+            wp_plugin=script_data.get("wp_plugin", script.wp_plugin) or script.wp_plugin,
+            seen_on_pages=seen,
+        )
+
+    return script
+
+
+def _update_script_scopes(website: Website) -> None:
+    """Classify each active script as GLOBAL, PAGE_SPECIFIC, or ONE_TIME.
+
+    Rules (per PDF §9.2):
+    - Seen on ≥80% of all known pages → GLOBAL
+    - Seen on <80% of pages (but >1 page) → PAGE_SPECIFIC
+    - Seen on exactly 1 page → ONE_TIME (flag unknown scripts for review)
+    """
+    total_pages = (
+        ScriptSnapshot.objects.filter(website=website)
+        .values("page_url")
+        .distinct()
+        .count()
+    )
+    if total_pages == 0:
+        return
+
+    scripts = Script.objects.filter(website=website, is_active=True)
+    for script in scripts:
+        seen_count = len(set(script.seen_on_pages or []))
+
+        if seen_count <= 1:
+            new_scope = Script.Scope.ONE_TIME
+        elif total_pages == 1 or seen_count / total_pages >= 0.8:
+            new_scope = Script.Scope.GLOBAL
+        else:
+            new_scope = Script.Scope.PAGE_SPECIFIC
+
+        if script.scope != new_scope:
+            Script.objects.filter(pk=script.pk).update(scope=new_scope)
+            # Flag one-time unknown scripts for review
+            if new_scope == Script.Scope.ONE_TIME and script.provider == "unknown":
+                Script.objects.filter(pk=script.pk).update(
+                    review_status=Script.ReviewStatus.PENDING
+                )
+
+
+def _update_website_status(website: Website) -> None:
+    """Set website status based on open high-severity changes."""
+    has_high = ScriptChange.objects.filter(
+        website=website,
+        severity=ScriptChange.Severity.HIGH,
+        acknowledged_at__isnull=True,
+    ).exists()
+    has_medium = ScriptChange.objects.filter(
+        website=website,
+        severity=ScriptChange.Severity.MEDIUM,
+        acknowledged_at__isnull=True,
+    ).exists()
+
+    if has_high:
+        new_status = Website.Status.CRITICAL
+    elif has_medium:
+        new_status = Website.Status.WARNING
+    else:
+        new_status = Website.Status.ACTIVE
+
+    Website.objects.filter(pk=website.pk).update(status=new_status)
+
+
+@shared_task(name="scripts.purge_old_snapshots")
+def purge_old_snapshots() -> int:
+    """Delete ScriptSnapshot records older than 90 days.  Chunked to avoid
+    long-running transactions.  Scheduled via Celery Beat weekly.
+    """
+    from django.utils.timezone import timedelta
+
+    cutoff = timezone.now() - timedelta(days=90)
+    total_deleted = 0
+    chunk_size = 500
+
+    while True:
+        ids = list(
+            ScriptSnapshot.objects.filter(captured_at__lt=cutoff)
+            .values_list("pk", flat=True)[:chunk_size]
+        )
+        if not ids:
+            break
+        deleted, _ = ScriptSnapshot.objects.filter(pk__in=ids).delete()
+        total_deleted += deleted
+
+    logger.info("purge_old_snapshots: removed %d snapshots", total_deleted)
+    return total_deleted

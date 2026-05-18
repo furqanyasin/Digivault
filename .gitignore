@@ -1,0 +1,73 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Django
+*.log
+staticfiles/
+media/
+celerybeat-schedule
+celerybeat.pid
+dump.rdb
+
+# Environment — NEVER commit secrets
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Database
+*.sqlite3
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+CLAUDE.md
+
+# Misc plan files
+Digivault_CompletePlan.md
+dashboard-feature-plan.md
+ScriptSentry_CompletePlan.md
+ScriptSentry_ProductPlan.md.pdf
+skills-lock.json
+
+# Private / agent files
+.agents/
+"Digilatics - Web - Web Sheets - Hosting Internal Sheet.csv"
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.production.local
+
+# Redis dump
+dump.rdb

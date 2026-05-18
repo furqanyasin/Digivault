@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>Digivault — Settings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f172a; --surface: #1e293b; --border: #334155;
+      --text: #f1f5f9; --muted: #94a3b8; --accent: #3b82f6;
+      --green: #22c55e; --red: #ef4444; --radius: 6px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      background: var(--bg); color: var(--text); font-family: var(--font);
+      font-size: 14px; line-height: 1.6; min-height: 100vh;
+      display: flex; justify-content: center; padding: 40px 20px;
+    }
+
+    .container { width: 100%; max-width: 480px; }
+
+    h1 {
+      font-size: 18px; font-weight: 700; margin-bottom: 4px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+
+    hr { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+
+    h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+
+    .field { margin-bottom: 20px; }
+
+    label { display: block; font-weight: 500; font-size: 13px; margin-bottom: 6px; }
+
+    .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    input[type="url"],
+    input[type="email"],
+    input[type="password"] {
+      width: 100%; padding: 8px 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text); font-size: 13px;
+      outline: none; transition: border-color 0.15s;
+    }
+
+    input[type="url"] { font-family: monospace; }
+
+    input:focus { border-color: var(--accent); }
+
+    .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+    .btn {
+      padding: 8px 20px; border: none; border-radius: var(--radius);
+      font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.15s;
+    }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { opacity: 0.85; }
+
+    .btn-danger { background: var(--red); color: #fff; }
+    .btn-danger:hover { opacity: 0.85; }
+
+    .status-msg { font-size: 13px; font-weight: 500; min-height: 1.4em; }
+    .status-msg.ok { color: var(--green); }
+    .status-msg.err { color: var(--red); }
+
+    .logged-in-info {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 10px 14px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 13px; margin-bottom: 16px;
+    }
+
+    .logged-in-info span { flex: 1; color: var(--muted); }
+    .logged-in-info strong { color: var(--green); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>⚙ Digivault Settings</h1>
+    <p class="subtitle">Configure your account and server connection.</p>
+
+    <h2>Account</h2>
+
+    <div id="logged-in-section" style="display:none">
+      <div class="logged-in-info">
+        <span>Logged in as <strong id="logged-in-email"></strong></span>
+        <button class="btn btn-danger" id="logout-btn" type="button">Log out</button>
+      </div>
+    </div>
+
+    <div id="login-section">
+      <form id="login-form" novalidate>
+        <div class="field">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" autocomplete="email" required />
+        </div>
+        <div class="field">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" autocomplete="current-password" required />
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Log in</button>
+          <span id="login-status" class="status-msg" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+    </div>
+
+    <hr />
+
+    <h2>Server</h2>
+    <form id="options-form" novalidate>
+      <div class="field">
+        <label for="server-url">API Server URL</label>
+        <input
+          type="url" id="server-url" name="server-url"
+          placeholder="https://digivault.digilatics.co"
+          required autocomplete="off" spellcheck="false"
+        />
+        <p class="hint">Leave as default unless using a self-hosted or staging server.</p>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Save</button>
+        <span id="server-status" class="status-msg ok" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

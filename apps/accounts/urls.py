@@ -1,0 +1,45 @@
+from django.urls import path
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+from apps.accounts.views import (
+    ClickUpTestView,
+    InvitationAcceptView,
+    MeView,
+    PasswordResetApproveView,
+    PasswordResetConfirmView,
+    PasswordResetRejectView,
+    PasswordResetRequestView,
+    TeamCreateUserView,
+    TeamDetailView,
+    TeamInvitationDeleteView,
+    TeamInvitationListView,
+    TeamInviteView,
+    TeamListCreateView,
+    TeamMemberDetailView,
+    TeamMemberListView,
+    TeamSettingsView,
+    TeamSwitchView,
+)
+
+urlpatterns = [
+    path("token/", TokenObtainPairView.as_view(), name="auth-token-obtain"),
+    path("token/refresh/", TokenRefreshView.as_view(), name="auth-token-refresh"),
+    path("me/", MeView.as_view(), name="auth-me"),
+    path("teams/", TeamListCreateView.as_view(), name="team-list-create"),
+    path("teams/<uuid:pk>/", TeamDetailView.as_view(), name="team-detail"),
+    path("teams/<uuid:team_pk>/members/", TeamMemberListView.as_view(), name="team-members"),
+    path("teams/<uuid:team_pk>/members/<uuid:pk>/", TeamMemberDetailView.as_view(), name="team-member-detail"),
+    path("teams/<uuid:pk>/switch/", TeamSwitchView.as_view(), name="team-switch"),
+    path("teams/<uuid:team_pk>/invite/", TeamInviteView.as_view(), name="team-invite"),
+    path("teams/<uuid:team_pk>/users/", TeamCreateUserView.as_view(), name="team-create-user"),
+    path("teams/<uuid:team_pk>/invitations/", TeamInvitationListView.as_view(), name="team-invitations"),
+    path("teams/<uuid:team_pk>/invitations/<uuid:pk>/", TeamInvitationDeleteView.as_view(), name="team-invitation-delete"),
+    path("teams/<uuid:pk>/settings/", TeamSettingsView.as_view(), name="team-settings"),
+    path("teams/<uuid:pk>/settings/clickup-test/", ClickUpTestView.as_view(), name="clickup-test"),
+    path("invitations/<str:token>/", InvitationAcceptView.as_view(), name="invitation-view"),
+    path("invitations/<str:token>/accept/", InvitationAcceptView.as_view(), name="invitation-accept"),
+    path("password-reset/", PasswordResetRequestView.as_view(), name="password-reset-request"),
+    path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
+    path("password-reset/<uuid:pk>/approve/", PasswordResetApproveView.as_view(), name="password-reset-approve"),
+    path("password-reset/<uuid:pk>/reject/", PasswordResetRejectView.as_view(), name="password-reset-reject"),
+]
