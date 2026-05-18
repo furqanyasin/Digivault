@@ -98,8 +98,6 @@ export function CreateAlertRuleDialog() {
               <SelectContent>
                 <SelectItem value="in_app">In-app</SelectItem>
                 <SelectItem value="email">Email</SelectItem>
-                <SelectItem value="slack">Slack</SelectItem>
-                <SelectItem value="sms">SMS</SelectItem>
               </SelectContent>
             </Select>
           </div>
