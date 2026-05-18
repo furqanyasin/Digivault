@@ -27,7 +27,8 @@ export default function NewClientPage() {
     name: "", website_url: "", hosting_platform: "",
     hosting_renewal_date: "", domain_access_location: "",
     migration_status: "", csm_migration_confirmation: "",
-    running_ppc_ads: "", notes: "", comments: "", clickup_task_id: "",
+    running_ppc_ads: "", website_built_by_digi: "", website_maintained_by_digi: "",
+    notes: "", comments: "", clickup_task_id: "",
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -93,13 +94,25 @@ export default function NewClientPage() {
                 <Input type="date" value={form.hosting_renewal_date} onChange={(e) => set("hosting_renewal_date", e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label>PPC Ads</Label>
-                <Select value={form.running_ppc_ads} onValueChange={(v) => set("running_ppc_ads", v)}>
+                <Label>Website built by Digi</Label>
+                <Select value={form.website_built_by_digi} onValueChange={(v) => set("website_built_by_digi", v)}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">Unknown</SelectItem>
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">No</SelectItem>
+                    <SelectItem value="YES">Yes</SelectItem>
+                    <SelectItem value="NO">No</SelectItem>
+                    <SelectItem value="Hosting">Hosting only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Website maintained by Digi</Label>
+                <Select value={form.website_maintained_by_digi} onValueChange={(v) => set("website_maintained_by_digi", v)}>
+                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Unknown</SelectItem>
+                    <SelectItem value="YES">Yes</SelectItem>
+                    <SelectItem value="NO">No</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
