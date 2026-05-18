@@ -1,7 +1,8 @@
 version: "3.9"
 
 # CloudPanel variant — no Nginx container (CloudPanel handles SSL + reverse proxy)
-# Expose api:8000 and frontend:3000 on localhost only; CloudPanel proxies to them.
+# api:8000 and frontend:13000 bound to 127.0.0.1 only; CloudPanel proxies to them.
+# Port 3000 is reserved by another site on this server.
 
 services:
   db:
@@ -91,7 +92,7 @@ services:
         NEXT_PUBLIC_API_URL: https://digivault.digilatics.co
     restart: always
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:13000:3000"
     env_file:
       - .env.production
     environment:
