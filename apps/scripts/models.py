@@ -196,3 +196,36 @@ class ScriptChange(BaseModel):
     @property
     def is_acknowledged(self) -> bool:
         return self.acknowledged_at is not None
+
+
+class DetectedForm(BaseModel):
+    """A web form detected on a website page by the tracking snippet.
+
+    Unique per (website, page_url, form_action).  Updated in place on each
+    ingest so that field lists stay current without duplication.
+    """
+
+    website = models.ForeignKey(
+        "websites.Website",
+        on_delete=models.CASCADE,
+        related_name="detected_forms",
+    )
+    page_url = models.TextField()
+    form_id = models.CharField(max_length=200, blank=True)
+    form_name = models.CharField(max_length=200, blank=True)
+    form_action = models.TextField(blank=True)
+    form_method = models.CharField(max_length=10, default="post")
+    # JSON list: [{name, type, label, required}]
+    fields = models.JSONField(default=list)
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["page_url", "form_action"]
+        unique_together = [("website", "page_url", "form_action")]
+        indexes = [
+            models.Index(fields=["website", "page_url"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Form {self.form_action or '(no action)'} on {self.page_url}"

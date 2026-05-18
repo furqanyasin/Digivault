@@ -29,3 +29,7 @@ REST_FRAMEWORK = {  # type: ignore[assignment]
     **REST_FRAMEWORK,  # noqa: F405
     "DEFAULT_THROTTLE_CLASSES": [],
 }
+
+# Disable CSP enforcement in development — report-only is still too noisy locally
+CSP_REPORT_ONLY = False
+MIDDLEWARE = [m for m in MIDDLEWARE if m != "csp.middleware.CSPMiddleware"]  # noqa: F405

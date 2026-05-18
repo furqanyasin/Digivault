@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import type { ClientRecord } from "@/app/(dashboard)/clients/page";
+import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 const HOSTING_OPTIONS = [
   { value: "_unknown", label: "Unknown" },
@@ -265,10 +266,10 @@ export function ClientDetailClient({ client: initial }: Props) {
       {/* Metadata */}
       <Card>
         <CardContent className="pt-4 grid sm:grid-cols-2 gap-2 text-xs text-muted-foreground">
-          <span>Created: {new Date(initial.created_at).toLocaleString()}</span>
-          <span>Updated: {new Date(initial.updated_at).toLocaleString()}</span>
+          <span>Created: {fmtDateTime(initial.created_at)}</span>
+          <span>Updated: {fmtDateTime(initial.updated_at)}</span>
           {initial.clickup_synced_at && (
-            <span>ClickUp synced: {new Date(initial.clickup_synced_at).toLocaleString()}</span>
+            <span>ClickUp synced: {fmtDateTime(initial.clickup_synced_at)}</span>
           )}
           {initial.clickup_task_id && (
             <span className="font-mono">ClickUp ID: {initial.clickup_task_id}</span>

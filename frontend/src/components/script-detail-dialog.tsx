@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScriptReviewButton } from "@/components/script-review-button";
 import type { Script } from "@/lib/api";
+import { fmtDate } from "@/lib/utils";
 
 interface Props {
   scripts: Script[];
@@ -21,8 +22,7 @@ interface Props {
 }
 
 function fmt(dt: string | null | undefined) {
-  if (!dt) return "—";
-  return new Date(dt).toLocaleDateString();
+  return fmtDate(dt);
 }
 
 export function ScriptDetailDialog({ scripts, websiteId, label }: Props) {

@@ -47,7 +47,7 @@ export default async function StatusPageDetailPage({
             )}
           </div>
         </div>
-        <Link href={`/status/${page.slug}`} target="_blank">
+        <Link href={`/status/${page.slug}`} target="_blank" rel="noopener noreferrer">
           <Button variant="outline">
             <Globe className="h-4 w-4 mr-2" />
             View public page

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { CheckCircle, AlertTriangle, XCircle, RefreshCw } from "lucide-react";
 import type { PublicStatusPage, UptimeBar } from "@/lib/api";
 import { PublicStatusPageRefresh } from "@/components/public-status-page-refresh";
+import { fmtDateTime } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -160,10 +161,7 @@ export default async function PublicStatusPageRoute({
   const page = await getPage(slug);
   if (!page) notFound();
 
-  const updatedAt = new Date(page.updated_at).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const updatedAt = fmtDateTime(page.updated_at);
 
   return (
     <div className="min-h-screen bg-background">

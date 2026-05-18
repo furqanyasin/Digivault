@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.diff_engine import DiffEngine
-from apps.scripts.models import Script, ScriptChange, ScriptSnapshot
+from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
 from apps.websites.models import Website
 
 logger = logging.getLogger(__name__)
@@ -80,6 +80,9 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                 src = script_data.get("src", "")
                 if not src:
                     continue
+                # Skip WordPress core scripts — they're not third-party and add noise
+                if "/wp-includes/" in src or "/wp-admin/" in src:
+                    continue
                 _upsert_script(website, script_data, page_url)
 
             # Mark scripts not seen in this snapshot as inactive
@@ -121,7 +124,11 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                     if notif.rule and notif.rule.delivery_mode == "immediate":
                         deliver_notification.delay(str(notif.pk))
 
-            # --- 6. Update scope labels ---
+            # --- 6. Upsert detected forms ---
+            for form_data in payload.get("forms", []):
+                _upsert_form(website, page_url, form_data)
+
+            # --- 7. Update scope labels ---
             _update_script_scopes(website)
 
             # --- 7. Touch website ---
@@ -178,6 +185,21 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
         )
 
     return script
+
+
+def _upsert_form(website, page_url: str, form_data: dict) -> None:
+    form_action = form_data.get("form_action", "")
+    DetectedForm.objects.update_or_create(
+        website=website,
+        page_url=page_url,
+        form_action=form_action,
+        defaults={
+            "form_id": form_data.get("form_id", ""),
+            "form_name": form_data.get("form_name", ""),
+            "form_method": (form_data.get("form_method") or "post").lower(),
+            "fields": form_data.get("fields", []),
+        },
+    )
 
 
 def _update_script_scopes(website: Website) -> None:

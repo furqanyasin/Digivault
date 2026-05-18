@@ -3,6 +3,8 @@ from django.contrib import admin
 from django.urls import include, path
 
 from apps.scripts.urls import ingest_urlpatterns, script_urlpatterns
+from apps.site_health.urls import urlpatterns as site_health_urlpatterns
+from apps.site_health.urls import website_urlpatterns as site_health_website_urlpatterns
 from apps.websites.urls import urlpatterns as website_urlpatterns
 
 urlpatterns = [
@@ -33,6 +35,9 @@ urlpatterns = [
     path("api/", include(ingest_urlpatterns)),
     # Dashboard chatbot
     path("api/v1/", include("apps.chat.urls")),
+    # Site health — PHP errors ingest (public) + website-scoped endpoints
+    path("api/", include(site_health_urlpatterns)),
+    path("api/v1/websites/<uuid:website_pk>/", include(site_health_website_urlpatterns)),
 ]
 
 if settings.DEBUG and "debug_toolbar" in settings.INSTALLED_APPS:

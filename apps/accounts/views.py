@@ -200,23 +200,40 @@ class TeamInviteView(APIView):
         if TeamMembership.objects.filter(team=team, user__email=email).exists():
             return Response({"detail": "This user is already a team member."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Upsert invitation (resend if already pending)
+        # Upsert invitation (resend if already pending) — always refresh expiry
         invitation, _ = TeamInvitation.objects.update_or_create(
             team=team, email=email,
-            defaults={"invited_by": request.user, "role": role, "accepted": False, "accepted_at": None},
+            defaults={
+                "invited_by": request.user,
+                "role": role,
+                "accepted": False,
+                "accepted_at": None,
+                "expires_at": timezone.now() + timedelta(days=7),
+            },
         )
 
         from django.conf import settings
         from django.core.mail import send_mail
-        import secrets, string as _string
 
-        # Auto-create account if this email has never signed up
-        temp_password = None
+        # Auto-create account if this email has never signed up.
+        # We set an unusable password and issue a set-password token — never email credentials.
+        set_password_url = None
         if not User.objects.filter(email__iexact=email).exists():
-            temp_password = "".join(
-                secrets.choice(_string.ascii_letters + _string.digits) for _ in range(12)
+            new_user = User.objects.create_user(email=email, password=None)
+            new_user.set_unusable_password()
+            new_user.save(update_fields=["password"])
+            # Pre-approve a password reset so the invitee can set their own password
+            reset_token = secrets.token_urlsafe(48)
+            from apps.accounts.models import PasswordResetRequest
+            PasswordResetRequest.objects.create(
+                user=new_user,
+                status=PasswordResetRequest.Status.APPROVED,
+                reset_token=reset_token,
+                approved_by=request.user,
+                approved_at=timezone.now(),
+                expires_at=timezone.now() + timedelta(days=7),
             )
-            User.objects.create_user(email=email, password=temp_password)
+            set_password_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
 
         accept_url = f"{settings.FRONTEND_URL}/invite/{invitation.token}"
         logger.info("Invitation for %s to %s: %s", email, team.name, accept_url)
@@ -225,14 +242,14 @@ class TeamInviteView(APIView):
             f"Hi,\n\n"
             f"{request.user.email} has invited you to join the {team.name} team on Digivault.\n\n"
         )
-        if temp_password:
+        if set_password_url:
             body += (
-                f"We've created an account for you:\n"
-                f"  Email:              {email}\n"
-                f"  Temporary password: {temp_password}\n\n"
-                f"Please change your password after you log in.\n\n"
+                f"We've created an account for you with email: {email}\n\n"
+                f"Step 1 — Set your password (link valid for 7 days):\n{set_password_url}\n\n"
+                f"Step 2 — Then accept your invitation:\n{accept_url}\n\n"
             )
-        body += f"Accept your invitation:\n{accept_url}\n\nThis link expires in 7 days.\n"
+        else:
+            body += f"Accept your invitation:\n{accept_url}\n\nThis link expires in 7 days.\n"
 
         try:
             send_mail(
@@ -304,9 +321,11 @@ class InvitationAcceptView(APIView):
     def _get_invitation(self, token):
         try:
             inv = TeamInvitation.objects.select_related("team", "invited_by").get(token=token, accepted=False)
-            return inv, None
         except TeamInvitation.DoesNotExist:
             return None, Response({"detail": "Invitation not found or already accepted."}, status=status.HTTP_404_NOT_FOUND)
+        if inv.expires_at and inv.expires_at < timezone.now():
+            return None, Response({"detail": "This invitation has expired. Please ask your team admin to resend it."}, status=status.HTTP_410_GONE)
+        return inv, None
 
     def get(self, request, token):
         inv, err = self._get_invitation(token)
@@ -628,8 +647,8 @@ class TeamSettingsView(APIView):
             return Response({"detail": "Manager or higher required to update settings."}, status=status.HTTP_403_FORBIDDEN)
 
         token = request.data.get("clickup_api_token", "").strip()
-        Team.objects.filter(pk=pk).update(clickup_api_token=token)
-        team.refresh_from_db()
+        team.clickup_api_token = token
+        team.save(update_fields=["_clickup_api_token"])
         return Response(TeamSettingsSerializer(team).data)
 
 
@@ -646,7 +665,7 @@ class ClickUpTestView(APIView):
         if not TeamMembership.objects.filter(user=request.user, team=team).exists():
             return Response({"detail": "Not a member."}, status=status.HTTP_403_FORBIDDEN)
 
-        token = team.clickup_api_token or request.data.get("clickup_api_token", "").strip()
+        token = team.clickup_api_token
         if not token:
             return Response({"detail": "No ClickUp API token configured.", "connected": False}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -665,4 +684,5 @@ class ClickUpTestView(APIView):
                 })
             return Response({"connected": False, "detail": f"ClickUp returned {resp.status_code}."}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
-            return Response({"connected": False, "detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.warning("ClickUp connectivity check failed for team %s: %s", pk, exc)
+            return Response({"connected": False, "detail": "Could not reach ClickUp. Check your API token."}, status=status.HTTP_400_BAD_REQUEST)

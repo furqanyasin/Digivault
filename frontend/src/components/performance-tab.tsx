@@ -6,6 +6,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import { RefreshCw, Zap, Monitor, Smartphone, Users } from "lucide-react";
+import { fmtDate, fmtDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -72,7 +73,7 @@ const METRICS: Array<{ key: string; label: string; desc: string; ratingKey: stri
 
 function HistoryChart({ reports }: { reports: PerformanceReport[] }) {
   const data = [...reports].reverse().map((r) => ({
-    date: new Date(r.checked_at).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+    date: new Intl.DateTimeFormat("en-GB", { month: "short", day: "numeric" }).format(new Date(r.checked_at)),
     score: r.performance_score,
   }));
 
@@ -191,7 +192,7 @@ function CruxSection({ websiteId, reports }: { websiteId: string; reports: CruxR
       ) : (
         <>
           <p className="text-xs text-muted-foreground">
-            Data for <span className="font-mono">{latest.origin}</span> · fetched {new Date(latest.fetched_at).toLocaleString()}
+            Data for <span className="font-mono">{latest.origin}</span> · fetched {fmtDateTime(latest.fetched_at)}
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {CRUX_METRICS.map(({ label, p75Key, goodKey, niKey, poorKey, unit, desc }) => {
@@ -308,7 +309,7 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                   Performance Score
                   <span className="text-xs font-normal">
-                    {new Date(latest.checked_at).toLocaleString()}
+                    {fmtDateTime(latest.checked_at)}
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -397,7 +398,7 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
                     {reports.map((r) => (
                       <tr key={r.id} className="hover:bg-muted/20">
                         <td className="px-3 py-2 text-muted-foreground font-mono whitespace-nowrap">
-                          {new Date(r.checked_at).toLocaleString()}
+                          {fmtDateTime(r.checked_at)}
                         </td>
                         <td className={`px-3 py-2 text-right font-bold ${scoreColor(r.performance_score)}`}>
                           {r.performance_score ?? "—"}

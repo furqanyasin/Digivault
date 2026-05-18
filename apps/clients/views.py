@@ -187,11 +187,15 @@ class ClientImportView(APIView):
         if not file_obj:
             return Response({"detail": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
 
+        _MAX_CSV_BYTES = 5 * 1024 * 1024  # 5 MB
+        if file_obj.size > _MAX_CSV_BYTES:
+            return Response({"detail": "File too large. Maximum allowed size is 5 MB."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
         try:
             text = file_obj.read().decode("utf-8-sig")
             reader = csv.DictReader(io.StringIO(text))
-        except Exception as exc:
-            return Response({"detail": f"Could not parse CSV: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"detail": "Could not parse the file. Please upload a valid UTF-8 CSV."}, status=status.HTTP_400_BAD_REQUEST)
 
         created, updated, skipped = 0, 0, 0
         errors = []

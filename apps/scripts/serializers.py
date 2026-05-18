@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
-from apps.scripts.models import Script, ScriptChange, ScriptSnapshot
+from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
 
 
 class IngestScriptSerializer(serializers.Serializer):
@@ -19,12 +19,28 @@ class IngestScriptSerializer(serializers.Serializer):
     wp_post_id = serializers.IntegerField(allow_null=True, default=None)
 
 
+class IngestFormFieldSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=200, allow_blank=True, default="")
+    type = serializers.CharField(max_length=50, allow_blank=True, default="text")
+    label = serializers.CharField(max_length=200, allow_blank=True, default="")
+    required = serializers.BooleanField(default=False)
+
+
+class IngestFormSerializer(serializers.Serializer):
+    form_id = serializers.CharField(max_length=200, allow_blank=True, default="")
+    form_name = serializers.CharField(max_length=200, allow_blank=True, default="")
+    form_action = serializers.CharField(max_length=2048, allow_blank=True, default="")
+    form_method = serializers.CharField(max_length=10, allow_blank=True, default="post")
+    fields = IngestFormFieldSerializer(many=True, default=list)
+
+
 class IngestPayloadSerializer(serializers.Serializer):
     """Payload posted by the universal JS snippet."""
 
     site_id = serializers.CharField(max_length=64)
     page_url = serializers.URLField(max_length=2048)
     scripts = IngestScriptSerializer(many=True)
+    forms = IngestFormSerializer(many=True, default=list)
     user_agent = serializers.CharField(max_length=512, allow_blank=True, default="")
     snippet_version = serializers.CharField(max_length=20, allow_blank=True, default="")
 
@@ -56,6 +72,17 @@ class ScriptSerializer(BaseModelSerializer):
             "scope", "is_async", "is_defer", "is_inline", "wp_plugin",
             "seen_on_pages", "is_active", "first_seen_at", "last_seen_at", "created_at",
         )
+
+
+class DetectedFormSerializer(BaseModelSerializer):
+    class Meta:
+        model = DetectedForm
+        fields = (
+            "id", "page_url", "form_id", "form_name",
+            "form_action", "form_method", "fields",
+            "first_seen_at", "last_seen_at",
+        )
+        read_only_fields = fields
 
 
 class ScriptChangeSerializer(BaseModelSerializer):

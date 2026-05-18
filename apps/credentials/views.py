@@ -1,10 +1,24 @@
+import logging
 import uuid
 
 from django.core.cache import cache
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+
+logger = logging.getLogger(__name__)
+
+
+class CredentialSaveThrottle(UserRateThrottle):
+    rate = "100/hour"
+    scope = "credential_save"
+
+
+class HandoffExchangeThrottle(AnonRateThrottle):
+    rate = "20/minute"
+    scope = "handoff_exchange"
 
 from apps.common.permissions import IsTeamMember, RolePermission
 from apps.credentials.models import Credential, CredentialAccessLog
@@ -192,6 +206,7 @@ class ExtensionCredentialSaveView(APIView):
     """
 
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    throttle_classes = [CredentialSaveThrottle]
 
     def post(self, request):
         domain = (request.data.get("domain") or "").strip().lower()
@@ -227,12 +242,11 @@ class ExtensionCredentialSaveView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check for an existing credential with the same username (decrypt each)
-        existing = None
-        for cred in Credential.objects.filter(website=website):
-            if cred.get_username() == username:
-                existing = cred
-                break
+        # Look up existing credential by username hash — no decryption loop
+        existing = Credential.objects.filter(
+            website=website,
+            username_hash=Credential.hash_username(username),
+        ).first()
 
         if existing:
             CredentialService.update(
@@ -290,6 +304,7 @@ class WebHandoffExchangeView(APIView):
 
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+    throttle_classes = [HandoffExchangeThrottle]
 
     def get(self, request):
         code = request.query_params.get("code", "").strip()

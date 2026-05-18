@@ -8,6 +8,7 @@ import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website } from "@/lib/api";
 import { DeleteWebsiteButton } from "@/components/delete-website-button";
+import { fmtDate } from "@/lib/utils";
 
 export default async function WebsitesPage() {
   const token = await getAccessToken();
@@ -79,7 +80,7 @@ export default async function WebsitesPage() {
                     </TableCell>
                     <TableCell className="text-sm">{site.script_count ?? 0}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">
-                      {new Date(site.created_at).toLocaleDateString()}
+                      {fmtDate(site.created_at)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">

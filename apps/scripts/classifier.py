@@ -33,11 +33,16 @@ _C = Script.Category  # alias for brevity
 
 # Order: most specific patterns first; unknown catch-all is applied separately.
 _LIBRARY: tuple[_ProviderEntry, ...] = (
+    # ---- Digivault ----------------------------------------------------------
+    _e(r"cdn\.digivault\.digilatics\.co", "Digivault", _C.PERFORMANCE),
+
     # ---- Analytics ----------------------------------------------------------
     _e(r"google-analytics\.com/analytics\.js", "Google Universal Analytics", _C.ANALYTICS),
     _e(r"google-analytics\.com/gtag/js", "Google Analytics 4", _C.ANALYTICS),
     _e(r"googletagmanager\.com/gtag/js", "Google Analytics 4", _C.ANALYTICS),
     _e(r"ssl\.google-analytics\.com", "Google Universal Analytics", _C.ANALYTICS),
+    _e(r"google-analytics\.com/ga\.js", "Google Universal Analytics", _C.ANALYTICS),
+    _e(r"google-analytics\.com/urchin\.js", "Google Universal Analytics", _C.ANALYTICS),
     _e(r"cdn\.heapanalytics\.com", "Heap Analytics", _C.ANALYTICS),
     _e(r"cdn\.amplitude\.com", "Amplitude", _C.ANALYTICS),
     _e(r"cdn\.mixpanel\.com", "Mixpanel", _C.ANALYTICS),
@@ -80,6 +85,7 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     # ---- Tag Management -----------------------------------------------------
     _e(r"googletagmanager\.com/gtm\.js", "Google Tag Manager", _C.TAG_MANAGEMENT),
     _e(r"googletagmanager\.com/ns\.html", "Google Tag Manager", _C.TAG_MANAGEMENT),
+    _e(r"www\.googletagservices\.com", "Google Publisher Tags", _C.TAG_MANAGEMENT),
     _e(r"tags\.tiqcdn\.com", "Tealium iQ", _C.TAG_MANAGEMENT),
     _e(r"assets\.adobedtm\.com", "Adobe Launch", _C.TAG_MANAGEMENT),
     _e(r"launch-cdn\.adobe\.com", "Adobe Launch", _C.TAG_MANAGEMENT),
@@ -100,6 +106,11 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"cdn\.kameleoon\.com|kameleoon\.eu", "Kameleoon", _C.ANALYTICS),
     _e(r"dynamic\.yahoo\.com", "Yahoo Gemini", _C.ANALYTICS),
     _e(r"jnn-pa\.googleapis\.com", "Google Publisher Tag", _C.ADVERTISING),
+    _e(r"www\.googleoptimize\.com|optimize\.google\.com", "Google Optimize", _C.ANALYTICS),
+    _e(r"accounts\.google\.com/gsi", "Google Identity Services", _C.SECURITY),
+    _e(r"apis\.google\.com/js/api", "Google API Client", _C.PERFORMANCE),
+    _e(r"www\.gstatic\.com/firebasejs", "Firebase", _C.ANALYTICS),
+    _e(r"firebaseapp\.com/__/firebase", "Firebase", _C.ANALYTICS),
 
     # ---- Advertising & Conversion -------------------------------------------
     _e(r"connect\.facebook\.net", "Meta Pixel", _C.ADVERTISING),
@@ -117,6 +128,8 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"static\.criteo\.net", "Criteo", _C.ADVERTISING),
     _e(r"www\.googleadservices\.com/pagead/conversion", "Google Ads", _C.ADVERTISING),
     _e(r"googleads\.g\.doubleclick\.net", "Google Ads", _C.ADVERTISING),
+    _e(r"google\.com/pagead", "Google AdSense", _C.ADVERTISING),
+    _e(r"googlesyndication\.com", "Google AdSense", _C.ADVERTISING),
     _e(r"reddit\.com/ads/", "Reddit Ads Pixel", _C.ADVERTISING),
     _e(r"rdt\.js|redditstatic\.com", "Reddit Ads Pixel", _C.ADVERTISING),
     _e(r"static\.quora\.com/qevents\.js", "Quora Pixel", _C.ADVERTISING),
@@ -167,17 +180,26 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"cdn\.getfeedback\.com", "GetFeedback", _C.SESSION_RECORDING),
 
     # ---- Call & Conversion Tracking -----------------------------------------
-    _e(r"www\.whatconverts\.com", "WhatConverts", _C.CALL_TRACKING),
-    _e(r"whatconverts\.com/js", "WhatConverts", _C.CALL_TRACKING),
+    _e(r"whatconverts\.com", "WhatConverts", _C.CALL_TRACKING),
     _e(r"cdn\.callrail\.com", "CallRail", _C.CALL_TRACKING),
+    _e(r"callrail\.com/js", "CallRail", _C.CALL_TRACKING),
     _e(r"scripts\.calltrackingmetrics\.com", "CallTrackingMetrics", _C.CALL_TRACKING),
+    _e(r"calltrackingmetrics\.com/js", "CallTrackingMetrics", _C.CALL_TRACKING),
     _e(r"solutions\.invoca\.net", "Invoca", _C.CALL_TRACKING),
     _e(r"scripts\.infinity-tracking\.net", "Infinity Call Tracking", _C.CALL_TRACKING),
     _e(r"tags\.responsetap\.com", "ResponseTap", _C.CALL_TRACKING),
-    _e(r"cdn\.dialogtech\.com", "DialogTech", _C.CALL_TRACKING),
+    _e(r"cdn\.dialogtech\.com", "DialogTech / Marchex", _C.CALL_TRACKING),
     _e(r"cdn\.marchex\.com", "Marchex", _C.CALL_TRACKING),
+    _e(r"tracking\.marchex\.com", "Marchex", _C.CALL_TRACKING),
     _e(r"cdn\.mediahawk\.co\.uk", "Mediahawk", _C.CALL_TRACKING),
     _e(r"cdn\.phonexa\.com", "Phonexa", _C.CALL_TRACKING),
+    _e(r"cdn\.nimbata\.com|nimbata\.com/js", "Nimbata", _C.CALL_TRACKING),
+    _e(r"cdn\.novocall\.co", "Novocall", _C.CALL_TRACKING),
+    _e(r"cdn\.retreaver\.com", "Retreaver", _C.CALL_TRACKING),
+    _e(r"cdn\.ringba\.com", "Ringba", _C.CALL_TRACKING),
+    _e(r"static\.leadinfo\.com|script\.leadinfo\.com", "Leadinfo", _C.CALL_TRACKING),
+    _e(r"cdn\.ruler\.io|ruler\.io/js", "Ruler Analytics", _C.CALL_TRACKING),
+    _e(r"cdn\.convirza\.com", "Convirza", _C.CALL_TRACKING),
 
     # ---- Chat & Support -----------------------------------------------------
     _e(r"widget\.intercom\.io", "Intercom", _C.CHAT),
@@ -375,6 +397,37 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"cdn\.pepperjam\.com", "Pepperjam", _C.ADVERTISING),
     _e(r"cdn\.viglink\.com", "VigLink / Sovrn Commerce", _C.ADVERTISING),
     _e(r"cdn\.skimresources\.com", "Skimlinks", _C.ADVERTISING),
+
+    # ---- Booking & Scheduling -----------------------------------------------
+    _e(r"calendly\.com/assets/external", "Calendly", _C.CRM),
+    _e(r"assets\.calendly\.com", "Calendly", _C.CRM),
+    _e(r"static\.hsappstatic\.net", "HubSpot Meetings", _C.CRM),
+    _e(r"cdn\.acuityscheduling\.com", "Acuity Scheduling", _C.CRM),
+    _e(r"cdn\.squareup\.com/appointments", "Square Appointments", _C.CRM),
+
+    # ---- Forms & Surveys ----------------------------------------------------
+    _e(r"webforms\.pipedrive\.com|cdn\.forms-content\.sg-form\.com", "Pipedrive Forms", _C.CRM),
+    _e(r"cdn\.jotfor\.ms|cdn\.jotform\.com", "JotForm", _C.CRM),
+    _e(r"typeform\.com/embed", "Typeform", _C.CRM),
+    _e(r"cdn\.surveymonkey\.com", "SurveyMonkey", _C.CRM),
+    _e(r"forms\.app/static", "Forms.app", _C.CRM),
+    _e(r"static\.wufoo\.com", "Wufoo", _C.CRM),
+    _e(r"cdn\.formstack\.com", "Formstack", _C.CRM),
+    _e(r"js\.hsforms\.com", "HubSpot Forms", _C.CRM),
+    _e(r"cdn\.gravity\.com|cdn\.gravityforms\.com", "Gravity Forms", _C.CRM),
+    _e(r"embed\.cognito\.forms\.com", "Cognito Forms", _C.CRM),
+
+    # ---- Reputation & Reviews -----------------------------------------------
+    _e(r"cdn\.widewail\.com", "Widewail", _C.SOCIAL),
+    _e(r"cdn\.reviewtrackers\.com", "ReviewTrackers", _C.SOCIAL),
+    _e(r"api\.snoball\.it", "Snoball Reviews", _C.SOCIAL),
+    _e(r"cdn\.chatmeter\.com", "Chatmeter", _C.SOCIAL),
+    _e(r"cdn\.brightlocal\.com", "BrightLocal", _C.SOCIAL),
+
+    # ---- Google broad catch-all (after all specific google patterns) ---------
+    _e(r"googleapis\.com", "Google APIs", _C.PERFORMANCE),
+    _e(r"gstatic\.com", "Google Static CDN", _C.PERFORMANCE),
+    _e(r"google\.com/js", "Google Script", _C.PERFORMANCE),
 )
 
 

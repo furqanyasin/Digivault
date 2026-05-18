@@ -25,8 +25,9 @@ class SnippetJsView(APIView):
 
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
-from apps.scripts.models import Script, ScriptChange
+from apps.scripts.models import DetectedForm, Script, ScriptChange
 from apps.scripts.serializers import (
+    DetectedFormSerializer,
     IngestPayloadSerializer,
     ScriptChangeSerializer,
     ScriptSerializer,
@@ -41,8 +42,15 @@ class ExtensionThrottle(AnonRateThrottle):
 
 
 class IngestThrottle(AnonRateThrottle):
-    rate = "10000/day"
+    """Rate limit per site_id so one site cannot starve others behind the same IP."""
+    rate = "2000/day"
     scope = "ingest"
+
+    def get_cache_key(self, request, view):
+        site_id = (request.data.get("site_id") or "").strip()
+        if site_id:
+            return self.cache_format % {"scope": self.scope, "ident": site_id}
+        return super().get_cache_key(request, view)
 
 
 class IngestView(APIView):
@@ -63,11 +71,27 @@ class IngestView(APIView):
         data = serializer.validated_data
 
         # Reject unknown site_ids fast — before queuing
-        if not Website.objects.filter(site_id=data["site_id"]).exists():
+        try:
+            website = Website.objects.get(site_id=data["site_id"])
+        except Website.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        # Domain-binding: verify the request origin matches the registered domain
+        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
+        if origin and website.domain:
+            from urllib.parse import urlparse
+            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
+            site_host = website.domain.lower().removeprefix("www.").removeprefix("https://").removeprefix("http://").split("/")[0]
+            if origin_host and site_host and origin_host != site_host:
+                import logging as _log
+                _log.getLogger(__name__).warning(
+                    "Ingest domain mismatch: site_id=%s origin=%s registered=%s",
+                    data["site_id"], origin_host, site_host,
+                )
+                return Response(status=status.HTTP_403_FORBIDDEN)
+
         process_ingest_payload.delay(
-            site_id=data["site_id"],
+            site_id=website.site_id,
             payload={
                 "page_url": data["page_url"],
                 "scripts": [
@@ -82,6 +106,16 @@ class IngestView(APIView):
                         "wp_post_id": s["wp_post_id"],
                     }
                     for s in data["scripts"]
+                ],
+                "forms": [
+                    {
+                        "form_id": f["form_id"],
+                        "form_name": f["form_name"],
+                        "form_action": f["form_action"],
+                        "form_method": f["form_method"],
+                        "fields": f["fields"],
+                    }
+                    for f in data.get("forms", [])
                 ],
                 "user_agent": data["user_agent"],
                 "snippet_version": data["snippet_version"],
@@ -202,6 +236,22 @@ class ScriptReviewView(APIView):
         script.review_status = review_status
         script.save(update_fields=["review_status"])
         return Response(ScriptSerializer(script).data)
+
+
+class WebsiteFormListView(generics.ListAPIView):
+    """GET /api/v1/websites/<website_pk>/forms/ — detected forms for a site."""
+
+    serializer_class = DetectedFormSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return DetectedForm.objects.none()
+        return DetectedForm.objects.filter(
+            website__team=team,
+            website_id=self.kwargs["website_pk"],
+        ).order_by("page_url", "form_action")
 
 
 class ExtensionLookupView(APIView):

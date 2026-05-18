@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, Script, ScriptChange, Credential, DomainInfo, PerformanceReport, CruxReport } from "@/lib/api";
+import type { Website, Script, ScriptChange, Credential, DomainInfo, PerformanceReport, CruxReport, DetectedForm, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,9 +16,14 @@ import { ScriptReviewButton } from "@/components/script-review-button";
 import { VerifySnippetButton } from "@/components/verify-snippet-button";
 import { ScriptsTab } from "@/components/scripts-tab";
 import { PluginsTab } from "@/components/plugins-tab";
+import { FormsTab } from "@/components/forms-tab";
+import { PhpErrorsTab } from "@/components/php-errors-tab";
+import { SiteEventsTab } from "@/components/site-events-tab";
+import { SecurityTab } from "@/components/security-tab";
+import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string, id: string) {
-  const [website, scripts, changes, credentials, domain, perfMobile, perfDesktop, crux] = await Promise.allSettled([
+  const [website, scripts, changes, credentials, domain, perfMobile, perfDesktop, crux, forms, phpErrors, siteEvents, vulns, scanState] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -27,6 +32,11 @@ async function getData(token: string, id: string) {
     api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token),
     api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token),
     api.get<CruxReport[]>(`/api/v1/websites/${id}/crux/`, token),
+    api.get<DetectedForm[]>(`/api/v1/websites/${id}/forms/`, token),
+    api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
+    api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
+    api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
+    api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -37,6 +47,11 @@ async function getData(token: string, id: string) {
     mobileReports: perfMobile.status === "fulfilled" ? perfMobile.value : [],
     desktopReports: perfDesktop.status === "fulfilled" ? perfDesktop.value : [],
     cruxReports: crux.status === "fulfilled" ? crux.value : [],
+    forms: forms.status === "fulfilled" ? forms.value : [],
+    phpErrors: phpErrors.status === "fulfilled" ? phpErrors.value : [],
+    siteEvents: siteEvents.status === "fulfilled" ? siteEvents.value : [],
+    vulns: vulns.status === "fulfilled" ? vulns.value : [],
+    scanState: scanState.status === "fulfilled" ? scanState.value : null,
   };
 }
 
@@ -78,7 +93,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, credentials, domainInfo, mobileReports, desktopReports, cruxReports } = await getData(token ?? "", id);
+  const { website, scripts, changes, credentials, domainInfo, mobileReports, desktopReports, cruxReports, forms, phpErrors, siteEvents, vulns, scanState } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -148,6 +163,9 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="plugins" asChild>
             <Link href={`/websites/${id}?tab=plugins`} prefetch>Plugins</Link>
           </TabsTrigger>
+          <TabsTrigger value="forms" asChild>
+            <Link href={`/websites/${id}?tab=forms`} prefetch>Forms ({forms.length})</Link>
+          </TabsTrigger>
           <TabsTrigger value="access" asChild>
             <Link href={`/websites/${id}?tab=access`} prefetch>Access & Domain</Link>
           </TabsTrigger>
@@ -159,6 +177,15 @@ export default async function WebsiteDetailPage({
           </TabsTrigger>
           <TabsTrigger value="changelog" asChild>
             <Link href={`/websites/${id}?tab=changelog`} prefetch>Change Log ({changes.length})</Link>
+          </TabsTrigger>
+          <TabsTrigger value="php-errors" asChild>
+            <Link href={`/websites/${id}?tab=php-errors`} prefetch>PHP Errors {phpErrors.length > 0 ? `(${phpErrors.length})` : ""}</Link>
+          </TabsTrigger>
+          <TabsTrigger value="site-events" asChild>
+            <Link href={`/websites/${id}?tab=site-events`} prefetch>Site Events {siteEvents.length > 0 ? `(${siteEvents.length})` : ""}</Link>
+          </TabsTrigger>
+          <TabsTrigger value="security" asChild>
+            <Link href={`/websites/${id}?tab=security`} prefetch>Security {vulns.length > 0 ? `(${vulns.length})` : ""}</Link>
           </TabsTrigger>
         </TabsList>
 
@@ -210,7 +237,7 @@ export default async function WebsiteDetailPage({
                         <TableCell className="capitalize font-medium text-sm">{change.change_type}</TableCell>
                         <TableCell className="font-mono text-xs max-w-[180px] truncate">{change.script?.src_url ?? "—"}</TableCell>
                         <TableCell><Badge variant={severityVariant(change.severity)}>{change.severity}</Badge></TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{new Date(change.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{fmtDate(change.created_at)}</TableCell>
                         <TableCell><AcknowledgeButton changeId={change.id} /></TableCell>
                       </TableRow>
                     ))}
@@ -273,6 +300,18 @@ export default async function WebsiteDetailPage({
           </Card>
         </TabsContent>
 
+        {/* ── Forms ── */}
+        <TabsContent value="forms">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Detected Forms ({forms.length})</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 px-4 pb-4">
+              <FormsTab forms={forms} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* ── Access & Domain ── */}
         <TabsContent value="access" className="space-y-4">
           {domainInfo ? (
@@ -286,8 +325,8 @@ export default async function WebsiteDetailPage({
                 </CardHeader>
                 <CardContent>
                   <InfoRow label="Registrar" value={domainInfo.registrar} />
-                  <InfoRow label="Registered" value={domainInfo.registered_at ? new Date(domainInfo.registered_at).toLocaleDateString() : null} />
-                  <InfoRow label="Expires" value={domainInfo.expires_at ? new Date(domainInfo.expires_at).toLocaleDateString() : null} highlight={isExpiringSoon(domainInfo.expires_at)} />
+                  <InfoRow label="Registered" value={fmtDate(domainInfo.registered_at)} />
+                  <InfoRow label="Expires" value={fmtDate(domainInfo.expires_at)} highlight={isExpiringSoon(domainInfo.expires_at)} />
                   <InfoRow label="Auto-renew" value={domainInfo.auto_renew ? "Yes" : "No"} />
                   <InfoRow label="WHOIS Privacy" value={domainInfo.whois_privacy ? "Enabled" : "Disabled"} />
                   {domainInfo.nameservers?.length > 0 && (
@@ -311,9 +350,9 @@ export default async function WebsiteDetailPage({
                   <InfoRow label="Location" value={domainInfo.server_location} />
                   <InfoRow label="Cloudflare" value={domainInfo.uses_cloudflare ? "Yes" : "No"} />
                   <InfoRow label="SSL Issuer" value={domainInfo.ssl_issuer} />
-                  <InfoRow label="SSL Expires" value={domainInfo.ssl_expires_at ? new Date(domainInfo.ssl_expires_at).toLocaleDateString() : null} highlight={isExpiringSoon(domainInfo.ssl_expires_at)} />
+                  <InfoRow label="SSL Expires" value={fmtDate(domainInfo.ssl_expires_at)} highlight={isExpiringSoon(domainInfo.ssl_expires_at)} />
                   {domainInfo.last_checked_at && (
-                    <InfoRow label="Last checked" value={new Date(domainInfo.last_checked_at).toLocaleString()} />
+                    <InfoRow label="Last checked" value={fmtDateTime(domainInfo.last_checked_at)} />
                   )}
                 </CardContent>
               </Card>
@@ -390,7 +429,7 @@ export default async function WebsiteDetailPage({
                             <span className="text-xs text-amber-600">Pending</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{new Date(change.created_at).toLocaleDateString()}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{fmtDate(change.created_at)}</TableCell>
                         <TableCell>
                           {!change.is_acknowledged && <AcknowledgeButton changeId={change.id} />}
                         </TableCell>
@@ -399,6 +438,41 @@ export default async function WebsiteDetailPage({
                   </TableBody>
                 </Table>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+        {/* ── PHP Errors ── */}
+        <TabsContent value="php-errors">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">PHP Error Log</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 px-4 pb-4">
+              <PhpErrorsTab errors={phpErrors} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Site Events ── */}
+        <TabsContent value="site-events">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Change Log</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0 px-4 pb-4">
+              <SiteEventsTab events={siteEvents} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Security ── */}
+        <TabsContent value="security">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Security &amp; Vulnerability Scan</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
             </CardContent>
           </Card>
         </TabsContent>

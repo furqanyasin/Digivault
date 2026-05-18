@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, ScriptChange, Monitor } from "@/lib/api";
+import { fmtDate } from "@/lib/utils";
 
 async function getData(token: string) {
   const [websitesResult, monitorsResult] = await Promise.allSettled([
@@ -169,7 +170,7 @@ export default async function DashboardPage() {
                     {site.last_seen_at && (
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {new Date(site.last_seen_at).toLocaleDateString()}
+                        {fmtDate(site.last_seen_at)}
                       </span>
                     )}
                   </div>

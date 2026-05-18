@@ -77,7 +77,7 @@ export default async function StatusPagesPage() {
                     <Link href={`/status-pages/${page.id}`} className="flex-1">
                       <Button variant="outline" size="sm" className="w-full">Manage</Button>
                     </Link>
-                    <Link href={`/status/${page.slug}`} target="_blank" className="flex-1">
+                    <Link href={`/status/${page.slug}`} target="_blank" rel="noopener noreferrer" className="flex-1">
                       <Button variant="ghost" size="sm" className="w-full">
                         <Globe className="h-3.5 w-3.5 mr-1.5" />
                         View public

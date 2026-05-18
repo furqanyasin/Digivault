@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CheckCircle, AlertTriangle } from "lucide-react";
 import { AcknowledgeButton } from "@/components/acknowledge-button";
 import { CreateAlertRuleDialog } from "@/components/create-alert-rule-dialog";
+import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string) {
   const [notificationsResult, rulesResult, websitesResult] = await Promise.allSettled([
@@ -126,7 +127,7 @@ export default async function AlertsPage() {
                       <TableCell className="capitalize font-medium text-sm">{change.change_type}</TableCell>
                       <TableCell className="font-mono text-xs max-w-[180px] truncate">{change.script?.src_url ?? "—"}</TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{change.description}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{new Date(change.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{fmtDate(change.created_at)}</TableCell>
                       <TableCell><AcknowledgeButton changeId={change.id} /></TableCell>
                     </TableRow>
                   ))}
@@ -201,7 +202,7 @@ export default async function AlertsPage() {
                         {n.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{new Date(n.created_at).toLocaleString()}</TableCell>
+                    <TableCell className="text-muted-foreground text-sm">{fmtDateTime(n.created_at)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

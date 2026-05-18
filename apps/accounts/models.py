@@ -7,6 +7,7 @@ from django.utils.text import slugify
 
 from apps.accounts.managers import UserManager
 from apps.common.models import BaseModel
+from apps.credentials import encryption as _enc
 
 
 class User(AbstractUser):
@@ -74,7 +75,20 @@ class Team(BaseModel):
     plan = models.CharField(
         max_length=20, choices=Plan.choices, default=Plan.STARTER
     )
-    clickup_api_token = models.CharField(max_length=200, blank=True)
+    _clickup_api_token = models.BinaryField(blank=True, editable=False)
+
+    @property
+    def clickup_api_token(self) -> str:
+        if not self._clickup_api_token:
+            return ""
+        try:
+            return _enc.decrypt(bytes(self._clickup_api_token))
+        except Exception:
+            return ""
+
+    @clickup_api_token.setter
+    def clickup_api_token(self, value: str) -> None:
+        self._clickup_api_token = _enc.encrypt(value) if value else b""
 
     class Meta:
         ordering = ["name"]
@@ -188,6 +202,7 @@ class TeamInvitation(BaseModel):
     token = models.CharField(max_length=64, unique=True, blank=True)
     accepted = models.BooleanField(default=False)
     accepted_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = [("team", "email")]

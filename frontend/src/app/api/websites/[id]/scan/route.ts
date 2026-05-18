@@ -3,17 +3,31 @@ import { cookies } from "next/headers";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
-type Ctx = { params: Promise<{ id: string }> };
-
-export async function POST(req: NextRequest, { params }: Ctx) {
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
   const jar = await cookies();
   const token = jar.get("ss_access")?.value;
   if (!token) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
-  const { id } = await params;
+
+  const upstream = await fetch(`${API_BASE}/api/v1/websites/${id}/scan/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  const envelope = await upstream.json().catch(() => ({}));
+  return NextResponse.json(envelope?.data ?? envelope, { status: upstream.status });
+}
+
+export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const jar = await cookies();
+  const token = jar.get("ss_access")?.value;
+  if (!token) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+
   const upstream = await fetch(`${API_BASE}/api/v1/websites/${id}/scan/`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   });
-  const data = await upstream.json().catch(() => ({}));
-  return NextResponse.json(data?.data ?? data, { status: upstream.status });
+
+  const envelope = await upstream.json().catch(() => ({}));
+  return NextResponse.json(envelope?.data ?? envelope, { status: upstream.status });
 }

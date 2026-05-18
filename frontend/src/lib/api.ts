@@ -263,7 +263,7 @@ export interface PerformanceReport {
 export interface NotificationChannel {
   id: string;
   name: string;
-  channel_type: "slack" | "discord" | "webhook" | "email" | "telegram";
+  channel_type: "email" | "clickup";
   config: Record<string, unknown>;
   is_active: boolean;
   created_at: string;
@@ -287,6 +287,62 @@ export interface MonitorCheck {
   status_code: number | null;
   error_message: string;
   checked_at: string;
+}
+
+export interface DetectedForm {
+  id: string;
+  page_url: string;
+  form_id: string;
+  form_name: string;
+  form_action: string;
+  form_method: string;
+  fields: { name: string; type: string; label: string; required: boolean }[];
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+export interface PhpError {
+  id: string;
+  level: "fatal" | "error" | "warning" | "notice" | "deprecated" | "info";
+  message: string;
+  file: string;
+  line: number | null;
+  url: string;
+  captured_at: string;
+}
+
+export interface SiteEvent {
+  id: string;
+  event_type: string;
+  summary: string;
+  details: Record<string, unknown>;
+  actor: string;
+  severity: "info" | "warning" | "critical";
+  occurred_at: string;
+  created_at: string;
+}
+
+export interface VulnerabilityReport {
+  id: string;
+  component_type: "plugin" | "theme" | "core";
+  component_name: string;
+  component_version: string;
+  cve_ids: string[];
+  severity: "critical" | "high" | "medium" | "low";
+  title: string;
+  description: string;
+  fixed_in_version: string;
+  source: string;
+  references: string[];
+  created_at: string;
+}
+
+export interface SiteScanState {
+  last_scanned_at: string | null;
+  scan_status: "never" | "running" | "done" | "failed";
+  wp_version: string;
+  plugins_detected: string[];
+  error: string;
 }
 
 export interface CruxReport {

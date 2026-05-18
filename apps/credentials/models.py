@@ -1,3 +1,5 @@
+import hashlib
+
 from django.db import models
 
 from apps.common.models import BaseModel
@@ -47,6 +49,8 @@ class Credential(BaseModel):
     _username = models.BinaryField(blank=True, editable=False)
     _password = models.BinaryField(blank=True, editable=False)
     _notes = models.BinaryField(blank=True, editable=False)
+    # SHA-256 hash of username for fast duplicate lookup (no decryption required)
+    username_hash = models.CharField(max_length=64, blank=True, db_index=True)
 
     created_by = models.ForeignKey(
         "accounts.User",
@@ -69,8 +73,13 @@ class Credential(BaseModel):
     # Encrypted field accessors
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def hash_username(plaintext: str) -> str:
+        return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+
     def set_username(self, plaintext: str) -> None:
         self._username = encryption.encrypt(plaintext)
+        self.username_hash = self.hash_username(plaintext)
 
     def get_username(self) -> str:
         return encryption.decrypt(bytes(self._username)) if self._username else ""

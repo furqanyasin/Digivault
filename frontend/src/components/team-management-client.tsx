@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { fmtDate } from "@/lib/utils";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -268,7 +269,7 @@ export function TeamManagementClient({
                       )}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {member.created_at ? new Date(member.created_at).toLocaleDateString() : "—"}
+                      {fmtDate(member.created_at)}
                     </TableCell>
                     {canManage && (
                       <TableCell>
@@ -319,7 +320,7 @@ export function TeamManagementClient({
                       <div className="text-xs text-muted-foreground">{req.user_email}</div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {req.created_at ? new Date(req.created_at).toLocaleDateString() : "—"}
+                      {fmtDate(req.created_at)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">

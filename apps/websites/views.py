@@ -1,5 +1,9 @@
+import logging
+
 from django.db.models import Count, Q
 from rest_framework import generics, permissions, status
+
+logger = logging.getLogger(__name__)
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -76,9 +80,10 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                 html = resp.read(1_500_000).decode("utf-8", errors="ignore")
                 final_url = resp.geturl()
         except urllib.error.HTTPError as e:
-            return Response({"detail": f"HTTP {e.code} fetching {url}"}, status=400)
+            return Response({"detail": f"Could not fetch the page (HTTP {e.code})."}, status=400)
         except Exception as e:
-            return Response({"detail": f"Could not reach {url}: {e}"}, status=400)
+            logger.warning("Scan fetch failed for website %s: %s", website.pk, e)
+            return Response({"detail": "Could not reach the site. Check the domain is correct and publicly accessible."}, status=400)
 
         # Extract external script src values
         src_pattern = re.compile(r'<script[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
@@ -118,9 +123,10 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read(1_500_000).decode("utf-8", errors="ignore")
         except urllib.error.HTTPError as e:
-            return Response({"verified": False, "error": f"HTTP {e.code} fetching {url}"})
+            return Response({"verified": False, "error": f"Could not fetch the page (HTTP {e.code})."})
         except Exception as e:
-            return Response({"verified": False, "error": f"Could not reach {url}: {e}"})
+            logger.warning("Snippet verify failed for website %s: %s", website.pk, e)
+            return Response({"verified": False, "error": "Could not reach the site. Check the domain is correct and publicly accessible."})
 
         if marker in html:
             return Response({"verified": True})

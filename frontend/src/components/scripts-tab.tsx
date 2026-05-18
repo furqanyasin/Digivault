@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ScriptDetailDialog } from "@/components/script-detail-dialog";
 import type { Script } from "@/lib/api";
+import { fmtDate } from "@/lib/utils";
 
 interface Props {
   scripts: Script[];
@@ -93,7 +94,7 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
                 {group.length} {group.length === 1 ? "file" : "files"}
               </TableCell>
               <TableCell className="text-sm text-muted-foreground">
-                {lastSeen ? new Date(lastSeen).toLocaleDateString() : "—"}
+                {fmtDate(lastSeen)}
               </TableCell>
               <TableCell>
                 <ScriptDetailDialog

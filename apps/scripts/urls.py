@@ -7,6 +7,7 @@ from apps.scripts.views import (
     ScriptReviewView,
     SnippetJsView,
     WebsiteChangeListView,
+    WebsiteFormListView,
     WebsiteScriptListView,
 )
 
@@ -38,5 +39,10 @@ script_urlpatterns = [
         "websites/<uuid:website_pk>/scripts/<uuid:pk>/review/",
         ScriptReviewView.as_view(),
         name="script-review",
+    ),
+    path(
+        "websites/<uuid:website_pk>/forms/",
+        WebsiteFormListView.as_view(),
+        name="website-forms",
     ),
 ]

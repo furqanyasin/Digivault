@@ -13,6 +13,7 @@ import { MonitorActions } from "@/components/monitor-actions";
 import { MonitorNotificationPanel } from "@/components/monitor-notification-panel";
 import { MonitorResponseChart } from "@/components/monitor-response-chart";
 import { MonitorEditForm } from "@/components/monitor-edit-form";
+import { fmtDateTime } from "@/lib/utils";
 import { UptimeHeatmap } from "@/components/uptime-heatmap";
 
 type Props = { params: Promise<{ id: string }> };
@@ -51,7 +52,7 @@ function uptimeColor(pct: number | null) {
 
 function fmtDate(iso: string | null) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString();
+  return fmtDateTime(iso);
 }
 
 export default async function MonitorDetailPage({ params }: Props) {
