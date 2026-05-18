@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 
 const HOSTING_OPTIONS = [
-  { value: "", label: "Unknown" }, { value: "wpengine", label: "WPEngine" },
+  { value: "_unknown", label: "Unknown" }, { value: "wpengine", label: "WPEngine" },
   { value: "siteground", label: "SiteGround" }, { value: "cloudways", label: "Cloudways" },
   { value: "bluehost", label: "Bluehost" }, { value: "godaddy", label: "GoDaddy" },
   { value: "squarespace", label: "Squarespace" }, { value: "wix", label: "Wix" },
@@ -42,10 +42,11 @@ export default function NewClientPage() {
     setSaving(true);
     setError("");
     try {
+      const payload = { ...form, hosting_platform: form.hosting_platform === "_unknown" ? "" : form.hosting_platform };
       const res = await fetch("/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) { setError(data?.detail ?? "Failed to create client."); return; }
@@ -98,7 +99,7 @@ export default function NewClientPage() {
                 <Select value={form.website_built_by_digi} onValueChange={(v) => set("website_built_by_digi", v)}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Unknown</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
                     <SelectItem value="YES">Yes</SelectItem>
                     <SelectItem value="NO">No</SelectItem>
                     <SelectItem value="Hosting">Hosting only</SelectItem>
@@ -110,7 +111,7 @@ export default function NewClientPage() {
                 <Select value={form.website_maintained_by_digi} onValueChange={(v) => set("website_maintained_by_digi", v)}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Unknown</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
                     <SelectItem value="YES">Yes</SelectItem>
                     <SelectItem value="NO">No</SelectItem>
                   </SelectContent>

@@ -162,11 +162,8 @@ class NotificationChannel(models.Model):
     """
 
     class ChannelType(models.TextChoices):
-        SLACK = "slack", "Slack"
-        DISCORD = "discord", "Discord"
-        WEBHOOK = "webhook", "Webhook"
         EMAIL = "email", "Email"
-        TELEGRAM = "telegram", "Telegram"
+        CLICKUP = "clickup", "ClickUp"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="notification_channels")

@@ -16,7 +16,7 @@ import {
 import type { ClientRecord } from "@/app/(dashboard)/clients/page";
 
 const HOSTING_OPTIONS = [
-  { value: "", label: "Unknown" },
+  { value: "_unknown", label: "Unknown" },
   { value: "wpengine", label: "WPEngine" },
   { value: "siteground", label: "SiteGround" },
   { value: "cloudways", label: "Cloudways" },
@@ -29,20 +29,20 @@ const HOSTING_OPTIONS = [
 ];
 
 const MIGRATION_STATUS_OPTIONS = [
-  { value: "", label: "Unknown" },
+  { value: "_unknown", label: "Unknown" },
   { value: "not_done", label: "No — We didn't do" },
   { value: "done_to_siteground", label: "Yes — From WPEngine to SiteGround" },
   { value: "not_applicable", label: "N/A" },
 ];
 
 const MIGRATION_CONFIRM_OPTIONS = [
-  { value: "", label: "Unknown" },
+  { value: "_unknown", label: "Unknown" },
   { value: "can_do", label: "Yes, We can do Migration" },
   { value: "cannot", label: "No, We can't" },
 ];
 
 const DIGI_OPTIONS = [
-  { value: "", label: "Unknown" },
+  { value: "unknown", label: "Unknown" },
   { value: "YES", label: "Yes" },
   { value: "NO", label: "No" },
   { value: "Hosting", label: "Hosting only" },
@@ -56,17 +56,20 @@ export function ClientDetailClient({ client: initial }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
+  const toSelect = (v: string) => v || "_unknown";
+  const fromSelect = (v: string) => v === "_unknown" ? "" : v;
+
   const [form, setForm] = useState({
     name: initial.name,
     website_url: initial.website_url,
-    hosting_platform: initial.hosting_platform,
+    hosting_platform: toSelect(initial.hosting_platform),
     hosting_renewal_date: initial.hosting_renewal_date ?? "",
     domain_access_location: initial.domain_access_location,
-    migration_status: initial.migration_status,
-    csm_migration_confirmation: initial.csm_migration_confirmation,
+    migration_status: toSelect(initial.migration_status),
+    csm_migration_confirmation: toSelect(initial.csm_migration_confirmation),
     running_ppc_ads: initial.running_ppc_ads,
-    website_built_by_digi: initial.website_built_by_digi,
-    website_maintained_by_digi: initial.website_maintained_by_digi,
+    website_built_by_digi: initial.website_built_by_digi || "unknown",
+    website_maintained_by_digi: initial.website_maintained_by_digi || "unknown",
     notes: initial.notes,
     comments: initial.comments,
     clickup_task_id: initial.clickup_task_id,
@@ -94,10 +97,18 @@ export function ClientDetailClient({ client: initial }: Props) {
     setSaveMsg("");
     setSaveError("");
     try {
+      const payload = {
+        ...form,
+        hosting_platform: fromSelect(form.hosting_platform),
+        migration_status: fromSelect(form.migration_status),
+        csm_migration_confirmation: fromSelect(form.csm_migration_confirmation),
+        website_built_by_digi: form.website_built_by_digi === "unknown" ? "" : form.website_built_by_digi,
+        website_maintained_by_digi: form.website_maintained_by_digi === "unknown" ? "" : form.website_maintained_by_digi,
+      };
       const res = await fetch(`/api/clients/${initial.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {

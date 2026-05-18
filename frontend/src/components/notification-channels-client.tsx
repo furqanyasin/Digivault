@@ -12,19 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { NotificationChannel } from "@/lib/api";
 
 const CHANNEL_TYPES = [
-  { value: "slack", label: "Slack" },
-  { value: "discord", label: "Discord" },
-  { value: "webhook", label: "Generic Webhook" },
   { value: "email", label: "Email" },
-  { value: "telegram", label: "Telegram" },
+  { value: "clickup", label: "ClickUp" },
 ];
 
 const TYPE_BADGE_COLOR: Record<string, string> = {
-  slack: "bg-[#4A154B] text-white",
-  discord: "bg-[#5865F2] text-white",
-  webhook: "bg-slate-700 text-white",
   email: "bg-emerald-600 text-white",
-  telegram: "bg-[#26A5E4] text-white",
+  clickup: "bg-[#7B68EE] text-white",
 };
 
 function configSummary(channel: NotificationChannel): string {
@@ -33,10 +27,10 @@ function configSummary(channel: NotificationChannel): string {
     const addrs = (c.addresses as string[]) ?? [];
     return addrs.join(", ") || "—";
   }
-  if (channel.channel_type === "telegram") {
-    return `chat: ${c.chat_id ?? "—"}`;
+  if (channel.channel_type === "clickup") {
+    return `task: ${c.task_id ?? "—"}`;
   }
-  return (c.url as string) ?? "—";
+  return "—";
 }
 
 function ConfigFields({
@@ -48,19 +42,6 @@ function ConfigFields({
   config: Record<string, string>;
   onChange: (k: string, v: string) => void;
 }) {
-  if (channelType === "slack" || channelType === "discord" || channelType === "webhook") {
-    return (
-      <div className="space-y-2">
-        <Label>Webhook URL</Label>
-        <Input
-          value={config.url ?? ""}
-          onChange={(e) => onChange("url", e.target.value)}
-          placeholder="https://hooks.slack.com/…"
-          required
-        />
-      </div>
-    );
-  }
   if (channelType === "email") {
     return (
       <div className="space-y-2">
@@ -74,24 +55,25 @@ function ConfigFields({
       </div>
     );
   }
-  if (channelType === "telegram") {
+  if (channelType === "clickup") {
     return (
       <>
         <div className="space-y-2">
-          <Label>Bot Token</Label>
+          <Label>API Token</Label>
           <Input
-            value={config.bot_token ?? ""}
-            onChange={(e) => onChange("bot_token", e.target.value)}
-            placeholder="1234567890:ABC…"
+            value={config.api_token ?? ""}
+            onChange={(e) => onChange("api_token", e.target.value)}
+            placeholder="pk_…"
             required
           />
         </div>
         <div className="space-y-2">
-          <Label>Chat ID</Label>
+          <Label>Task ID</Label>
           <Input
-            value={config.chat_id ?? ""}
-            onChange={(e) => onChange("chat_id", e.target.value)}
-            placeholder="-100123456789"
+            value={config.task_id ?? ""}
+            onChange={(e) => onChange("task_id", e.target.value)}
+            placeholder="e.g. 86evnnba3"
+            className="font-mono text-sm"
             required
           />
         </div>
@@ -210,7 +192,7 @@ export function NotificationChannelsClient({ initialChannels }: { initialChannel
             <Bell className="h-10 w-10 text-muted-foreground" />
             <p className="text-lg font-medium">No channels yet</p>
             <p className="text-muted-foreground text-sm">
-              Add a Slack, Discord, or webhook channel to get notified when a monitor goes down
+              Add an Email or ClickUp channel to get notified when a monitor goes down
             </p>
           </CardContent>
         </Card>

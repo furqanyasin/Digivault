@@ -33,64 +33,6 @@ def _summary(monitor, old_status: str, new_status: str) -> str:
 # Channel-specific senders
 # ------------------------------------------------------------------
 
-def _send_slack(channel, monitor, old_status: str, new_status: str) -> None:
-    url = channel.config.get("url", "")
-    if not url:
-        logger.warning("Slack channel %s missing url", channel.id)
-        return
-    color = "#22c55e" if new_status == "up" else "#ef4444" if new_status == "down" else "#f59e0b"
-    payload = {
-        "attachments": [{"color": color, "text": _summary(monitor, old_status, new_status), "footer": "Digivault Monitors"}]
-    }
-    _http_post(url, payload, name="Slack")
-
-
-def _send_discord(channel, monitor, old_status: str, new_status: str) -> None:
-    url = channel.config.get("url", "")
-    if not url:
-        logger.warning("Discord channel %s missing url", channel.id)
-        return
-    color = 0x22C55E if new_status == "up" else 0xEF4444 if new_status == "down" else 0xF59E0B
-    payload = {
-        "embeds": [
-            {
-                "title": f"{monitor.name} — {new_status.upper()}",
-                "description": f"`{monitor.url}`\nPrevious status: **{old_status}**",
-                "color": color,
-                "footer": {"text": "Digivault Monitors"},
-            }
-        ]
-    }
-    _http_post(url, payload, name="Discord")
-
-
-def _send_webhook(channel, monitor, old_status: str, new_status: str) -> None:
-    url = channel.config.get("url", "")
-    if not url:
-        logger.warning("Webhook channel %s missing url", channel.id)
-        return
-    payload = {
-        "monitor_id": str(monitor.id),
-        "monitor_name": monitor.name,
-        "url": monitor.url,
-        "old_status": old_status,
-        "new_status": new_status,
-    }
-    _http_post(url, payload, name="Webhook")
-
-
-def _send_telegram(channel, monitor, old_status: str, new_status: str) -> None:
-    bot_token = channel.config.get("bot_token", "")
-    chat_id = channel.config.get("chat_id", "")
-    if not bot_token or not chat_id:
-        logger.warning("Telegram channel %s missing bot_token or chat_id", channel.id)
-        return
-    text = _summary(monitor, old_status, new_status)
-    api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
-    _http_post(api_url, payload, name="Telegram")
-
-
 def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
     from django.conf import settings
     from django.core.mail import send_mail
@@ -114,16 +56,36 @@ def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
         raise
 
 
+def _send_clickup(channel, monitor, old_status: str, new_status: str) -> None:
+    api_token = channel.config.get("api_token", "")
+    task_id = channel.config.get("task_id", "")
+    if not api_token or not task_id:
+        logger.warning("ClickUp channel %s missing api_token or task_id", channel.id)
+        return
+    emoji = STATUS_EMOJI.get(new_status, "")
+    comment_text = (
+        f"{emoji} **{monitor.name}** status changed: {old_status.upper()} → {new_status.upper()}\n"
+        f"URL: {monitor.url}"
+    )
+    url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
+    data = json.dumps({"comment_text": comment_text}).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json", "Authorization": api_token},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        if resp.status not in (200, 201):
+            raise RuntimeError(f"ClickUp delivery returned HTTP {resp.status}")
+
+
 # ------------------------------------------------------------------
 # Dispatcher registry
 # ------------------------------------------------------------------
 
 _SENDERS = {
-    "slack": _send_slack,
-    "discord": _send_discord,
-    "webhook": _send_webhook,
-    "telegram": _send_telegram,
     "email": _send_email,
+    "clickup": _send_clickup,
 }
 
 
