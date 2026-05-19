@@ -33,6 +33,13 @@ export default function LoginPage() {
         });
         return;
       }
+      // Notify the extension so it auto-logs-in without requiring a separate sign-in
+      try {
+        window.postMessage(
+          { type: "DIGIVAULT_EXTENSION_AUTH", access: data.access, refresh: data.refresh, email: form.email },
+          window.location.origin
+        );
+      } catch { /* extension not installed — ignore */ }
       router.push("/dashboard");
     } catch {
       toast({ variant: "destructive", title: "Network error", description: "Could not reach the server" });

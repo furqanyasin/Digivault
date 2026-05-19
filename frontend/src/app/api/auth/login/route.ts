@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   const tokens = envelope.data ?? (envelope as unknown as { access: string; refresh: string });
   const { access, refresh } = tokens;
 
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true, access, refresh });
   res.cookies.set("ss_access", access, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

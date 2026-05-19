@@ -146,6 +146,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     handleSaveCredential(msg).then(reply);
     return true;
   }
+
+  if (msg.type === "WEB_AUTH_SYNC") {
+    handleWebAuthSync(msg).then(reply);
+    return true;
+  }
 });
 
 // ------------------------------------------------------------------
@@ -225,6 +230,12 @@ async function handleSaveCredential({ domain, username, password, loginUrl }) {
   });
   if (result.error) return result;
   return result.data ?? result;
+}
+
+async function handleWebAuthSync({ access, refresh, email }) {
+  if (!access || !refresh) return { error: "missing_tokens" };
+  await chrome.storage.local.set({ access, refresh, email: email || "" });
+  return { ok: true };
 }
 
 async function handleRevealCredential(credentialId) {

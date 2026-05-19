@@ -567,6 +567,18 @@
   checkPendingSave();
 
   // ----------------------------------------------------------------
+  // Web → Extension SSO: pick up tokens posted by the login page
+  // ----------------------------------------------------------------
+
+  window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin) return;
+    if (e.data?.type !== 'DIGIVAULT_EXTENSION_AUTH') return;
+    const { access, refresh, email } = e.data;
+    if (!access || !refresh) return;
+    safeSendMessage({ type: 'WEB_AUTH_SYNC', access, refresh, email: email || '' }, () => {});
+  });
+
+  // ----------------------------------------------------------------
   // Extension auto-login on the Digivault web app login page
   // ----------------------------------------------------------------
 
