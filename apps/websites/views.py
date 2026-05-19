@@ -133,18 +133,28 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             state, _ = SiteScanState.objects.get_or_create(website=website)
             return Response(SiteScanStateSerializer(state).data)
 
-        import re
-        import urllib.request, urllib.error
+        import requests as _requests
 
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
 
+        _BROWSER_HEADERS = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+        }
+
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Digivault-Scanner/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                html = resp.read(1_500_000).decode("utf-8", errors="ignore")
-                final_url = resp.geturl()
-        except urllib.error.HTTPError as e:
-            return Response({"detail": f"Could not fetch the page (HTTP {e.code})."}, status=400)
+            resp = _requests.get(url, headers=_BROWSER_HEADERS, timeout=20, allow_redirects=True)
+            resp.raise_for_status()
+            html = resp.text
+            final_url = resp.url
+        except _requests.HTTPError as e:
+            return Response({"detail": f"Could not fetch the page (HTTP {e.response.status_code})."}, status=400)
         except Exception as e:
             logger.warning("Scan fetch failed for website %s: %s", website.pk, e)
             return Response({"detail": "Could not reach the site. Check the domain is correct and publicly accessible."}, status=400)
@@ -183,21 +193,20 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     @action(detail=True, methods=["post"], url_path="verify-snippet")
     def verify_snippet(self, request, pk=None):
         """Fetch the website URL and confirm the tracking snippet is present."""
-        import urllib.request, urllib.error
+        import requests as _requests
 
         website = self.get_object()
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
         marker = f'data-site="{website.site_id}"'
 
         try:
-            req = urllib.request.Request(
+            resp = _requests.get(
                 url,
-                headers={"User-Agent": "Digivault-Verifier/1.0"},
+                headers={"User-Agent": "Mozilla/5.0 (compatible; Digivault-Verifier/1.0)"},
+                timeout=15,
+                allow_redirects=True,
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                html = resp.read(1_500_000).decode("utf-8", errors="ignore")
-        except urllib.error.HTTPError as e:
-            return Response({"verified": False, "error": f"Could not fetch the page (HTTP {e.code})."})
+            html = resp.text
         except Exception as e:
             logger.warning("Snippet verify failed for website %s: %s", website.pk, e)
             return Response({"verified": False, "error": "Could not reach the site. Check the domain is correct and publicly accessible."})
