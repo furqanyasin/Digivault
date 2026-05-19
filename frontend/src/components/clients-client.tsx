@@ -8,7 +8,6 @@ import {
   ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -50,7 +49,6 @@ export function ClientsClient({ initialClients }: Props) {
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
   const [loading, setLoading] = useState(false);
 
-  const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | "active" | "inactive">("");
 
   // Lookup (CSM quick-answer)
@@ -83,16 +81,10 @@ export function ClientsClient({ initialClients }: Props) {
   }, []);
 
   useEffect(() => {
-    fetchClients(page, pageSize, filter, statusFilter);
-  }, [page, pageSize, statusFilter, fetchClients]); // filter applied via search button
+    fetchClients(page, pageSize, "", statusFilter);
+  }, [page, pageSize, statusFilter, fetchClients]);
 
   const totalPages = Math.ceil(count / pageSize);
-
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    setPage(1);
-    fetchClients(1, pageSize, filter, statusFilter);
-  }
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
@@ -160,7 +152,7 @@ export function ClientsClient({ initialClients }: Props) {
       const res = await fetch("/api/clients/sync-all", { method: "POST" });
       const data = await res.json();
       setSyncMsg(`Synced: ${data.synced ?? 0} ok, ${data.failed ?? 0} failed.`);
-      fetchClients(page, pageSize, filter, statusFilter);
+      fetchClients(page, pageSize, "", statusFilter);
     } finally {
       setSyncing(false);
     }
@@ -277,15 +269,6 @@ export function ClientsClient({ initialClients }: Props) {
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap items-center">
-        <form onSubmit={handleSearch} className="flex gap-2">
-          <Input
-            placeholder="Search by name or URL…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="max-w-xs"
-          />
-          <Button type="submit" variant="outline" size="sm">Search</Button>
-        </form>
         <div className="flex rounded-md border overflow-hidden text-sm">
           {(["", "active", "inactive"] as const).map((s) => (
             <button
