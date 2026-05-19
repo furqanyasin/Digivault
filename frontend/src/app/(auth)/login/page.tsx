@@ -34,7 +34,6 @@ export default function LoginPage() {
         return;
       }
       router.push("/dashboard");
-      router.refresh();
     } catch {
       toast({ variant: "destructive", title: "Network error", description: "Could not reach the server" });
     } finally {
