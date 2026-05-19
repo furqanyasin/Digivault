@@ -16,8 +16,9 @@ async function getData(token: string) {
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
   const monitors = monitorsResult.status === "fulfilled" ? monitorsResult.value : [];
 
+  const dashboardSites = websites.filter((w) => !w.domain?.includes("digilaticsvps")).slice(0, 5);
   const changeSets = await Promise.allSettled(
-    websites.slice(0, 5).map((site) =>
+    dashboardSites.map((site) =>
       api.get<ScriptChange[]>(`/api/v1/websites/${site.id}/changes/`, token)
     )
   );
