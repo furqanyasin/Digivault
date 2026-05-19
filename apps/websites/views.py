@@ -103,6 +103,9 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             return Response({"detail": "No external scripts found on the page.", "count": 0})
 
         from apps.scripts.tasks import process_ingest_payload
+        from apps.site_health.tasks import run_security_scan
+        from apps.site_health.models import SiteScanState
+
         payload = {
             "page_url": final_url,
             "scripts": scripts,
@@ -110,6 +113,14 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "snippet_version": "server-scan",
         }
         process_ingest_payload.delay(website.site_id, payload)
+
+        # Mark as running immediately so the UI can show progress
+        state, _ = SiteScanState.objects.get_or_create(website=website)
+        state.scan_status = "running"
+        state.error = ""
+        state.save(update_fields=["scan_status", "error"])
+
+        run_security_scan.apply_async(args=[str(website.pk)], countdown=5)
 
         return Response({"detail": f"Scan queued — found {len(scripts)} scripts.", "count": len(scripts)})
 
