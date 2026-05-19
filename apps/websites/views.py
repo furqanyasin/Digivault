@@ -12,6 +12,8 @@ from rest_framework.viewsets import ModelViewSet
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember, RolePermission
 from apps.websites.models import Website
+from apps.site_health.models import SiteScanState
+from apps.site_health.serializers import SiteScanStateSerializer
 from apps.websites.serializers import (
     SnippetInstructionSerializer,
     WebsiteCreateSerializer,
@@ -65,13 +67,18 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["post"], url_path="scan")
+    @action(detail=True, methods=["get", "post"], url_path="scan")
     def scan(self, request, pk=None):
-        """Fetch the website homepage, extract <script> tags, and queue for processing."""
+        """GET: return current scan state. POST: trigger a new scan."""
+        website = self.get_object()
+
+        if request.method == "GET":
+            state, _ = SiteScanState.objects.get_or_create(website=website)
+            return Response(SiteScanStateSerializer(state).data)
+
         import re
         import urllib.request, urllib.error
 
-        website = self.get_object()
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
 
         try:
