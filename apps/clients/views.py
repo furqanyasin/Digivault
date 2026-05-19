@@ -59,6 +59,7 @@ class ClientListCreateView(generics.ListCreateAPIView):
 
     serializer_class = ClientSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         team = _team(self.request)

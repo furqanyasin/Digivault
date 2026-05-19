@@ -15,8 +15,13 @@ export async function GET(req: NextRequest) {
   const upstream = await fetch(`${API_BASE}/api/v1/clients/${search ? `?${search}` : ""}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  const data = await upstream.json().catch(() => ([]));
-  return NextResponse.json(data?.data ?? data, { status: upstream.status });
+  const json = await upstream.json().catch(() => ({}));
+  return NextResponse.json({
+    clients: json?.data ?? [],
+    count: json?.meta?.count ?? 0,
+    next: json?.meta?.next ?? null,
+    previous: json?.meta?.previous ?? null,
+  }, { status: upstream.status });
 }
 
 export async function POST(req: NextRequest) {

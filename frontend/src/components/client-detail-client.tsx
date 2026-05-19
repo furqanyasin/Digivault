@@ -106,7 +106,7 @@ export function ClientDetailClient({ client: initial }: Props) {
         website_built_by_digi: form.website_built_by_digi === "unknown" ? "" : form.website_built_by_digi,
         website_maintained_by_digi: form.website_maintained_by_digi === "unknown" ? "" : form.website_maintained_by_digi,
       };
-      const res = await fetch(`/api/clients/${initial.id}`, {
+      const res = await fetch(`/api/clients/${initial.id}/`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

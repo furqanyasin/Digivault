@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Search, Upload, RefreshCw, Plus, ExternalLink,
-  CheckCircle2, XCircle, ChevronDown, ChevronUp,
+  CheckCircle2, XCircle, ChevronDown, ChevronUp, Download,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,6 @@ const HOSTING_LABELS: Record<string, string> = {
   bluehost: "Bluehost", godaddy: "GoDaddy", squarespace: "Squarespace",
   wix: "Wix", shopify: "Shopify", other: "Other", "": "—",
 };
-
 
 interface LookupResult {
   id: string;
@@ -42,10 +41,14 @@ interface Props {
   initialClients: ClientRecord[];
 }
 
+const PAGE_SIZES = [25, 50, 100] as const;
+
 export function ClientsClient({ initialClients }: Props) {
-  const router = useRouter();
-  const [, startTransition] = useTransition();
-  const refresh = () => startTransition(() => router.refresh());
+  const [clients, setClients] = useState<ClientRecord[]>(initialClients);
+  const [count, setCount] = useState(initialClients.length);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+  const [loading, setLoading] = useState(false);
 
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | "active" | "inactive">("");
@@ -64,12 +67,32 @@ export function ClientsClient({ initialClients }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
 
-  const filtered = initialClients.filter((c) => {
-    const matchText = !filter || c.name.toLowerCase().includes(filter.toLowerCase()) ||
-      c.website_url.toLowerCase().includes(filter.toLowerCase());
-    const matchStatus = !statusFilter || c.status === statusFilter;
-    return matchText && matchStatus;
-  });
+  const fetchClients = useCallback(async (p: number, ps: number, q: string, s: string) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(p), page_size: String(ps) });
+      if (q) params.set("q", q);
+      if (s) params.set("status", s);
+      const res = await fetch(`/api/clients?${params}`);
+      const data = await res.json();
+      setClients(data.clients ?? []);
+      setCount(data.count ?? 0);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchClients(page, pageSize, filter, statusFilter);
+  }, [page, pageSize, statusFilter, fetchClients]); // filter applied via search button
+
+  const totalPages = Math.ceil(count / pageSize);
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setPage(1);
+    fetchClients(1, pageSize, filter, statusFilter);
+  }
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
@@ -97,7 +120,8 @@ export function ClientsClient({ initialClients }: Props) {
       const data = await res.json();
       if (res.ok) {
         setImportMsg(`Imported: ${data.created} created, ${data.updated} updated, ${data.skipped} skipped.`);
-        refresh();
+        fetchClients(1, pageSize, filter, statusFilter);
+        setPage(1);
       } else {
         setImportMsg(data?.detail ?? "Import failed.");
       }
@@ -107,6 +131,28 @@ export function ClientsClient({ initialClients }: Props) {
     }
   }
 
+  function handleDownloadSample() {
+    const headers = [
+      "Task ID", "Task Name", "Websites URL (short text)", "Hosting Platform (drop down)",
+      "Migration Status (drop down)", "Confirmation from CSM for Migration (drop down)",
+      "Are we running PPC Ads (drop down)", "Where we have the domain access (drop down)",
+      "Comments (short text)", "Website Built by Digi", "Website Maintained by Digi",
+    ];
+    const example = [
+      "86evnnba3", "Example Client Ltd", "https://example.com", "siteground",
+      "No - We didn't do", "Yes, we can do migration", "No",
+      "Khurram GoDaddy Account", "Renewal due in March", "Yes", "Yes",
+    ];
+    const csv = [headers, example].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "clients-import-sample.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleSyncAll() {
     setSyncing(true);
     setSyncMsg("");
@@ -114,10 +160,15 @@ export function ClientsClient({ initialClients }: Props) {
       const res = await fetch("/api/clients/sync-all", { method: "POST" });
       const data = await res.json();
       setSyncMsg(`Synced: ${data.synced ?? 0} ok, ${data.failed ?? 0} failed.`);
-      refresh();
+      fetchClients(page, pageSize, filter, statusFilter);
     } finally {
       setSyncing(false);
     }
+  }
+
+  function handleStatusFilter(s: "" | "active" | "inactive") {
+    setStatusFilter(s);
+    setPage(1);
   }
 
   return (
@@ -128,6 +179,9 @@ export function ClientsClient({ initialClients }: Props) {
           <p className="text-muted-foreground mt-1">Hosting, access, and operational details for all clients</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={handleDownloadSample}>
+            <Download className="h-4 w-4 mr-1" />Sample CSV
+          </Button>
           <label className="cursor-pointer">
             <input type="file" accept=".csv" className="hidden" onChange={handleImport} disabled={importing} />
             <Button variant="outline" size="sm" asChild>
@@ -222,26 +276,42 @@ export function ClientsClient({ initialClients }: Props) {
       </Card>
 
       {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
-        <Input
-          placeholder="Filter by name or URL…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="max-w-xs"
-        />
+      <div className="flex gap-2 flex-wrap items-center">
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <Input
+            placeholder="Search by name or URL…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="max-w-xs"
+          />
+          <Button type="submit" variant="outline" size="sm">Search</Button>
+        </form>
         <div className="flex rounded-md border overflow-hidden text-sm">
           {(["", "active", "inactive"] as const).map((s) => (
             <button
               key={s}
               type="button"
-              onClick={() => setStatusFilter(s)}
+              onClick={() => handleStatusFilter(s)}
               className={`px-3 py-1.5 transition-colors ${statusFilter === s ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
             >
               {s === "" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
             </button>
           ))}
         </div>
-        <span className="text-sm text-muted-foreground self-center">{filtered.length} client{filtered.length !== 1 ? "s" : ""}</span>
+        <span className="text-sm text-muted-foreground">{count} client{count !== 1 ? "s" : ""}</span>
+        <div className="ml-auto flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Per page:</span>
+          {PAGE_SIZES.map((ps) => (
+            <button
+              key={ps}
+              type="button"
+              onClick={() => { setPageSize(ps); setPage(1); }}
+              className={`px-2 py-1 rounded border text-xs ${pageSize === ps ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
+            >
+              {ps}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Clients table */}
@@ -260,14 +330,17 @@ export function ClientsClient({ initialClients }: Props) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length === 0 && (
+              {loading && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                    No clients found.
-                  </TableCell>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Loading…</TableCell>
                 </TableRow>
               )}
-              {filtered.map((c) => (
+              {!loading && clients.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No clients found.</TableCell>
+                </TableRow>
+              )}
+              {!loading && clients.map((c) => (
                 <TableRow key={c.id} className={c.status === "inactive" ? "opacity-50" : ""}>
                   <TableCell>
                     <div className="font-medium text-sm">{c.name}</div>
@@ -302,6 +375,39 @@ export function ClientsClient({ initialClients }: Props) {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Page {page} of {totalPages} &middot; {count} total
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1}>«</Button>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+              const p = start + i;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPage(p)}
+                  className={`w-8 h-8 rounded border text-xs ${p === page ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page === totalPages}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
