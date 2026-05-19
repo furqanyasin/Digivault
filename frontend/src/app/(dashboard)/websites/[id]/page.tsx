@@ -121,14 +121,17 @@ export default async function WebsiteDetailPage({
     );
   }
 
-  const activeScripts = scripts.filter(
-    (s) => s.is_active && !s.src_url?.includes("digilaticsvps")
-  );
-
   function isInternalScript(url: string | undefined): boolean {
     if (!url) return false;
     return url.includes("digilaticsvps") || url.includes("digivault.digilatics.co") || url.includes("cdn.digivault.digilatics.co");
   }
+
+  // Scripts tab / stats: hide internal infrastructure noise (digilaticsvps, own monitoring snippet)
+  const activeScripts = scripts.filter(
+    (s) => s.is_active && !isInternalScript(s.src_url)
+  );
+  // Plugins tab: include all active scripts so WP plugins on digilaticsvps are detected
+  const allActiveScripts = scripts.filter((s) => s.is_active);
 
   const visibleChanges = changes.filter((c) => !isInternalScript(c.script?.src_url));
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
@@ -325,7 +328,7 @@ export default async function WebsiteDetailPage({
               <CardTitle className="text-base">WordPress Plugins</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <PluginsTab scripts={activeScripts} websiteId={id} />
+              <PluginsTab scripts={allActiveScripts} websiteId={id} />
             </CardContent>
           </Card>
         </TabsContent>
