@@ -19,7 +19,7 @@ class SnippetJsView(APIView):
         with open(self._js_path, "r", encoding="utf-8") as f:
             content = f.read()
         response = HttpResponse(content, content_type="application/javascript; charset=utf-8")
-        response["Cache-Control"] = "public, max-age=3600"
+        response["Cache-Control"] = "public, max-age=300"
         response["Access-Control-Allow-Origin"] = "*"
         return response
 

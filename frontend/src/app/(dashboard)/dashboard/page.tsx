@@ -99,12 +99,19 @@ export default async function DashboardPage() {
   const token = await getAccessToken();
   const { websites, allChanges, monitors } = await getData(token ?? "");
 
-  const pending = allChanges.filter((c) => !c.is_acknowledged);
-  const highRisk = allChanges.filter(
+  const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
+  function isInternal(c: ScriptChange) {
+    const check = (s?: string) => s && INTERNAL_DOMAINS.some((d) => s.includes(d));
+    return check(c.script?.src_url) || check(c.description);
+  }
+  const visibleChanges = allChanges.filter((c) => !isInternal(c));
+
+  const pending = visibleChanges.filter((c) => !c.is_acknowledged);
+  const highRisk = visibleChanges.filter(
     (c) => (c.severity === "critical" || c.severity === "high") && !c.is_acknowledged
   );
-  const mediumRisk = allChanges.filter((c) => c.severity === "medium" && !c.is_acknowledged);
-  const lowRisk = allChanges.filter((c) => c.severity === "low" && !c.is_acknowledged);
+  const mediumRisk = visibleChanges.filter((c) => c.severity === "medium" && !c.is_acknowledged);
+  const lowRisk = visibleChanges.filter((c) => c.severity === "low" && !c.is_acknowledged);
   const withIssues = websites.filter((w) => w.status === "critical" || w.status === "warning").length;
   const monitorsDown = monitors.filter((m) => m.status === "down" || m.status === "degraded").length;
 

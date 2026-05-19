@@ -121,19 +121,25 @@ export default async function WebsiteDetailPage({
     );
   }
 
-  function isInternalScript(url: string | undefined): boolean {
-    if (!url) return false;
-    return url.includes("digilaticsvps") || url.includes("digivault.digilatics.co") || url.includes("cdn.digivault.digilatics.co");
+  const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
+
+  function isInternalStr(s: string | undefined): boolean {
+    if (!s) return false;
+    return INTERNAL_DOMAINS.some((d) => s.includes(d));
   }
 
-  // Scripts tab / stats: hide internal infrastructure noise (digilaticsvps, own monitoring snippet)
-  const activeScripts = scripts.filter(
-    (s) => s.is_active && !isInternalScript(s.src_url)
-  );
-  // Plugins tab: include all active scripts so WP plugins on digilaticsvps are detected
+  // A change is internal if either its linked script URL or the description text contains an internal domain.
+  // WP-core scripts (wp-includes) have no linked Script record so their URL only appears in description.
+  function isInternalChange(c: ScriptChange): boolean {
+    return isInternalStr(c.script?.src_url) || isInternalStr(c.description);
+  }
+
+  // Scripts tab / stats: hide internal infrastructure noise
+  const activeScripts = scripts.filter((s) => s.is_active && !isInternalStr(s.src_url));
+  // Plugins tab: needs digilaticsvps scripts to detect WP plugins
   const allActiveScripts = scripts.filter((s) => s.is_active);
 
-  const visibleChanges = changes.filter((c) => !isInternalScript(c.script?.src_url));
+  const visibleChanges = changes.filter((c) => !isInternalChange(c));
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
   const unknownScripts = activeScripts.filter((s) => s.provider === "unknown");
 

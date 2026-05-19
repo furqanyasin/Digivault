@@ -110,8 +110,17 @@
     document.addEventListener('DOMContentLoaded', sendOnce);
   }
 
-  // Delayed re-send: catches forms injected by JS frameworks (Elementor, etc.) after DOMContentLoaded
+  // Delayed re-send: catches forms loaded by JS frameworks after DOMContentLoaded
   setTimeout(send, 2500);
+
+  // Elementor popup: fires when any popup opens — re-send so popup forms are captured
+  window.addEventListener('elementor/popup/show', function () {
+    setTimeout(send, 300);
+  });
+
+  // Generic popup/modal open events (Bootstrap, jQuery UI, custom)
+  document.addEventListener('shown.bs.modal', function () { setTimeout(send, 300); });
+  document.addEventListener('dialogopen', function () { setTimeout(send, 300); });
 
   // MutationObserver: re-send whenever a new <script src> or <form> is added to the DOM.
   // Catches scripts/forms injected by inline loaders (GTM, Facebook Pixel, Hotjar, Elementor popups, etc.)
