@@ -124,7 +124,14 @@ export default async function WebsiteDetailPage({
   const activeScripts = scripts.filter(
     (s) => s.is_active && !s.src_url?.includes("digilaticsvps")
   );
-  const pendingChanges = changes.filter((c) => !c.is_acknowledged);
+
+  function isInternalScript(url: string | undefined): boolean {
+    if (!url) return false;
+    return url.includes("digilaticsvps") || url.includes("digivault.digilatics.co") || url.includes("cdn.digivault.digilatics.co");
+  }
+
+  const visibleChanges = changes.filter((c) => !isInternalScript(c.script?.src_url));
+  const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
   const unknownScripts = activeScripts.filter((s) => s.provider === "unknown");
 
   return (
@@ -227,7 +234,7 @@ export default async function WebsiteDetailPage({
             <Link href={`/websites/${id}?tab=performance`} prefetch>Performance</Link>
           </TabsTrigger>
           <TabsTrigger value="changelog" asChild>
-            <Link href={`/websites/${id}?tab=changelog`} prefetch>Change Log ({changes.length})</Link>
+            <Link href={`/websites/${id}?tab=changelog`} prefetch>Change Log ({visibleChanges.length})</Link>
           </TabsTrigger>
           <TabsTrigger value="php-errors" asChild>
             <Link href={`/websites/${id}?tab=php-errors`} prefetch>PHP Errors {phpErrors.length > 0 ? `(${phpErrors.length})` : ""}</Link>
@@ -417,7 +424,7 @@ export default async function WebsiteDetailPage({
               <CardTitle className="text-base">Change Log ({changes.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {changes.length === 0 ? (
+              {visibleChanges.length === 0 ? (
                 <div className="p-10 flex flex-col items-center gap-2 text-center">
                   <CheckCircle className="h-10 w-10 text-emerald-500" />
                   <p className="font-medium">No changes detected</p>
@@ -437,7 +444,7 @@ export default async function WebsiteDetailPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {changes.map((change) => (
+                    {visibleChanges.map((change) => (
                       <TableRow key={change.id} className={`border-l-4 ${SEV_STRIPE[change.severity] ?? "border-l-transparent"}`}>
                         <TableCell className="p-0" />
                         <TableCell><Badge variant={severityVariant(change.severity)} className="capitalize">{change.severity}</Badge></TableCell>

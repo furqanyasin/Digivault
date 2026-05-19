@@ -97,9 +97,46 @@
     }
   }
 
+  var hasSent = false;
+  function sendOnce() {
+    hasSent = true;
+    send();
+  }
+
+  // Initial send at page-ready
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(send, 0);
+    setTimeout(sendOnce, 0);
   } else {
-    document.addEventListener('DOMContentLoaded', send);
+    document.addEventListener('DOMContentLoaded', sendOnce);
+  }
+
+  // Delayed re-send: catches forms injected by JS frameworks (Elementor, etc.) after DOMContentLoaded
+  setTimeout(send, 2500);
+
+  // MutationObserver: re-send whenever a <form> is added to the DOM (e.g. Elementor popup rendered)
+  if (typeof MutationObserver !== 'undefined') {
+    var moTimer;
+    var observer = new MutationObserver(function (mutations) {
+      var hasNewForm = false;
+      for (var i = 0; i < mutations.length; i++) {
+        var nodes = mutations[i].addedNodes;
+        for (var j = 0; j < nodes.length; j++) {
+          var node = nodes[j];
+          if (node.nodeType !== 1) continue;
+          if (node.tagName === 'FORM' || (node.querySelector && node.querySelector('form'))) {
+            hasNewForm = true;
+            break;
+          }
+        }
+        if (hasNewForm) break;
+      }
+      if (!hasNewForm) return;
+      clearTimeout(moTimer);
+      // Debounce: wait 400ms after last mutation before re-sending
+      moTimer = setTimeout(send, 400);
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    // Stop observing after 30s to avoid overhead on long-lived pages
+    setTimeout(function () { observer.disconnect(); }, 30000);
   }
 })();
