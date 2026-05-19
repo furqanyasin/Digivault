@@ -181,6 +181,7 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
 
     # ---- Call & Conversion Tracking -----------------------------------------
     _e(r"whatconverts\.com", "WhatConverts", _C.CALL_TRACKING),
+    _e(r"ksrndkehqnwntyxlhgto\.com", "WhatConverts", _C.CALL_TRACKING),
     _e(r"cdn\.callrail\.com", "CallRail", _C.CALL_TRACKING),
     _e(r"callrail\.com/js", "CallRail", _C.CALL_TRACKING),
     _e(r"scripts\.calltrackingmetrics\.com", "CallTrackingMetrics", _C.CALL_TRACKING),
