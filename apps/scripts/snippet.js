@@ -113,26 +113,37 @@
   // Delayed re-send: catches forms injected by JS frameworks (Elementor, etc.) after DOMContentLoaded
   setTimeout(send, 2500);
 
-  // MutationObserver: re-send whenever a <form> is added to the DOM (e.g. Elementor popup rendered)
+  // MutationObserver: re-send whenever a new <script src> or <form> is added to the DOM.
+  // Catches scripts/forms injected by inline loaders (GTM, Facebook Pixel, Hotjar, Elementor popups, etc.)
   if (typeof MutationObserver !== 'undefined') {
     var moTimer;
     var observer = new MutationObserver(function (mutations) {
-      var hasNewForm = false;
+      var shouldResend = false;
       for (var i = 0; i < mutations.length; i++) {
         var nodes = mutations[i].addedNodes;
         for (var j = 0; j < nodes.length; j++) {
           var node = nodes[j];
           if (node.nodeType !== 1) continue;
+          // New <script src="..."> element (dynamically injected by inline loaders)
+          if (node.tagName === 'SCRIPT' && node.src) {
+            shouldResend = true;
+            break;
+          }
+          // New <form> element (Elementor popups, etc.)
           if (node.tagName === 'FORM' || (node.querySelector && node.querySelector('form'))) {
-            hasNewForm = true;
+            shouldResend = true;
+            break;
+          }
+          // Subtree may contain script or form elements
+          if (node.querySelector && (node.querySelector('script[src]') || node.querySelector('form'))) {
+            shouldResend = true;
             break;
           }
         }
-        if (hasNewForm) break;
+        if (shouldResend) break;
       }
-      if (!hasNewForm) return;
+      if (!shouldResend) return;
       clearTimeout(moTimer);
-      // Debounce: wait 400ms after last mutation before re-sending
       moTimer = setTimeout(send, 400);
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });

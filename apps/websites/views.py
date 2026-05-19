@@ -21,6 +21,63 @@ from apps.websites.serializers import (
 )
 
 
+def _extract_script_urls(html: str) -> list[str]:
+    """Extract external script URLs from raw HTML — both static tags and common inline loaders.
+
+    Handles:
+    - Static <script src="..."> tags
+    - Google Tag Manager (container ID in function call)
+    - Meta / Facebook Pixel (fbevents.js loader pattern)
+    - Hotjar (hjid/hjsv settings object)
+    - Microsoft Clarity (tag ID in IIFE args)
+    - HubSpot (hs-scripts.com ID)
+    - Generic https://*.js literals inside inline scripts
+    """
+    import re
+    seen: set[str] = set()
+    urls: list[str] = []
+
+    def add(url: str) -> None:
+        url = url.strip()
+        if url and url not in seen:
+            seen.add(url)
+            urls.append(url)
+
+    # 1. Static <script src="..."> tags
+    for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
+        add(src)
+
+    # 2. Google Tag Manager — extract container ID from IIFE args or any quoted literal
+    for gtm_id in re.findall(r"""['"]dataLayer['"],\s*['"]( GTM-\w+)['"]""", html):
+        add(f"https://www.googletagmanager.com/gtm.js?id={gtm_id.strip()}")
+    for gtm_id in re.findall(r"""['"](GTM-[A-Z0-9]+)['"]""", html):
+        add(f"https://www.googletagmanager.com/gtm.js?id={gtm_id}")
+
+    # 3. Meta / Facebook Pixel — fbevents.js injected by the loader IIFE
+    if re.search(r'connect\.facebook\.net', html, re.IGNORECASE):
+        add("https://connect.facebook.net/en_US/fbevents.js")
+
+    # 4. Hotjar — reconstruct from hjid / hjsv settings object
+    m = re.search(r'hjid\s*:\s*(\d+).*?hjsv\s*:\s*(\d+)', html, re.DOTALL)
+    if m:
+        add(f"https://static.hotjar.com/c/hotjar-{m.group(1)}.js?sv={m.group(2)}")
+
+    # 5. Microsoft Clarity — tag ID passed as 5th IIFE argument
+    m = re.search(r'"clarity"\s*,\s*"script"\s*,\s*"([a-z0-9]+)"', html, re.IGNORECASE)
+    if m:
+        add(f"https://www.clarity.ms/tag/{m.group(1)}")
+
+    # 6. HubSpot — hs-scripts.com/<id>.js (catches protocol-relative or https)
+    for hub_id in re.findall(r'hs-scripts\.com/(\d+)', html, re.IGNORECASE):
+        add(f"https://js.hs-scripts.com/{hub_id}.js")
+
+    # 7. WhatConverts / generic: quoted https:// .js literals inside inline scripts
+    for url in re.findall(r'''["'](https://[a-zA-Z0-9._\-]+/[^"'<>\s]*?\.js(?:\?[^"'<>\s]*)?)["']''', html):
+        add(url)
+
+    return urls
+
+
 class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     """
     /api/v1/websites/
@@ -92,15 +149,15 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             logger.warning("Scan fetch failed for website %s: %s", website.pk, e)
             return Response({"detail": "Could not reach the site. Check the domain is correct and publicly accessible."}, status=400)
 
-        # Extract external script src values
-        src_pattern = re.compile(r'<script[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
-        scripts = [
-            {"src": src, "location": "head", "async": False, "defer": False, "inline": False}
-            for src in dict.fromkeys(src_pattern.findall(html))  # deduplicate, preserve order
-        ]
+        script_urls = _extract_script_urls(html)
 
-        if not scripts:
+        if not script_urls:
             return Response({"detail": "No external scripts found on the page.", "count": 0})
+
+        scripts = [
+            {"src": src, "location": "unknown", "async": False, "defer": False, "inline": False}
+            for src in script_urls
+        ]
 
         from apps.scripts.tasks import process_ingest_payload
         from apps.site_health.tasks import run_security_scan
