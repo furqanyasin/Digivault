@@ -28,7 +28,7 @@ export function PhpErrorsTab({ errors }: Props) {
         <Bug className="h-10 w-10 text-muted-foreground" />
         <p className="font-medium">No PHP errors logged</p>
         <p className="text-sm text-muted-foreground max-w-sm">
-          Install the companion WordPress plugin to capture PHP errors and send them here automatically.
+          PHP errors will appear here once they are reported via the API.
         </p>
       </div>
     );

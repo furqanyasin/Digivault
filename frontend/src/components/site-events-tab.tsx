@@ -44,7 +44,7 @@ export function SiteEventsTab({ events }: Props) {
         <History className="h-10 w-10 text-muted-foreground" />
         <p className="font-medium">No change log entries yet</p>
         <p className="text-sm text-muted-foreground max-w-sm">
-          Events are logged automatically when your WordPress companion plugin detects plugin updates, theme changes, or deployments.
+          Site events such as plugin updates, theme changes, and deployments will appear here automatically.
         </p>
       </div>
     );

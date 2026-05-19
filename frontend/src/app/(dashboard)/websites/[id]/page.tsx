@@ -481,6 +481,7 @@ export default async function WebsiteDetailPage({
           </Card>
         </TabsContent>
 
+
         {/* ── PHP Errors ── */}
         <TabsContent value="php-errors">
           <Card>
