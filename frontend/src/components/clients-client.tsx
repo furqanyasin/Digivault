@@ -112,7 +112,7 @@ export function ClientsClient({ initialClients }: Props) {
       const data = await res.json();
       if (res.ok) {
         setImportMsg(`Imported: ${data.created} created, ${data.updated} updated, ${data.skipped} skipped.`);
-        fetchClients(1, pageSize, filter, statusFilter);
+        fetchClients(1, pageSize, "", statusFilter);
         setPage(1);
       } else {
         setImportMsg(data?.detail ?? "Import failed.");
