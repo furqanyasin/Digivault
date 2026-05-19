@@ -44,7 +44,14 @@ export default async function AlertsPage() {
   const token = await getAccessToken();
   const { notifications, rules, allChanges, websites } = await getData(token ?? "");
 
-  const pendingChanges = allChanges.filter((c) => !c.is_acknowledged);
+  const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
+  function isInternal(c: ScriptChange) {
+    const hit = (s?: string) => !!s && INTERNAL_DOMAINS.some((d) => s.includes(d));
+    return hit(c.script?.src_url) || hit(c.description);
+  }
+
+  const visibleChanges = allChanges.filter((c) => !isInternal(c));
+  const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
   const highCount = pendingChanges.filter((c) => c.severity === "high" || c.severity === "critical").length;
   const medCount = pendingChanges.filter((c) => c.severity === "medium").length;
 
@@ -84,7 +91,7 @@ export default async function AlertsPage() {
           <CardContent className="flex items-center gap-3 py-4">
             <CheckCircle className="h-6 w-6 text-emerald-500 shrink-0" />
             <div>
-              <p className="text-xl font-bold">{allChanges.length - pendingChanges.length}</p>
+              <p className="text-xl font-bold">{visibleChanges.length - pendingChanges.length}</p>
               <p className="text-xs text-muted-foreground">Acknowledged</p>
             </div>
           </CardContent>
