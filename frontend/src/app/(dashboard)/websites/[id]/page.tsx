@@ -121,7 +121,9 @@ export default async function WebsiteDetailPage({
     );
   }
 
-  const activeScripts = scripts.filter((s) => s.is_active);
+  const activeScripts = scripts.filter(
+    (s) => s.is_active && !s.src_url?.includes("digilaticsvps")
+  );
   const pendingChanges = changes.filter((c) => !c.is_acknowledged);
   const unknownScripts = activeScripts.filter((s) => s.provider === "unknown");
 
