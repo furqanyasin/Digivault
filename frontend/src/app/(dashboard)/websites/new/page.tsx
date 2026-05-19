@@ -29,7 +29,7 @@ export default function NewWebsitePage() {
   const [clients, setClients] = useState<ClientOption[]>([]);
 
   useEffect(() => {
-    fetch("/api/clients?page_size=500")
+    fetch("/api/clients?page_size=500&status=active")
       .then((r) => r.json())
       .then((data) => {
         const list = Array.isArray(data) ? data : (data.clients ?? data.results ?? []);
