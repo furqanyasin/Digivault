@@ -211,12 +211,12 @@ export default async function DashboardPage() {
                 <CardContent className="p-0">
                   {/* Domain header */}
                   <div className="flex items-center gap-2 px-4 py-2 border-b bg-red-50/50 dark:bg-red-950/20">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
                       alt=""
                       width={16} height={16}
-                      className="rounded-sm"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      className="rounded-sm opacity-80"
                     />
                     <span className="text-xs font-mono font-semibold">{domain}</span>
                     <Badge variant="destructive" className="ml-auto text-xs">{changes.length}</Badge>
@@ -277,7 +277,6 @@ export default async function DashboardPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {websites.map((site) => {
-              const sitePending = allChanges.filter((c) => !c.is_acknowledged && websites.find((w) => w.id === site.id));
               return (
                 <Card key={site.id} className="hover:border-primary/50 transition-colors">
                   <CardContent className="p-5 space-y-3">
