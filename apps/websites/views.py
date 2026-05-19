@@ -104,7 +104,6 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
 
         from apps.scripts.tasks import process_ingest_payload
         from apps.site_health.tasks import run_security_scan
-        from apps.site_health.models import SiteScanState
 
         payload = {
             "page_url": final_url,
