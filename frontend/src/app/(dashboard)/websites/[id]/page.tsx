@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, Script, ScriptChange, Credential, DomainInfo, PerformanceReport, CruxReport, DetectedForm, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopySnippet } from "@/components/copy-snippet";
-import { AcknowledgeButton } from "@/components/acknowledge-button";
 import { CredentialsTab } from "@/components/credentials-tab";
 import { RefreshDomainButton } from "@/components/refresh-domain-button";
 import { PerformanceTab } from "@/components/performance-tab";
@@ -20,6 +19,7 @@ import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
 import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
+import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string, id: string) {
@@ -59,6 +59,24 @@ function severityVariant(s: string): "destructive" | "warning" | "secondary" {
   if (s === "high" || s === "critical") return "destructive";
   if (s === "medium") return "warning";
   return "secondary";
+}
+
+const SEV_STRIPE: Record<string, string> = {
+  critical: "border-l-red-600",
+  high:     "border-l-red-400",
+  medium:   "border-l-amber-400",
+  low:      "border-l-blue-400",
+};
+
+function smartUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.split("/").filter(Boolean);
+    const filename = parts[parts.length - 1] ?? "";
+    return `${u.hostname}${filename ? `/${filename}` : ""}`;
+  } catch {
+    return url.length > 55 ? url.slice(0, 52) + "…" : url;
+  }
 }
 
 function providerVariant(p: string): "destructive" | "outline" {
@@ -131,27 +149,56 @@ export default async function WebsiteDetailPage({
         </Badge>
       </div>
 
-      {/* Stats row */}
+      {/* Stats row — clickable cards jump to filtered tabs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { icon: Code, value: activeScripts.length, label: "Active scripts", color: "text-blue-500" },
-          { icon: Clock, value: pendingChanges.length, label: "Pending changes", color: "text-amber-500" },
-          { icon: AlertTriangle, value: unknownScripts.length, label: "Unknown scripts", color: "text-red-500" },
-          { icon: Lock, value: credentials.length, label: "Saved credentials", color: "text-emerald-500" },
-        ].map(({ icon: Icon, value, label, color }) => (
-          <Card key={label}>
+        <Link href={`/websites/${id}?tab=scripts`}>
+          <Card className="hover:border-blue-400 border-l-4 border-l-blue-400 transition-colors cursor-pointer">
             <CardContent className="flex items-center gap-3 py-4">
-              <Icon className={`h-7 w-7 ${color} shrink-0`} />
+              <Code className="h-7 w-7 text-blue-500 shrink-0" />
               <div>
-                <p className="text-2xl font-bold">{value}</p>
-                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-2xl font-bold">{activeScripts.length}</p>
+                <p className="text-xs text-muted-foreground">Active scripts</p>
               </div>
             </CardContent>
           </Card>
-        ))}
+        </Link>
+        <Link href={`/websites/${id}?tab=overview`}>
+          <Card className={`border-l-4 transition-colors cursor-pointer ${pendingChanges.length > 0 ? "border-l-amber-400 hover:border-amber-500 bg-amber-50/40 dark:bg-amber-950/20" : "border-l-slate-200 dark:border-l-slate-700"}`}>
+            <CardContent className="flex items-center gap-3 py-4">
+              <Clock className={`h-7 w-7 shrink-0 ${pendingChanges.length > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+              <div>
+                <p className="text-2xl font-bold">{pendingChanges.length}</p>
+                <p className="text-xs text-muted-foreground">Pending changes</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href={`/websites/${id}?tab=scripts`}>
+          <Card className={`border-l-4 transition-colors cursor-pointer ${unknownScripts.length > 0 ? "border-l-red-500 hover:border-red-600 bg-red-50/40 dark:bg-red-950/20" : "border-l-slate-200 dark:border-l-slate-700"}`}>
+            <CardContent className="flex items-center gap-3 py-4">
+              <AlertTriangle className={`h-7 w-7 shrink-0 ${unknownScripts.length > 0 ? "text-red-500" : "text-muted-foreground"}`} />
+              <div>
+                <p className="text-2xl font-bold">{unknownScripts.length}</p>
+                <p className="text-xs text-muted-foreground">Unknown scripts</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href={`/websites/${id}?tab=credentials`}>
+          <Card className={`border-l-4 transition-colors cursor-pointer ${credentials.length === 0 ? "border-l-slate-200 dark:border-l-slate-700" : "border-l-emerald-500 hover:border-emerald-600"}`}>
+            <CardContent className="flex items-center gap-3 py-4">
+              <Lock className={`h-7 w-7 shrink-0 ${credentials.length > 0 ? "text-emerald-500" : "text-muted-foreground"}`} />
+              <div>
+                <p className="text-2xl font-bold">{credentials.length}</p>
+                <p className="text-xs text-muted-foreground">
+                  {credentials.length === 0 ? "No credentials" : "Saved credentials"}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
-      {/* Tabs - using defaultValue driven by URL searchParam */}
       <Tabs defaultValue={tab}>
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview" asChild>
@@ -170,7 +217,9 @@ export default async function WebsiteDetailPage({
             <Link href={`/websites/${id}?tab=access`} prefetch>Access & Domain</Link>
           </TabsTrigger>
           <TabsTrigger value="credentials" asChild>
-            <Link href={`/websites/${id}?tab=credentials`} prefetch>Credentials ({credentials.length})</Link>
+            <Link href={`/websites/${id}?tab=credentials`} prefetch>
+              Credentials {credentials.length === 0 ? <span className="ml-1 text-muted-foreground text-xs">Add one →</span> : `(${credentials.length})`}
+            </Link>
           </TabsTrigger>
           <TabsTrigger value="performance" asChild>
             <Link href={`/websites/${id}?tab=performance`} prefetch>Performance</Link>
@@ -187,70 +236,40 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="security" asChild>
             <Link href={`/websites/${id}?tab=security`} prefetch>Security {vulns.length > 0 ? `(${vulns.length})` : ""}</Link>
           </TabsTrigger>
+          <TabsTrigger value="setup" asChild>
+            <Link href={`/websites/${id}?tab=setup`} prefetch>
+              <Settings className="h-3.5 w-3.5 mr-1" />Setup
+            </Link>
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Overview ── */}
         <TabsContent value="overview" className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Code className="h-4 w-4" />
-                Tracking Snippet
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Paste this in the <code className="bg-muted px-1 rounded">&lt;head&gt;</code> of every page you want to monitor.
-              </p>
-              <CopySnippet snippet={website.snippet_html ?? ""} siteId={website.site_id} />
-              <VerifySnippetButton websiteId={website.id} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Pending Changes {pendingChanges.length > 0 && `(${pendingChanges.length})`}
+              <CardTitle className="text-base flex items-center justify-between">
+                <span>Pending Changes {pendingChanges.length > 0 && <span className="text-amber-500 ml-1">({pendingChanges.length})</span>}</span>
+                {pendingChanges.length > 0 && (
+                  <Link href={`/websites/${id}?tab=changelog`} className="text-xs font-normal text-muted-foreground hover:text-foreground">
+                    View full log →
+                  </Link>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {pendingChanges.length === 0 ? (
-                <div className="p-8 flex flex-col items-center gap-2 text-center">
-                  <CheckCircle className="h-8 w-8 text-emerald-500" />
-                  <p className="font-medium text-sm">No pending changes</p>
-                  <p className="text-xs text-muted-foreground">All changes have been acknowledged</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Script</TableHead>
-                      <TableHead>Severity</TableHead>
-                      <TableHead>Detected</TableHead>
-                      <TableHead />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pendingChanges.slice(0, 5).map((change) => (
-                      <TableRow key={change.id}>
-                        <TableCell className="capitalize font-medium text-sm">{change.change_type}</TableCell>
-                        <TableCell className="font-mono text-xs max-w-[180px] truncate">{change.script?.src_url ?? "—"}</TableCell>
-                        <TableCell><Badge variant={severityVariant(change.severity)}>{change.severity}</Badge></TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{fmtDate(change.created_at)}</TableCell>
-                        <TableCell><AcknowledgeButton changeId={change.id} /></TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+              <BulkPendingChanges changes={pendingChanges.slice(0, 10)} websiteId={id} />
             </CardContent>
           </Card>
 
           {activeScripts.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Top Scripts</CardTitle>
+                <CardTitle className="text-base flex items-center justify-between">
+                  Top Scripts
+                  <Link href={`/websites/${id}?tab=scripts`} className="text-xs font-normal text-muted-foreground hover:text-foreground">
+                    View all {activeScripts.length} →
+                  </Link>
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <Table>
@@ -266,7 +285,9 @@ export default async function WebsiteDetailPage({
                       <TableRow key={script.id}>
                         <TableCell><Badge variant={providerVariant(script.provider)}>{script.provider}</Badge></TableCell>
                         <TableCell className="text-sm">{script.category || "—"}</TableCell>
-                        <TableCell className="font-mono text-xs max-w-[280px] truncate text-muted-foreground">{script.src_url}</TableCell>
+                        <TableCell className="font-mono text-xs max-w-[280px] text-muted-foreground" title={script.src_url}>
+                          {smartUrl(script.src_url)}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -404,21 +425,24 @@ export default async function WebsiteDetailPage({
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[5px] p-0" />
                       <TableHead>Severity</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Script</TableHead>
                       <TableHead>Description</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Detected</TableHead>
-                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {changes.map((change) => (
-                      <TableRow key={change.id}>
-                        <TableCell><Badge variant={severityVariant(change.severity)}>{change.severity}</Badge></TableCell>
+                      <TableRow key={change.id} className={`border-l-4 ${SEV_STRIPE[change.severity] ?? "border-l-transparent"}`}>
+                        <TableCell className="p-0" />
+                        <TableCell><Badge variant={severityVariant(change.severity)} className="capitalize">{change.severity}</Badge></TableCell>
                         <TableCell className="capitalize font-medium text-sm">{change.change_type}</TableCell>
-                        <TableCell className="font-mono text-xs max-w-[160px] truncate">{change.script?.src_url ?? "—"}</TableCell>
+                        <TableCell className="font-mono text-xs max-w-[200px]" title={change.script?.src_url}>
+                          {change.script?.src_url ? smartUrl(change.script.src_url) : "—"}
+                        </TableCell>
                         <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{change.description}</TableCell>
                         <TableCell>
                           {change.is_acknowledged ? (
@@ -429,10 +453,7 @@ export default async function WebsiteDetailPage({
                             <span className="text-xs text-amber-600">Pending</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{fmtDate(change.created_at)}</TableCell>
-                        <TableCell>
-                          {!change.is_acknowledged && <AcknowledgeButton changeId={change.id} />}
-                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(change.created_at)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -441,6 +462,7 @@ export default async function WebsiteDetailPage({
             </CardContent>
           </Card>
         </TabsContent>
+
         {/* ── PHP Errors ── */}
         <TabsContent value="php-errors">
           <Card>
@@ -457,7 +479,7 @@ export default async function WebsiteDetailPage({
         <TabsContent value="site-events">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Change Log</CardTitle>
+              <CardTitle className="text-base">Site Events</CardTitle>
             </CardHeader>
             <CardContent className="p-0 px-4 pb-4">
               <SiteEventsTab events={siteEvents} />
@@ -475,6 +497,30 @@ export default async function WebsiteDetailPage({
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Setup ── */}
+        <TabsContent value="setup" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Code className="h-4 w-4" />
+                Tracking Snippet
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Paste this in the <code className="bg-muted px-1 rounded">&lt;head&gt;</code> of every page you want to monitor.
+              </p>
+              <CopySnippet snippet={website.snippet_html ?? ""} siteId={website.site_id} />
+              <VerifySnippetButton websiteId={website.id} />
+            </CardContent>
+          </Card>
+          {website.last_seen_at && (
+            <p className="text-xs text-muted-foreground px-1">
+              Last data received: {fmtDateTime(website.last_seen_at)}
+            </p>
+          )}
         </TabsContent>
       </Tabs>
     </div>

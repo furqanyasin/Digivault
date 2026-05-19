@@ -7,6 +7,7 @@ import { ChatWidget } from "@/components/chat-widget";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Team, User } from "@/lib/api";
+import { GlobalSearch } from "@/components/global-search";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -42,6 +43,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <TeamSwitcher teams={teams} activeTeamId={user?.active_team ?? null} />
           </div>
         )}
+
+        <div className="border-b py-1">
+          <GlobalSearch />
+        </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
           {navItems.map(({ href, label, icon: Icon }) => (
