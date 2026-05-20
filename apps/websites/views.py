@@ -39,6 +39,8 @@ def _extract_script_urls(html: str) -> list[str]:
 
     def add(url: str) -> None:
         url = url.strip()
+        if url.startswith("//"):
+            url = "https:" + url
         if url and url not in seen:
             seen.add(url)
             urls.append(url)
@@ -133,9 +135,12 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             state, _ = SiteScanState.objects.get_or_create(website=website)
             return Response(SiteScanStateSerializer(state).data)
 
+        import secrets as _secrets
         import requests as _requests
 
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
+        bust = _secrets.token_hex(8)
+        fetch_url = f"{url}{'&' if '?' in url else '?'}_dvv={bust}"
 
         _BROWSER_HEADERS = {
             "User-Agent": (
@@ -146,13 +151,16 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
             "Accept-Encoding": "gzip, deflate, br",
+            "Cache-Control": "no-cache, no-store",
+            "Pragma": "no-cache",
         }
 
         try:
-            resp = _requests.get(url, headers=_BROWSER_HEADERS, timeout=20, allow_redirects=True)
+            resp = _requests.get(fetch_url, headers=_BROWSER_HEADERS, timeout=20, allow_redirects=True)
             resp.raise_for_status()
             html = resp.text
-            final_url = resp.url
+            # Strip the cache-buster from the stored page URL.
+            final_url = resp.url.replace(f"_dvv={bust}", "").rstrip("?&")
         except _requests.HTTPError as e:
             return Response({"detail": f"Could not fetch the page (HTTP {e.response.status_code})."}, status=400)
         except Exception as e:
@@ -193,16 +201,25 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     @action(detail=True, methods=["post"], url_path="verify-snippet")
     def verify_snippet(self, request, pk=None):
         """Fetch the website URL and confirm the tracking snippet is present."""
+        import secrets as _secrets
         import requests as _requests
 
         website = self.get_object()
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
         marker = f'data-site="{website.site_id}"'
 
+        # Append a random cache-buster so CDNs/proxies return a fresh response.
+        bust = _secrets.token_hex(8)
+        fetch_url = f"{url}{'&' if '?' in url else '?'}_dvv={bust}"
+
         try:
             resp = _requests.get(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; Digivault-Verifier/1.0)"},
+                fetch_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; Digivault-Verifier/1.0)",
+                    "Cache-Control": "no-cache, no-store",
+                    "Pragma": "no-cache",
+                },
                 timeout=15,
                 allow_redirects=True,
             )
