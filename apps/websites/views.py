@@ -49,11 +49,17 @@ def _extract_script_urls(html: str) -> list[str]:
     for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE):
         add(src)
 
-    # 2. Google Tag Manager — extract container ID from IIFE args or any quoted literal
-    for gtm_id in re.findall(r"""['"]dataLayer['"],\s*['"]( GTM-\w+)['"]""", html):
-        add(f"https://www.googletagmanager.com/gtm.js?id={gtm_id.strip()}")
-    for gtm_id in re.findall(r"""['"](GTM-[A-Z0-9]+)['"]""", html):
+    # 2. Google Tag Manager — GTM container ID in IIFE args or any quoted literal
+    for gtm_id in re.findall(r"""['"](GTM-[A-Z0-9]+)['"]""", html, re.IGNORECASE):
         add(f"https://www.googletagmanager.com/gtm.js?id={gtm_id}")
+
+    # 2b. Google Analytics 4 — gtag/js URL (no .js extension, not caught by regex #7)
+    # Covers both static <script src="...gtag/js?id=G-..."> and inline references.
+    for ga_id in re.findall(r'googletagmanager\.com/gtag/js\?id=([A-Z0-9_-]+)', html, re.IGNORECASE):
+        add(f"https://www.googletagmanager.com/gtag/js?id={ga_id}")
+    # Also catch bare measurement IDs in gtag('config', 'G-XXXX') calls
+    for ga_id in re.findall(r"""gtag\s*\(\s*['"]config['"]\s*,\s*['"]([A-Z0-9_-]+)['"]""", html, re.IGNORECASE):
+        add(f"https://www.googletagmanager.com/gtag/js?id={ga_id}")
 
     # 3. Meta / Facebook Pixel — fbevents.js injected by the loader IIFE
     if re.search(r'connect\.facebook\.net', html, re.IGNORECASE):
