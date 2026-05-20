@@ -210,6 +210,12 @@ class AcknowledgeChangeView(APIView):
         change.acknowledged_at = timezone.now()
         change.acknowledged_by = request.user
         change.save(update_fields=["acknowledged_at", "acknowledged_by"])
+
+        # Recalculate website status immediately so the dashboard reflects
+        # the acknowledgement without waiting for the next ingest.
+        from apps.scripts.tasks import _update_website_status
+        _update_website_status(change.website)
+
         return Response(ScriptChangeSerializer(change).data)
 
 
