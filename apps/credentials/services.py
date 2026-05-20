@@ -25,7 +25,6 @@ class CredentialService:
     @staticmethod
     @transaction.atomic
     def create(
-        website,
         label: str,
         credential_type: str,
         login_url: str,
@@ -33,8 +32,15 @@ class CredentialService:
         password: str,
         notes: str,
         created_by,
+        team=None,
+        website=None,
     ) -> Credential:
+        if team is None:
+            if website is None:
+                raise ValueError("Either team or website must be provided.")
+            team = website.team
         credential = Credential(
+            team=team,
             website=website,
             label=label,
             credential_type=credential_type,
@@ -100,7 +106,7 @@ class CredentialService:
 
     @classmethod
     def _assert_can_reveal(cls, credential: Credential, user) -> None:
-        team = credential.website.team
+        team = credential.team
         try:
             membership = TeamMembership.objects.get(user=user, team=team)
         except TeamMembership.DoesNotExist:

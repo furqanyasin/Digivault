@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import Link from "next/link";
 import {
   Lock, ExternalLink, Pencil, Trash2, Plus,
-  Eye, EyeOff, Copy, Search, X, KeyRound,
+  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,31 +20,51 @@ import type { Credential, Website } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CREDENTIAL_TYPES = [
+const WEBSITE_TYPES = [
   { value: "wordpress",  label: "WordPress Admin" },
-  { value: "cpanel",     label: "cPanel / Hosting" },
+  { value: "wix",        label: "Wix" },
+  { value: "webflow",    label: "Webflow" },
+  { value: "framer",     label: "Framer" },
+  { value: "shopify",    label: "Shopify" },
+  { value: "custom",     label: "Custom / Other" },
+];
+
+const HOSTING_TYPES = [
+  { value: "siteground", label: "SiteGround" },
+  { value: "cpanel",     label: "cPanel" },
   { value: "godaddy",    label: "GoDaddy" },
   { value: "namecheap",  label: "Namecheap" },
   { value: "hostinger",  label: "Hostinger" },
+  { value: "bluehost",   label: "Bluehost" },
+  { value: "wpengine",   label: "WP Engine" },
+  { value: "kinsta",     label: "Kinsta" },
   { value: "cloudflare", label: "Cloudflare" },
   { value: "ftp",        label: "FTP / SFTP" },
-  { value: "wix",        label: "Wix" },
-  { value: "webflow",    label: "Webflow" },
-  { value: "shopify",    label: "Shopify" },
-  { value: "custom",     label: "Custom" },
+  { value: "custom",     label: "Custom / Other" },
 ];
+
+const ALL_TYPES = [...WEBSITE_TYPES, ...HOSTING_TYPES].filter(
+  (t, i, arr) => arr.findIndex((x) => x.value === t.value) === i
+);
+
+const HOSTING_TYPE_VALUES = new Set(HOSTING_TYPES.map((t) => t.value));
 
 const TYPE_GRADIENTS: Record<string, string> = {
   wordpress:  "from-blue-500 to-indigo-600",
   cpanel:     "from-orange-500 to-red-500",
   godaddy:    "from-green-500 to-emerald-600",
-  cloudflare: "from-amber-400 to-orange-500",
-  ftp:        "from-purple-500 to-violet-600",
-  shopify:    "from-emerald-500 to-teal-600",
   namecheap:  "from-red-500 to-rose-600",
   hostinger:  "from-violet-500 to-purple-600",
+  cloudflare: "from-amber-400 to-orange-500",
+  ftp:        "from-purple-500 to-violet-600",
   wix:        "from-slate-600 to-slate-800",
   webflow:    "from-indigo-500 to-blue-600",
+  framer:     "from-pink-500 to-rose-600",
+  shopify:    "from-emerald-500 to-teal-600",
+  siteground: "from-sky-500 to-blue-600",
+  bluehost:   "from-blue-600 to-indigo-700",
+  wpengine:   "from-teal-500 to-cyan-600",
+  kinsta:     "from-fuchsia-500 to-purple-600",
   custom:     "from-slate-400 to-slate-600",
 };
 
@@ -60,40 +79,37 @@ const TYPE_BADGE: Record<string, string> = {
   hostinger:  "bg-violet-50 text-violet-700 border-violet-200",
   wix:        "bg-slate-50 text-slate-700 border-slate-200",
   webflow:    "bg-indigo-50 text-indigo-700 border-indigo-200",
+  framer:     "bg-pink-50 text-pink-700 border-pink-200",
+  siteground: "bg-sky-50 text-sky-700 border-sky-200",
+  bluehost:   "bg-blue-50 text-blue-700 border-blue-200",
+  wpengine:   "bg-teal-50 text-teal-700 border-teal-200",
+  kinsta:     "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
   custom:     "bg-slate-50 text-slate-600 border-slate-200",
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface FlatCred { cred: Credential; site: Website }
 interface RevealData { username: string; password: string; notes: string }
 
 function typeLabel(t: string) {
-  return CREDENTIAL_TYPES.find((x) => x.value === t)?.label ?? t;
+  return ALL_TYPES.find((x) => x.value === t)?.label ?? t;
 }
-
-function gradient(t: string) {
-  return TYPE_GRADIENTS[t] ?? "from-slate-400 to-slate-600";
-}
-
-function badge(t: string) {
-  return TYPE_BADGE[t] ?? "bg-slate-50 text-slate-600 border-slate-200";
-}
+function gradient(t: string) { return TYPE_GRADIENTS[t] ?? "from-slate-400 to-slate-600"; }
+function badge(t: string) { return TYPE_BADGE[t] ?? "bg-slate-50 text-slate-600 border-slate-200"; }
 
 // ─── Credential card ──────────────────────────────────────────────────────────
 
-function CredCard({ flat, onView, onDelete }: {
-  flat: FlatCred;
+function CredCard({ cred, subtitle, onView, onDelete }: {
+  cred: Credential;
+  subtitle: string;
   onView: () => void;
   onDelete: () => void;
 }) {
-  const { cred, site } = flat;
   return (
     <div
       className="group border rounded-xl overflow-hidden bg-card hover:shadow-lg transition-all cursor-pointer select-none"
       onClick={onView}
     >
-      {/* Coloured header */}
       <div className={`relative h-[72px] bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center`}>
         <Lock className="h-8 w-8 text-white/75" />
         {cred.login_url && (
@@ -111,14 +127,10 @@ function CredCard({ flat, onView, onDelete }: {
           </div>
         )}
       </div>
-
-      {/* Body */}
       <div className="px-3 pt-2.5 pb-1">
         <p className="font-semibold text-sm truncate">{cred.label}</p>
-        <p className="text-xs text-muted-foreground truncate mt-0.5">{site.name || site.domain}</p>
+        <p className="text-xs text-muted-foreground truncate mt-0.5">{subtitle}</p>
       </div>
-
-      {/* Footer */}
       <div className="px-3 pb-2.5 flex items-center gap-1.5 mt-1">
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${badge(cred.credential_type)}`}>
           {typeLabel(cred.credential_type)}
@@ -148,19 +160,17 @@ function CredCard({ flat, onView, onDelete }: {
 
 // ─── Detail / edit modal ──────────────────────────────────────────────────────
 
-function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
-  flat: FlatCred;
+function CredentialModal({ cred, subtitle, onClose, onDeleted, onUpdated }: {
+  cred: Credential;
+  subtitle: string;
   onClose: () => void;
   onDeleted: () => void;
   onUpdated: (updated: Credential) => void;
 }) {
   const { toast } = useToast();
-  const { cred, site } = flat;
-
   const [revealed, setRevealed] = useState<RevealData | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [revealLoading, setRevealLoading] = useState(false);
-
   const [editMode, setEditMode] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [form, setForm] = useState({
@@ -171,13 +181,10 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
     password: "",
     notes: "",
   });
-
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  function upd(k: string, v: string) {
-    setForm((f) => ({ ...f, [k]: v }));
-  }
+  function upd(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function handleReveal() {
     if (revealed) { setShowPw((v) => !v); return; }
@@ -240,10 +247,11 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
     toast({ title: `${label} copied` });
   }
 
+  const typeList = cred.website_id ? WEBSITE_TYPES : HOSTING_TYPES;
+
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
-        {/* Coloured header */}
         <div className={`h-24 bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center relative`}>
           <Lock className="h-10 w-10 text-white/75" />
           {!editMode && (
@@ -258,14 +266,9 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Title + meta */}
           <div>
             {editMode ? (
-              <Input
-                value={form.label}
-                onChange={(e) => upd("label", e.target.value)}
-                className="font-semibold text-base mb-2"
-              />
+              <Input value={form.label} onChange={(e) => upd("label", e.target.value)} className="font-semibold text-base mb-2" />
             ) : (
               <h2 className="font-bold text-xl leading-tight">{cred.label}</h2>
             )}
@@ -274,7 +277,7 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
                 <Select value={form.credential_type} onValueChange={(v) => upd("credential_type", v)}>
                   <SelectTrigger className="h-7 text-xs w-44"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {CREDENTIAL_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    {typeList.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               ) : (
@@ -282,20 +285,14 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
                   {typeLabel(cred.credential_type)}
                 </span>
               )}
-              <span className="text-xs text-muted-foreground">{site.name || site.domain}</span>
+              <span className="text-xs text-muted-foreground">{subtitle}</span>
             </div>
           </div>
 
-          {/* Login URL */}
           <div>
             <Label className="text-xs text-muted-foreground uppercase tracking-wide">Login URL</Label>
             {editMode ? (
-              <Input
-                value={form.login_url}
-                onChange={(e) => upd("login_url", e.target.value)}
-                placeholder="https://example.com/wp-admin"
-                className="mt-1"
-              />
+              <Input value={form.login_url} onChange={(e) => upd("login_url", e.target.value)} placeholder="https://…" className="mt-1" />
             ) : (
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-sm font-mono flex-1 truncate text-muted-foreground">
@@ -312,7 +309,6 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
             )}
           </div>
 
-          {/* Credentials section */}
           {!revealed && !editMode ? (
             <div className="border rounded-lg p-3 flex items-center gap-3 bg-muted/30">
               <div className="flex-1">
@@ -326,7 +322,6 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Username */}
               <div>
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Username</Label>
                 {editMode ? (
@@ -343,7 +338,6 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
                 )}
               </div>
 
-              {/* Password */}
               <div>
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Password</Label>
                 {editMode ? (
@@ -365,7 +359,6 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
                 )}
               </div>
 
-              {/* Notes */}
               {(revealed?.notes || editMode) && (
                 <div>
                   <Label className="text-xs text-muted-foreground uppercase tracking-wide">Notes</Label>
@@ -379,7 +372,6 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
             </div>
           )}
 
-          {/* Action row */}
           <div className="flex items-center gap-2 pt-1 border-t">
             {editMode ? (
               <>
@@ -388,8 +380,7 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
               </>
             ) : !deleteConfirm ? (
               <Button
-                variant="ghost"
-                size="sm"
+                variant="ghost" size="sm"
                 className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-auto"
                 onClick={() => setDeleteConfirm(true)}
               >
@@ -411,57 +402,19 @@ function CredentialModal({ flat, onClose, onDeleted, onUpdated }: {
   );
 }
 
-// ─── Quick-delete confirm ─────────────────────────────────────────────────────
-
-function DeleteConfirmModal({ flat, onClose, onDeleted }: {
-  flat: FlatCred;
-  onClose: () => void;
-  onDeleted: () => void;
-}) {
-  const { toast } = useToast();
-  const [deleting, setDeleting] = useState(false);
-
-  async function handleDelete() {
-    setDeleting(true);
-    try {
-      const res = await fetch(`/api/credentials/${flat.cred.id}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) { toast({ variant: "destructive", title: "Failed to delete" }); return; }
-      toast({ title: "Credential deleted" });
-      onDeleted();
-    } catch {
-      toast({ variant: "destructive", title: "Network error" });
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  return (
-    <Dialog open onOpenChange={onClose}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Delete credential?</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          This will permanently delete <strong>{flat.cred.label}</strong> from {flat.site.name || flat.site.domain}.
-        </p>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={deleting}>Cancel</Button>
-          <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
-            {deleting ? "Deleting…" : "Delete"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ─── Add new credential modal ─────────────────────────────────────────────────
 
-function AddItemModal({ websites, onClose, onAdded }: {
+type Section = "website" | "hosting";
+
+function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
   websites: Website[];
+  defaultSection: Section;
   onClose: () => void;
-  onAdded: (websiteId: string, cred: Credential) => void;
+  onAdded: (cred: Credential) => void;
 }) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [section, setSection] = useState<Section>(defaultSection);
   const [form, setForm] = useState({
     website_id: "",
     label: "",
@@ -474,20 +427,35 @@ function AddItemModal({ websites, onClose, onAdded }: {
 
   function upd(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
+  const typeOptions = section === "website" ? WEBSITE_TYPES : HOSTING_TYPES;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.website_id) { toast({ variant: "destructive", title: "Select a website" }); return; }
+    if (section === "website" && !form.website_id) {
+      toast({ variant: "destructive", title: "Select a website" });
+      return;
+    }
     setLoading(true);
     try {
-      const res = await fetch(`/api/websites/${form.website_id}/credentials`, {
+      const body: Record<string, string | null> = {
+        label: form.label,
+        credential_type: form.credential_type || (section === "website" ? "wordpress" : "siteground"),
+        login_url: form.login_url,
+        username: form.username,
+        password: form.password,
+        notes: form.notes,
+        website_id: section === "website" ? form.website_id : null,
+      };
+
+      const res = await fetch("/api/credentials", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { toast({ variant: "destructive", title: "Failed to save credential" }); return; }
       const created: Credential = await res.json();
       toast({ title: "Credential saved" });
-      onAdded(form.website_id, created);
+      onAdded(created);
       onClose();
     } catch {
       toast({ variant: "destructive", title: "Network error" });
@@ -500,35 +468,76 @@ function AddItemModal({ websites, onClose, onAdded }: {
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>New credential</DialogTitle></DialogHeader>
+
+        {/* Section toggle */}
+        <div className="flex rounded-lg border p-1 gap-1">
+          <button
+            type="button"
+            onClick={() => setSection("website")}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-md py-2 text-sm font-medium transition-colors ${
+              section === "website" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
+            }`}
+          >
+            <Globe className="h-4 w-4" />Website Login
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection("hosting")}
+            className={`flex-1 flex items-center justify-center gap-2 rounded-md py-2 text-sm font-medium transition-colors ${
+              section === "hosting" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
+            }`}
+          >
+            <Server className="h-4 w-4" />Hosting / General
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Website</Label>
-            <Select value={form.website_id} onValueChange={(v) => upd("website_id", v)}>
-              <SelectTrigger><SelectValue placeholder="Select website" /></SelectTrigger>
-              <SelectContent>
-                {websites.map((w) => (
-                  <SelectItem key={w.id} value={w.id}>{w.name || w.domain}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {section === "website" && (
+            <div className="space-y-1.5">
+              <Label>Website</Label>
+              <Select value={form.website_id} onValueChange={(v) => upd("website_id", v)}>
+                <SelectTrigger><SelectValue placeholder="Select website" /></SelectTrigger>
+                <SelectContent>
+                  {websites.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>{w.name || w.domain}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label>Label</Label>
-            <Input placeholder="e.g. WordPress Admin" value={form.label} onChange={(e) => upd("label", e.target.value)} required />
+            <Input
+              placeholder={section === "website" ? "e.g. WordPress Admin" : "e.g. SiteGround Account"}
+              value={form.label}
+              onChange={(e) => upd("label", e.target.value)}
+              required
+            />
           </div>
+
           <div className="space-y-1.5">
             <Label>Type</Label>
-            <Select value={form.credential_type} onValueChange={(v) => upd("credential_type", v)}>
+            <Select
+              value={form.credential_type}
+              onValueChange={(v) => upd("credential_type", v)}
+            >
               <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
               <SelectContent>
-                {CREDENTIAL_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                {typeOptions.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
+
           <div className="space-y-1.5">
             <Label>Login URL</Label>
-            <Input placeholder="https://example.com/wp-admin" value={form.login_url} onChange={(e) => upd("login_url", e.target.value)} />
+            <Input
+              placeholder={section === "hosting" ? "https://my.siteground.com" : "https://example.com/wp-admin"}
+              value={form.login_url}
+              onChange={(e) => upd("login_url", e.target.value)}
+            />
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Username</Label>
@@ -539,10 +548,12 @@ function AddItemModal({ websites, onClose, onAdded }: {
               <Input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} required />
             </div>
           </div>
+
           <div className="space-y-1.5">
             <Label>Notes <span className="text-muted-foreground">(optional)</span></Label>
             <Textarea placeholder="2FA codes, account email…" value={form.notes} onChange={(e) => upd("notes", e.target.value)} rows={2} />
           </div>
+
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
             <Button type="submit" disabled={loading}>{loading ? "Saving…" : "Save"}</Button>
@@ -553,45 +564,42 @@ function AddItemModal({ websites, onClose, onAdded }: {
   );
 }
 
-// ─── Empty states ──────────────────────────────────────────────────────────────
+// ─── Section header ───────────────────────────────────────────────────────────
 
-function EmptyState({ type, onAdd, onClear }: {
-  type: "no-websites" | "no-creds" | "no-results";
-  onAdd?: () => void;
-  onClear?: () => void;
+function SectionHeader({ icon: Icon, title, count, onAdd }: {
+  icon: React.ElementType;
+  title: string;
+  count: number;
+  onAdd: () => void;
 }) {
-  if (type === "no-websites") {
-    return (
-      <div className="border rounded-xl py-16 flex flex-col items-center gap-3 text-center">
-        <KeyRound className="h-10 w-10 text-muted-foreground opacity-40" />
-        <p className="font-medium">No websites yet</p>
-        <p className="text-sm text-muted-foreground">Add a website first, then store credentials here.</p>
-        <Link href="/websites/new">
-          <Button variant="outline" size="sm" className="mt-1">Add website</Button>
-        </Link>
-      </div>
-    );
-  }
-  if (type === "no-creds") {
-    return (
-      <div className="border rounded-xl py-20 flex flex-col items-center gap-3 text-center">
-        <KeyRound className="h-12 w-12 text-muted-foreground opacity-30" />
-        <p className="font-semibold text-lg">Your vault is empty</p>
-        <p className="text-sm text-muted-foreground max-w-xs">
-          Store logins for WordPress, cPanel, GoDaddy, Cloudflare, and more — all in one place.
-        </p>
-        <Button variant="outline" size="sm" className="mt-1" onClick={onAdd}>
-          <Plus className="h-3.5 w-3.5 mr-1" />Add first credential
-        </Button>
-      </div>
-    );
-  }
   return (
-    <div className="border rounded-xl py-16 flex flex-col items-center gap-3 text-center">
-      <Search className="h-10 w-10 text-muted-foreground opacity-40" />
-      <p className="font-medium">No results</p>
-      <p className="text-sm text-muted-foreground">Try a different search or filter.</p>
-      <Button variant="outline" size="sm" className="mt-1" onClick={onClear}>Clear filters</Button>
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2.5">
+        <div className="p-1.5 rounded-lg bg-muted">
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-base">{title}</h2>
+          <p className="text-xs text-muted-foreground">{count} saved</p>
+        </div>
+      </div>
+      <Button size="sm" variant="outline" onClick={onAdd}>
+        <Plus className="h-3.5 w-3.5 mr-1" />Add
+      </Button>
+    </div>
+  );
+}
+
+// ─── Empty section state ──────────────────────────────────────────────────────
+
+function SectionEmpty({ label, onAdd }: { label: string; onAdd: () => void }) {
+  return (
+    <div className="border rounded-xl py-10 flex flex-col items-center gap-2 text-center">
+      <KeyRound className="h-8 w-8 text-muted-foreground opacity-30" />
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <Button size="sm" variant="ghost" onClick={onAdd}>
+        <Plus className="h-3.5 w-3.5 mr-1" />Add one
+      </Button>
     </div>
   );
 }
@@ -599,162 +607,185 @@ function EmptyState({ type, onAdd, onClear }: {
 // ─── Main vault client ─────────────────────────────────────────────────────────
 
 export function CredentialsVaultClient({
+  initialCredentials,
   websites,
-  credsByWebsite: initialCredsByWebsite,
 }: {
+  initialCredentials: Credential[];
   websites: Website[];
-  credsByWebsite: Record<string, Credential[]>;
 }) {
-  const [credsByWebsite, setCredsByWebsite] = useState(initialCredsByWebsite);
+  const [credentials, setCredentials] = useState(initialCredentials);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [selected, setSelected] = useState<FlatCred | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<FlatCred | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
+  const [selected, setSelected] = useState<Credential | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null);
+  const [addSection, setAddSection] = useState<Section | null>(null);
 
-  const allCreds = useMemo<FlatCred[]>(
-    () =>
-      websites.flatMap((site) =>
-        (credsByWebsite[site.id] ?? []).map((cred) => ({ cred, site }))
-      ),
-    [websites, credsByWebsite]
-  );
+  const websiteCreds = useMemo(() => credentials.filter((c) => c.website_id !== null), [credentials]);
+  const hostingCreds = useMemo(() => credentials.filter((c) => c.website_id === null), [credentials]);
 
   const filtered = useMemo(() => {
-    let result = allCreds;
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        ({ cred, site }) =>
-          cred.label.toLowerCase().includes(q) ||
-          (site.name ?? "").toLowerCase().includes(q) ||
-          site.domain.toLowerCase().includes(q)
-      );
-    }
-    if (typeFilter !== "all") {
-      result = result.filter(({ cred }) => cred.credential_type === typeFilter);
-    }
-    return result;
-  }, [allCreds, search, typeFilter]);
+    if (!search) return { website: websiteCreds, hosting: hostingCreds };
+    const q = search.toLowerCase();
+    const match = (c: Credential) =>
+      c.label.toLowerCase().includes(q) ||
+      (c.website_name ?? "").toLowerCase().includes(q) ||
+      c.credential_type.toLowerCase().includes(q);
+    return { website: websiteCreds.filter(match), hosting: hostingCreds.filter(match) };
+  }, [search, websiteCreds, hostingCreds]);
 
-  function handleDeleted(flat: FlatCred) {
-    setCredsByWebsite((prev) => ({
-      ...prev,
-      [flat.site.id]: (prev[flat.site.id] ?? []).filter((c) => c.id !== flat.cred.id),
-    }));
+  function credSubtitle(c: Credential) {
+    return c.website_name ?? typeLabel(c.credential_type);
+  }
+
+  function handleAdded(cred: Credential) {
+    setCredentials((prev) => [cred, ...prev]);
+  }
+
+  function handleDeleted(id: string) {
+    setCredentials((prev) => prev.filter((c) => c.id !== id));
     setSelected(null);
     setDeleteTarget(null);
   }
 
-  function handleUpdated(flat: FlatCred, updated: Credential) {
-    setCredsByWebsite((prev) => ({
-      ...prev,
-      [flat.site.id]: (prev[flat.site.id] ?? []).map((c) => (c.id === updated.id ? updated : c)),
-    }));
-    setSelected((prev) => (prev ? { ...prev, cred: updated } : null));
+  function handleUpdated(updated: Credential) {
+    setCredentials((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    setSelected((prev) => (prev?.id === updated.id ? updated : prev));
   }
 
-  function handleAdded(websiteId: string, cred: Credential) {
-    setCredsByWebsite((prev) => ({
-      ...prev,
-      [websiteId]: [...(prev[websiteId] ?? []), cred],
-    }));
+  async function confirmDelete(cred: Credential) {
+    try {
+      const res = await fetch(`/api/credentials/${cred.id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) handleDeleted(cred.id);
+    } catch { /* ignore */ }
+    setDeleteTarget(null);
   }
 
-  const totalCreds = allCreds.length;
-  const sitesWithCreds = websites.filter((s) => (credsByWebsite[s.id]?.length ?? 0) > 0).length;
+  const totalCreds = credentials.length;
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-8 space-y-8">
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Vault</h1>
           <p className="text-muted-foreground mt-1">
             {totalCreds > 0
-              ? `${totalCreds} credential${totalCreds !== 1 ? "s" : ""} across ${sitesWithCreds} site${sitesWithCreds !== 1 ? "s" : ""}`
-              : "Securely stored logins — managed per website"}
+              ? `${totalCreds} credential${totalCreds !== 1 ? "s" : ""} — encrypted and secured`
+              : "Securely store all your logins in one place"}
           </p>
         </div>
-        {websites.length > 0 && (
-          <Button onClick={() => setAddOpen(true)}>
-            <Plus className="h-4 w-4 mr-1.5" />New item
-          </Button>
-        )}
+        <Button onClick={() => setAddSection("hosting")}>
+          <Plus className="h-4 w-4 mr-1.5" />New item
+        </Button>
       </div>
 
-      {/* Search + filter */}
+      {/* Search */}
       {totalCreds > 0 && (
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1 max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search credentials…"
-              className="pl-9 pr-8"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-44"><SelectValue placeholder="All types" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {CREDENTIAL_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search vault…"
+            className="pl-9 pr-8"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       )}
 
-      {/* Content */}
-      {websites.length === 0 ? (
-        <EmptyState type="no-websites" />
-      ) : totalCreds === 0 ? (
-        <EmptyState type="no-creds" onAdd={() => setAddOpen(true)} />
-      ) : filtered.length === 0 ? (
-        <EmptyState type="no-results" onClear={() => { setSearch(""); setTypeFilter("all"); }} />
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {filtered.map((flat) => (
-            <CredCard
-              key={flat.cred.id}
-              flat={flat}
-              onView={() => setSelected(flat)}
-              onDelete={() => setDeleteTarget(flat)}
-            />
-          ))}
-        </div>
-      )}
+      {/* ── Website Credentials ── */}
+      <section className="space-y-4">
+        <SectionHeader
+          icon={Globe}
+          title="Website Credentials"
+          count={websiteCreds.length}
+          onAdd={() => setAddSection("website")}
+        />
+        {filtered.website.length === 0 ? (
+          <SectionEmpty
+            label={search ? "No website credentials match your search." : "No website logins saved yet — add a WordPress admin, Wix, Shopify, or other site login."}
+            onAdd={() => setAddSection("website")}
+          />
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {filtered.website.map((cred) => (
+              <CredCard
+                key={cred.id}
+                cred={cred}
+                subtitle={credSubtitle(cred)}
+                onView={() => setSelected(cred)}
+                onDelete={() => setDeleteTarget(cred)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Hosting & General ── */}
+      <section className="space-y-4">
+        <SectionHeader
+          icon={Server}
+          title="Hosting &amp; General"
+          count={hostingCreds.length}
+          onAdd={() => setAddSection("hosting")}
+        />
+        {filtered.hosting.length === 0 ? (
+          <SectionEmpty
+            label={search ? "No hosting credentials match your search." : "No hosting or general logins saved yet — add SiteGround, cPanel, GoDaddy, Cloudflare, and more."}
+            onAdd={() => setAddSection("hosting")}
+          />
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {filtered.hosting.map((cred) => (
+              <CredCard
+                key={cred.id}
+                cred={cred}
+                subtitle={typeLabel(cred.credential_type)}
+                onView={() => setSelected(cred)}
+                onDelete={() => setDeleteTarget(cred)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Modals */}
       {selected && (
         <CredentialModal
-          flat={selected}
+          cred={selected}
+          subtitle={credSubtitle(selected)}
           onClose={() => setSelected(null)}
-          onDeleted={() => handleDeleted(selected)}
-          onUpdated={(updated) => handleUpdated(selected, updated)}
+          onDeleted={() => handleDeleted(selected.id)}
+          onUpdated={handleUpdated}
         />
       )}
+
       {deleteTarget && !selected && (
-        <DeleteConfirmModal
-          flat={deleteTarget}
-          onClose={() => setDeleteTarget(null)}
-          onDeleted={() => handleDeleted(deleteTarget)}
-        />
+        <Dialog open onOpenChange={() => setDeleteTarget(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Delete credential?</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              This will permanently delete <strong>{deleteTarget.label}</strong>.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => confirmDelete(deleteTarget)}>Delete</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       )}
-      {addOpen && (
+
+      {addSection && (
         <AddItemModal
           websites={websites}
-          onClose={() => setAddOpen(false)}
+          defaultSection={addSection}
+          onClose={() => setAddSection(null)}
           onAdded={handleAdded}
         />
       )}

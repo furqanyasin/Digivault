@@ -38,6 +38,60 @@ def _get_client_ip(request) -> str | None:
     return request.META.get("REMOTE_ADDR")
 
 
+class TeamCredentialListCreateView(generics.ListCreateAPIView):
+    """GET /api/v1/credentials/ — all credentials for the active team (both website and standalone)
+    POST /api/v1/credentials/ — create a standalone or website-linked credential
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return CredentialWriteSerializer
+        return CredentialSerializer
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return Credential.objects.none()
+        return Credential.objects.filter(team=team).select_related("website")
+
+    def create(self, request, *args, **kwargs):
+        team = request.user.active_team
+        if team is None:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        serializer = CredentialWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+
+        website = None
+        website_id = d.get("website_id")
+        if website_id:
+            from apps.websites.models import Website
+            try:
+                website = Website.objects.get(pk=website_id, team=team)
+            except Website.DoesNotExist:
+                return Response(
+                    {"detail": "Website not found."}, status=status.HTTP_404_NOT_FOUND
+                )
+
+        credential = CredentialService.create(
+            team=team,
+            website=website,
+            label=d["label"],
+            credential_type=d["credential_type"],
+            login_url=d["login_url"],
+            username=d["username"],
+            password=d["password"],
+            notes=d["notes"],
+            created_by=request.user,
+        )
+        return Response(
+            CredentialSerializer(credential).data, status=status.HTTP_201_CREATED
+        )
+
+
 class CredentialListCreateView(generics.ListCreateAPIView):
     """GET /api/v1/websites/<website_pk>/credentials/
     POST /api/v1/websites/<website_pk>/credentials/
@@ -55,9 +109,9 @@ class CredentialListCreateView(generics.ListCreateAPIView):
         if team is None:
             return Credential.objects.none()
         return Credential.objects.filter(
-            website__team=team,
+            team=team,
             website_id=self.kwargs["website_pk"],
-        )
+        ).select_related("website")
 
     def create(self, request, *args, **kwargs):
         team = request.user.active_team
@@ -73,6 +127,7 @@ class CredentialListCreateView(generics.ListCreateAPIView):
         d = serializer.validated_data
 
         credential = CredentialService.create(
+            team=team,
             website=website,
             label=d["label"],
             credential_type=d["credential_type"],
@@ -101,7 +156,7 @@ class CredentialDetailView(generics.RetrieveUpdateDestroyAPIView):
         team = self.request.user.active_team
         if team is None:
             return Credential.objects.none()
-        return Credential.objects.filter(website__team=team)
+        return Credential.objects.filter(team=team).select_related("website")
 
     def update(self, request, *args, **kwargs):
         credential = self.get_object()
@@ -133,7 +188,7 @@ class CredentialRevealView(APIView):
     def post(self, request, pk):
         team = request.user.active_team
         try:
-            credential = Credential.objects.get(pk=pk, website__team=team)
+            credential = Credential.objects.get(pk=pk, team=team)
         except Credential.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -157,7 +212,7 @@ class CredentialAccessLogView(generics.ListAPIView):
         if team is None:
             return CredentialAccessLog.objects.none()
         return CredentialAccessLog.objects.filter(
-            credential__website__team=team,
+            credential__team=team,
             credential__website_id=self.kwargs["website_pk"],
         ).select_related("user")
 
@@ -258,6 +313,7 @@ class ExtensionCredentialSaveView(APIView):
             return Response({"action": "updated", "credential_id": str(existing.id)})
 
         created = CredentialService.create(
+            team=team,
             website=website,
             label=f"{domain} login",
             credential_type=Credential.CredentialType.CUSTOM,

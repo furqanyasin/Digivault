@@ -2,13 +2,12 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, Script, ScriptChange, Credential, DomainInfo, PerformanceReport, CruxReport, DetectedForm, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
+import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopySnippet } from "@/components/copy-snippet";
-import { CredentialsTab } from "@/components/credentials-tab";
 import { RefreshDomainButton } from "@/components/refresh-domain-button";
 import { PerformanceTab } from "@/components/performance-tab";
 import { ScriptReviewButton } from "@/components/script-review-button";
@@ -23,11 +22,10 @@ import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string, id: string) {
-  const [website, scripts, changes, credentials, domain, perfMobile, perfDesktop, crux, forms, phpErrors, siteEvents, vulns, scanState] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, phpErrors, siteEvents, vulns, scanState] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
-    api.get<Credential[]>(`/api/v1/websites/${id}/credentials/`, token),
     api.get<DomainInfo | null>(`/api/v1/websites/${id}/domain/`, token),
     api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token),
     api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token),
@@ -42,7 +40,6 @@ async function getData(token: string, id: string) {
     website: website.status === "fulfilled" ? website.value : null,
     scripts: scripts.status === "fulfilled" ? scripts.value : [],
     changes: changes.status === "fulfilled" ? changes.value : [],
-    credentials: credentials.status === "fulfilled" ? credentials.value : [],
     domainInfo: domain.status === "fulfilled" ? domain.value : null,
     mobileReports: perfMobile.status === "fulfilled" ? perfMobile.value : [],
     desktopReports: perfDesktop.status === "fulfilled" ? perfDesktop.value : [],
@@ -111,7 +108,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, credentials, domainInfo, mobileReports, desktopReports, cruxReports, forms, phpErrors, siteEvents, vulns, scanState } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, phpErrors, siteEvents, vulns, scanState } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -202,15 +199,13 @@ export default async function WebsiteDetailPage({
             </CardContent>
           </Card>
         </Link>
-        <Link href={`/websites/${id}?tab=credentials`}>
-          <Card className={`border-l-4 transition-colors cursor-pointer ${credentials.length === 0 ? "border-l-slate-200 dark:border-l-slate-700" : "border-l-emerald-500 hover:border-emerald-600"}`}>
+        <Link href="/credentials">
+          <Card className="border-l-4 border-l-emerald-500 hover:border-emerald-600 transition-colors cursor-pointer">
             <CardContent className="flex items-center gap-3 py-4">
-              <Lock className={`h-7 w-7 shrink-0 ${credentials.length > 0 ? "text-emerald-500" : "text-muted-foreground"}`} />
+              <Lock className="h-7 w-7 text-emerald-500 shrink-0" />
               <div>
-                <p className="text-2xl font-bold">{credentials.length}</p>
-                <p className="text-xs text-muted-foreground">
-                  {credentials.length === 0 ? "No credentials" : "Saved credentials"}
-                </p>
+                <p className="text-2xl font-bold">Vault</p>
+                <p className="text-xs text-muted-foreground">View credentials</p>
               </div>
             </CardContent>
           </Card>
@@ -233,11 +228,6 @@ export default async function WebsiteDetailPage({
           </TabsTrigger>
           <TabsTrigger value="access" asChild>
             <Link href={`/websites/${id}?tab=access`} prefetch>Access & Domain</Link>
-          </TabsTrigger>
-          <TabsTrigger value="credentials" asChild>
-            <Link href={`/websites/${id}?tab=credentials`} prefetch>
-              Credentials {credentials.length === 0 ? <span className="ml-1 text-muted-foreground text-xs">Add one →</span> : `(${credentials.length})`}
-            </Link>
           </TabsTrigger>
           <TabsTrigger value="performance" asChild>
             <Link href={`/websites/${id}?tab=performance`} prefetch>Performance</Link>
@@ -411,10 +401,6 @@ export default async function WebsiteDetailPage({
           )}
         </TabsContent>
 
-        {/* ── Credentials ── */}
-        <TabsContent value="credentials">
-          <CredentialsTab websiteId={id} initialCredentials={credentials} />
-        </TabsContent>
 
         {/* ── Performance ── */}
         <TabsContent value="performance">

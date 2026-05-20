@@ -34,10 +34,17 @@ class Credential(BaseModel):
         KINSTA = "kinsta", "Kinsta"
         CUSTOM = "custom", "Custom"
 
-    website = models.ForeignKey(
-        "websites.Website",
+    team = models.ForeignKey(
+        "accounts.Team",
         on_delete=models.CASCADE,
         related_name="credentials",
+    )
+    website = models.ForeignKey(
+        "websites.Website",
+        on_delete=models.SET_NULL,
+        related_name="credentials",
+        null=True,
+        blank=True,
     )
     label = models.CharField(max_length=200)
     credential_type = models.CharField(
@@ -63,11 +70,12 @@ class Credential(BaseModel):
     class Meta:
         ordering = ["credential_type", "label"]
         indexes = [
-            models.Index(fields=["website", "credential_type"]),
+            models.Index(fields=["team", "credential_type"], name="credentials_team_type_idx"),
         ]
 
     def __str__(self) -> str:
-        return f"{self.label} ({self.credential_type}) — {self.website}"
+        site = self.website or "standalone"
+        return f"{self.label} ({self.credential_type}) — {site}"
 
     # ------------------------------------------------------------------
     # Encrypted field accessors

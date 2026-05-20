@@ -155,6 +155,8 @@ export interface AlertRule {
 
 export interface Credential {
   id: string;
+  website_id: string | null;
+  website_name: string | null;
   credential_type: string;
   label: string;
   login_url: string;

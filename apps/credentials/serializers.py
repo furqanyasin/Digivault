@@ -7,17 +7,30 @@ from apps.credentials.models import Credential, CredentialAccessLog
 class CredentialSerializer(BaseModelSerializer):
     """Safe list serializer — never returns encrypted fields."""
 
+    website_id = serializers.SerializerMethodField()
+    website_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Credential
         fields = (
             "id",
+            "website_id",
+            "website_name",
             "label",
             "credential_type",
             "login_url",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "website_id", "website_name", "created_at", "updated_at")
+
+    def get_website_id(self, obj) -> str | None:
+        return str(obj.website.id) if obj.website_id else None
+
+    def get_website_name(self, obj) -> str | None:
+        if obj.website:
+            return obj.website.name or obj.website.domain
+        return None
 
 
 class CredentialWriteSerializer(serializers.Serializer):
@@ -31,6 +44,7 @@ class CredentialWriteSerializer(serializers.Serializer):
         max_length=500, allow_blank=True, default="", write_only=True
     )
     notes = serializers.CharField(max_length=2000, allow_blank=True, default="")
+    website_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
 
 class RevealedCredentialSerializer(serializers.Serializer):

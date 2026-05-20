@@ -58,7 +58,7 @@ class TestEncryption:
 @pytest.mark.django_db
 class TestCredentialModel:
     def test_set_get_username(self, website, owner):
-        cred = Credential(website=website, label="WP", credential_type="wordpress")
+        cred = Credential(team=website.team, website=website, label="WP", credential_type="wordpress")
         cred.set_username("admin")
         cred.set_password("hunter2")
         cred.set_notes("Main WP site")
@@ -70,7 +70,7 @@ class TestCredentialModel:
         assert cred.get_notes() == "Main WP site"
 
     def test_raw_db_field_is_not_plaintext(self, website, owner):
-        cred = Credential(website=website, label="FTP", credential_type="ftp")
+        cred = Credential(team=website.team, website=website, label="FTP", credential_type="ftp")
         cred.set_password("plainpassword")
         cred.save()
         cred.refresh_from_db()
