@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
+from urllib.parse import urlparse
 
 from celery import shared_task
 from django.db import transaction
@@ -17,6 +19,87 @@ from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.diff_engine import DiffEngine
 from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
 from apps.websites.models import Website
+
+# ---------------------------------------------------------------------------
+# Script noise filter
+# ---------------------------------------------------------------------------
+
+# CDN domains that host only utility libraries — never marketing/analytics.
+_UTILITY_CDN_BLOCKLIST: frozenset[str] = frozenset({
+    "cdnjs.cloudflare.com",
+    "cdn.jsdelivr.net",
+    "unpkg.com",
+    "code.jquery.com",
+    "maxcdn.bootstrapcdn.com",
+    "stackpath.bootstrapcdn.com",
+    "ajax.googleapis.com",       # jQuery CDN (GA uses google-analytics.com)
+    "ajax.aspnetcdn.com",
+    # Review / widget platforms — not analytics
+    "cdn.trustindex.io",
+    "cdn.elfsight.com",
+    "apps.elfsight.com",
+    "elfsight-cdn.com",
+})
+
+# Filename patterns for utility libraries.  Only applied when the provider
+# is already "unknown" so we never accidentally drop a real analytics script.
+_UTILITY_FILENAME_RE: tuple[re.Pattern, ...] = tuple(
+    re.compile(p, re.IGNORECASE) for p in (
+        r"jquery[.\-]",
+        r"/jquery\.js",
+        r"bootstrap[.\-]",
+        r"slick[.\-]",
+        r"webpack[.\-]",
+        r"\.chunk\.",
+        r"runtime[.\-]",
+        r"vendors?[.\-]",
+        r"lodash[.\-]",
+        r"underscore[.\-]",
+        r"modernizr[.\-]",
+        r"popper[.\-]",
+        r"magnific",
+        r"v\d+-shims",
+        r"fontawesome|font-awesome",
+        r"lazysizes",
+        r"swiper[.\-]",
+        r"owl\.carousel",
+        r"customslick",
+        r"/utils\.",
+    )
+)
+
+
+def _should_track_script(src: str, website_domain: str) -> bool:
+    """Return False for self-hosted scripts and known utility noise."""
+    # Relative URLs are always self-hosted.
+    if not src.startswith(("http://", "https://", "//")):
+        return False
+
+    parsed = urlparse(src if not src.startswith("//") else "https:" + src)
+    script_host = parsed.netloc.lower().removeprefix("www.")
+
+    # Normalise the site domain to bare hostname.
+    site = website_domain
+    if site.startswith(("http://", "https://")):
+        site = urlparse(site).netloc
+    site = site.lower().removeprefix("www.")
+
+    # Self-hosted: same domain or any subdomain of the site.
+    if script_host == site or script_host.endswith("." + site):
+        return False
+
+    # Known utility CDNs — never analytics.
+    if script_host in _UTILITY_CDN_BLOCKLIST:
+        return False
+
+    # Utility filename patterns — only filter when provider is unknown so we
+    # never accidentally drop a real (but unrecognised) analytics script.
+    if ScriptClassifier.classify(src).provider == "unknown":
+        path = parsed.path.lower()
+        if any(pat.search(path) for pat in _UTILITY_FILENAME_RE):
+            return False
+
+    return True
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +131,17 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
     page_url: str = payload["page_url"]
     scripts_data: list[dict] = payload.get("scripts", [])
 
+    def _is_trackable(s: dict) -> bool:
+        src = s.get("src", "")
+        if not src:
+            return False
+        if "/wp-includes/" in src or "/wp-admin/" in src:
+            return False
+        return _should_track_script(src, website.domain)
+
     try:
         with transaction.atomic():
-            # --- 1. Save snapshot ---
+            # --- 1. Save snapshot (raw — unfiltered for audit purposes) ---
             snapshot = ScriptSnapshot.objects.create(
                 website=website,
                 page_url=page_url,
@@ -68,26 +159,23 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                 .order_by("-captured_at")
                 .first()
             )
-            previous_scripts = (
-                previous_snapshot.scripts_data if previous_snapshot else []
-            )
+            raw_previous = previous_snapshot.scripts_data if previous_snapshot else []
 
-            # --- 3. Run diff engine ---
-            changes = DiffEngine.diff(previous_scripts, scripts_data)
+            # Filter both lists to only third-party analytics/marketing scripts
+            # before diffing — self-hosted and utility library changes are noise.
+            trackable_current = [s for s in scripts_data if _is_trackable(s)]
+            trackable_previous = [s for s in raw_previous if _is_trackable(s)]
+
+            # --- 3. Run diff engine on filtered lists ---
+            changes = DiffEngine.diff(trackable_previous, trackable_current)
 
             # --- 4. Upsert Script records ---
-            for script_data in scripts_data:
-                src = script_data.get("src", "")
-                if not src:
-                    continue
-                # Skip WordPress core scripts — they're not third-party and add noise
-                if "/wp-includes/" in src or "/wp-admin/" in src:
-                    continue
+            for script_data in trackable_current:
                 _upsert_script(website, script_data, page_url)
 
             # Mark scripts not seen in this snapshot as inactive
             # (only for scripts scoped globally — page-specific is handled separately)
-            current_urls = {s["src"] for s in scripts_data if s.get("src")}
+            current_urls = {s["src"] for s in trackable_current}
             Script.objects.filter(
                 website=website,
                 scope=Script.Scope.GLOBAL,
