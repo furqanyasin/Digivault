@@ -191,6 +191,13 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
             ]
             if noise_pks:
                 Script.objects.filter(pk__in=noise_pks).update(is_active=False)
+                # Auto-acknowledge all open changes tied to noise scripts so they
+                # no longer drive the website status to critical.
+                ScriptChange.objects.filter(
+                    website=website,
+                    script_id__in=noise_pks,
+                    acknowledged_at__isnull=True,
+                ).update(acknowledged_at=timezone.now())
 
             # --- 5. Persist ScriptChange records ---
             for change in changes:
@@ -233,8 +240,9 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
             website.last_seen_at = timezone.now()
             website.save(update_fields=["last_seen_at"])
 
-            if changes:
-                _update_website_status(website)
+            # Always recalculate — noise cleanup may have shifted the status
+            # even when no new trackable changes occurred.
+            _update_website_status(website)
 
     except Exception as exc:
         logger.exception("process_ingest_payload failed for site_id=%s", site_id)
