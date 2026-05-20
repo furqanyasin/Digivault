@@ -182,6 +182,16 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                 is_active=True,
             ).exclude(src_url__in=current_urls).update(is_active=False)
 
+            # Deactivate any noise scripts already in the DB (self-hosted,
+            # utility libs) — cleans up data stored before this filter existed.
+            noise_pks = [
+                s.pk
+                for s in Script.objects.filter(website=website, is_active=True).only("pk", "src_url")
+                if not _should_track_script(s.src_url, website.domain)
+            ]
+            if noise_pks:
+                Script.objects.filter(pk__in=noise_pks).update(is_active=False)
+
             # --- 5. Persist ScriptChange records ---
             for change in changes:
                 script_obj = None
