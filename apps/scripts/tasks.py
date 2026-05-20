@@ -173,6 +173,16 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
             for script_data in trackable_current:
                 _upsert_script(website, script_data, page_url)
 
+            # Collect ALL noise script PKs BEFORE any deactivation runs.
+            # If we queried is_active=True after the GLOBAL step below, scripts
+            # already deactivated there would be missed and their changes never
+            # acknowledged, leaving the status stuck at critical.
+            all_noise_pks = [
+                s.pk
+                for s in Script.objects.filter(website=website).only("pk", "src_url")
+                if not _should_track_script(s.src_url, website.domain)
+            ]
+
             # Mark scripts not seen in this snapshot as inactive
             # (only for scripts scoped globally — page-specific is handled separately)
             current_urls = {s["src"] for s in trackable_current}
@@ -182,20 +192,12 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                 is_active=True,
             ).exclude(src_url__in=current_urls).update(is_active=False)
 
-            # Deactivate any noise scripts already in the DB (self-hosted,
-            # utility libs) — cleans up data stored before this filter existed.
-            noise_pks = [
-                s.pk
-                for s in Script.objects.filter(website=website, is_active=True).only("pk", "src_url")
-                if not _should_track_script(s.src_url, website.domain)
-            ]
-            if noise_pks:
-                Script.objects.filter(pk__in=noise_pks).update(is_active=False)
-                # Auto-acknowledge all open changes tied to noise scripts so they
-                # no longer drive the website status to critical.
+            # Deactivate noise scripts and auto-acknowledge their changes.
+            if all_noise_pks:
+                Script.objects.filter(pk__in=all_noise_pks, is_active=True).update(is_active=False)
                 ScriptChange.objects.filter(
                     website=website,
-                    script_id__in=noise_pks,
+                    script_id__in=all_noise_pks,
                     acknowledged_at__isnull=True,
                 ).update(acknowledged_at=timezone.now())
 
