@@ -37,6 +37,11 @@ class User(AbstractUser):
         related_name="+",
     )
 
+    # 2FA — TOTP via Google Authenticator
+    totp_secret = models.BinaryField(blank=True, editable=False)
+    totp_enabled = models.BooleanField(default=False)
+    totp_backup_codes = models.JSONField(default=list, blank=True)
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []  # email is already required by USERNAME_FIELD
 

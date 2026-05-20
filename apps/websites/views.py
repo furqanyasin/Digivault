@@ -12,6 +12,8 @@ from rest_framework.viewsets import ModelViewSet
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember, RolePermission
 from apps.websites.models import Website
+from apps.audit.services import AuditService
+from apps.audit.models import ActivityLog
 from apps.site_health.models import SiteScanState
 from apps.site_health.serializers import SiteScanStateSerializer
 from apps.websites.serializers import (
@@ -113,7 +115,13 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         return WebsiteSerializer
 
     def perform_create(self, serializer):
-        serializer.save(team=self.request.user.active_team)
+        website = serializer.save(team=self.request.user.active_team)
+        AuditService.log_request(
+            self.request, ActivityLog.Action.WEBSITE_CREATED,
+            description=f"Added website '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+        )
+        return website
 
     @action(detail=True, methods=["get"], url_path="snippet")
     def snippet(self, request, pk=None):
@@ -202,6 +210,11 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
 
         run_security_scan.apply_async(args=[str(website.pk)], countdown=5)
 
+        AuditService.log_request(
+            request, ActivityLog.Action.WEBSITE_SCAN_TRIGGERED,
+            description=f"Triggered scan for '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+        )
         return Response({"detail": f"Scan queued — found {len(scripts)} scripts.", "count": len(scripts)})
 
     @action(detail=True, methods=["post"], url_path="verify-snippet")
@@ -235,6 +248,11 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             return Response({"verified": False, "error": "Could not reach the site. Check the domain is correct and publicly accessible."})
 
         if marker in html:
+            AuditService.log_request(
+                request, ActivityLog.Action.WEBSITE_SNIPPET_VERIFIED,
+                description=f"Snippet verified for '{website.domain}'",
+                resource_type="website", resource_id=website.pk,
+            )
             return Response({"verified": True})
         return Response({
             "verified": False,

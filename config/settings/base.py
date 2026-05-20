@@ -47,6 +47,7 @@ LOCAL_APPS = [
     "apps.clients",
     "apps.chat",
     "apps.site_health",
+    "apps.audit",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -157,6 +158,8 @@ REST_FRAMEWORK = {
         "user": "5000/day",
         "ingest": "10000/day",
         "extension": "300/hour",
+        "totp_verify": "10/minute",
+        "totp_setup": "10/hour",
     },
     "EXCEPTION_HANDLER": "apps.common.exceptions.custom_exception_handler",
 }
@@ -211,6 +214,10 @@ CELERY_BEAT_SCHEDULE = {
     "purge-old-snapshots-weekly": {
         "task": "scripts.purge_old_snapshots",
         "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),
+    },
+    "purge-old-audit-logs-weekly": {
+        "task": "audit.purge_old_logs",
+        "schedule": crontab(hour=3, minute=30, day_of_week="sunday"),
     },
     "send-hourly-digest": {
         "task": "alerts.send_digest",

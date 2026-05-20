@@ -23,6 +23,8 @@ class SnippetJsView(APIView):
         response["Access-Control-Allow-Origin"] = "*"
         return response
 
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
 from apps.scripts.models import DetectedForm, Script, ScriptChange
@@ -210,6 +212,12 @@ class AcknowledgeChangeView(APIView):
         change.acknowledged_at = timezone.now()
         change.acknowledged_by = request.user
         change.save(update_fields=["acknowledged_at", "acknowledged_by"])
+
+        AuditService.log_request(
+            request, ActivityLog.Action.WEBSITE_CHANGE_ACKNOWLEDGED,
+            description=f"Acknowledged script change on '{change.website.domain}'",
+            resource_type="script_change", resource_id=change.pk,
+        )
 
         # Recalculate website status immediately so the dashboard reflects
         # the acknowledgement without waiting for the next ingest.

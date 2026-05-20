@@ -22,6 +22,8 @@ from apps.accounts.serializers import (
     UserSerializer,
 )
 from apps.accounts.services import TeamService
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.common.permissions import IsTeamMember
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,19 @@ class TeamDetailView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         return Team.objects.filter(memberships__user=self.request.user)
 
+    def update(self, request, *args, **kwargs):
+        team = self.get_object()
+        old_name = team.name
+        response = super().update(request, *args, **kwargs)
+        new_name = response.data.get("data", {}).get("name") or team.name
+        if old_name != new_name:
+            AuditService.log_request(
+                request, ActivityLog.Action.SETTINGS_TEAM_NAME_CHANGED,
+                description=f"Renamed team from '{old_name}' to '{new_name}'",
+                resource_type="team", resource_id=str(team.pk),
+            )
+        return response
+
 
 class TeamMemberListView(generics.ListAPIView):
     """GET /api/v1/auth/teams/<team_pk>/members/"""
@@ -150,8 +165,15 @@ class TeamMemberDetailView(APIView):
         if target.role == "owner":
             return Response({"detail": "Cannot change the owner's role."}, status=status.HTTP_403_FORBIDDEN)
 
+        old_role = target.role
         target.role = new_role
         target.save(update_fields=["role", "updated_at"])
+        AuditService.log(
+            actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_ROLE_CHANGED,
+            team=team,
+            description=f"Changed {target.user.email}'s role from {old_role} to {new_role}",
+            resource_type="team_membership", resource_id=str(target.pk),
+        )
         return Response(TeamMembershipSerializer(target).data)
 
     def delete(self, request, team_pk, pk):
@@ -167,7 +189,15 @@ class TeamMemberDetailView(APIView):
         if ROLE_LEVELS[target.role] > my_level:
             return Response({"detail": "Cannot remove a member with a higher role."}, status=status.HTTP_403_FORBIDDEN)
 
+        removed_email = target.user.email
+        removed_role = target.role
         target.delete()
+        AuditService.log(
+            actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_REMOVED,
+            team=team,
+            description=f"Removed {removed_email} ({removed_role}) from the team",
+            resource_type="team_membership", resource_id=str(pk),
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -262,6 +292,11 @@ class TeamInviteView(APIView):
         except Exception as exc:
             logger.error("Failed to send invitation email to %s: %s", email, exc)
 
+        AuditService.log_request(
+            request, ActivityLog.Action.TEAM_MEMBER_INVITED,
+            description=f"Invited {email} as {role}",
+            resource_type="team_invitation", resource_id=str(invitation.pk),
+        )
         return Response({
             **TeamInvitationSerializer(invitation).data,
             "accept_url": accept_url,
@@ -378,6 +413,13 @@ class InvitationAcceptView(APIView):
 
         # Mark accepted
         TeamInvitation.objects.filter(pk=inv.pk).update(accepted=True, accepted_at=timezone.now())
+
+        AuditService.log(
+            actor=user, action=ActivityLog.Action.TEAM_MEMBER_JOINED,
+            team=inv.team,
+            description=f"{user.email} joined as {inv.role}",
+            resource_type="team_membership",
+        )
 
         payload = {"detail": f"You have joined {inv.team.name} as {inv.role}."}
         if tokens:
@@ -649,6 +691,11 @@ class TeamSettingsView(APIView):
         token = request.data.get("clickup_api_token", "").strip()
         team.clickup_api_token = token
         team.save(update_fields=["_clickup_api_token"])
+        AuditService.log_request(
+            request, ActivityLog.Action.SETTINGS_INTEGRATION_UPDATED,
+            description="Updated ClickUp integration token",
+            resource_type="team", resource_id=str(team.pk),
+        )
         return Response(TeamSettingsSerializer(team).data)
 
 

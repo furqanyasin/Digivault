@@ -29,6 +29,8 @@ from apps.credentials.serializers import (
     RevealedCredentialSerializer,
 )
 from apps.credentials.services import CredentialService
+from apps.audit.services import AuditService
+from apps.audit.models import ActivityLog
 
 
 def _get_client_ip(request) -> str | None:
@@ -87,6 +89,11 @@ class TeamCredentialListCreateView(generics.ListCreateAPIView):
             notes=d["notes"],
             created_by=request.user,
         )
+        AuditService.log_request(
+            request, ActivityLog.Action.CREDENTIAL_CREATED,
+            description=f"Created credential '{credential.label}'",
+            resource_type="credential", resource_id=credential.pk,
+        )
         return Response(
             CredentialSerializer(credential).data, status=status.HTTP_201_CREATED
         )
@@ -137,6 +144,11 @@ class CredentialListCreateView(generics.ListCreateAPIView):
             notes=d["notes"],
             created_by=request.user,
         )
+        AuditService.log_request(
+            request, ActivityLog.Action.CREDENTIAL_CREATED,
+            description=f"Created credential '{credential.label}'",
+            resource_type="credential", resource_id=credential.pk,
+        )
         return Response(
             CredentialSerializer(credential).data, status=status.HTTP_201_CREATED
         )
@@ -173,7 +185,20 @@ class CredentialDetailView(generics.RetrieveUpdateDestroyAPIView):
             notes=d.get("notes"),
             updated_by=request.user,
         )
+        AuditService.log_request(
+            request, ActivityLog.Action.CREDENTIAL_UPDATED,
+            description=f"Updated credential '{updated.label}'",
+            resource_type="credential", resource_id=updated.pk,
+        )
         return Response(CredentialSerializer(updated).data)
+
+    def perform_destroy(self, instance):
+        AuditService.log_request(
+            self.request, ActivityLog.Action.CREDENTIAL_DELETED,
+            description=f"Deleted credential '{instance.label}'",
+            resource_type="credential", resource_id=instance.pk,
+        )
+        instance.delete()
 
 
 class CredentialRevealView(APIView):
@@ -196,6 +221,11 @@ class CredentialRevealView(APIView):
             credential=credential,
             requesting_user=request.user,
             ip_address=_get_client_ip(request),
+        )
+        AuditService.log_request(
+            request, ActivityLog.Action.CREDENTIAL_REVEALED,
+            description=f"Revealed credential '{credential.label}'",
+            resource_type="credential", resource_id=credential.pk,
         )
         return Response(RevealedCredentialSerializer(revealed).data)
 

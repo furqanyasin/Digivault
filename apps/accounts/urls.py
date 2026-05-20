@@ -1,6 +1,15 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from apps.accounts.totp_views import (
+    LoginView,
+    TotpConfirmView,
+    TotpDisableView,
+    TotpRegenerateBackupView,
+    TotpSetupView,
+    TotpStatusView,
+    TotpVerifyView,
+)
 from apps.accounts.views import (
     ClickUpTestView,
     InvitationAcceptView,
@@ -9,6 +18,7 @@ from apps.accounts.views import (
     PasswordResetConfirmView,
     PasswordResetRejectView,
     PasswordResetRequestView,
+    RegisterView,
     TeamCreateUserView,
     TeamDetailView,
     TeamInvitationDeleteView,
@@ -22,9 +32,21 @@ from apps.accounts.views import (
 )
 
 urlpatterns = [
+    # Auth
+    path("register/", RegisterView.as_view(), name="auth-register"),
+    path("login/", LoginView.as_view(), name="auth-login"),
+    # Legacy direct-token endpoint (used by API clients / tests; 2FA enforced at frontend layer)
     path("token/", TokenObtainPairView.as_view(), name="auth-token-obtain"),
     path("token/refresh/", TokenRefreshView.as_view(), name="auth-token-refresh"),
     path("me/", MeView.as_view(), name="auth-me"),
+    # 2FA
+    path("2fa/setup/", TotpSetupView.as_view(), name="2fa-setup"),
+    path("2fa/confirm/", TotpConfirmView.as_view(), name="2fa-confirm"),
+    path("2fa/verify/", TotpVerifyView.as_view(), name="2fa-verify"),
+    path("2fa/disable/", TotpDisableView.as_view(), name="2fa-disable"),
+    path("2fa/regenerate-backup/", TotpRegenerateBackupView.as_view(), name="2fa-regenerate-backup"),
+    path("2fa/status/", TotpStatusView.as_view(), name="2fa-status"),
+    # Teams
     path("teams/", TeamListCreateView.as_view(), name="team-list-create"),
     path("teams/<uuid:pk>/", TeamDetailView.as_view(), name="team-detail"),
     path("teams/<uuid:team_pk>/members/", TeamMemberListView.as_view(), name="team-members"),
@@ -36,8 +58,10 @@ urlpatterns = [
     path("teams/<uuid:team_pk>/invitations/<uuid:pk>/", TeamInvitationDeleteView.as_view(), name="team-invitation-delete"),
     path("teams/<uuid:pk>/settings/", TeamSettingsView.as_view(), name="team-settings"),
     path("teams/<uuid:pk>/settings/clickup-test/", ClickUpTestView.as_view(), name="clickup-test"),
+    # Invitations
     path("invitations/<str:token>/", InvitationAcceptView.as_view(), name="invitation-view"),
     path("invitations/<str:token>/accept/", InvitationAcceptView.as_view(), name="invitation-accept"),
+    # Password reset
     path("password-reset/", PasswordResetRequestView.as_view(), name="password-reset-request"),
     path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
     path("password-reset/<uuid:pk>/approve/", PasswordResetApproveView.as_view(), name="password-reset-approve"),
