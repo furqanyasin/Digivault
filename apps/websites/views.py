@@ -258,3 +258,55 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "verified": False,
             "error": f"Snippet not found on {url}. Checked {len(html):,} bytes of HTML.",
         })
+
+    @action(detail=False, methods=["get"], url_path="expiring-domains")
+    def expiring_domains(self, request):
+        from datetime import timedelta
+        from django.utils import timezone
+        days = int(request.query_params.get("days", 30))
+        threshold = timezone.now() + timedelta(days=days)
+        qs = (
+            self.get_queryset()
+            .select_related("domain_info")
+            .filter(
+                domain_info__expires_at__isnull=False,
+                domain_info__expires_at__lte=threshold,
+            )
+            .order_by("domain_info__expires_at")
+        )
+        data = [
+            {
+                "id": str(w.id),
+                "name": w.name,
+                "domain": w.domain,
+                "days_until_expiry": w.domain_info.domain_days_until_expiry,
+            }
+            for w in qs
+        ]
+        return Response(data)
+
+    @action(detail=False, methods=["get"], url_path="expiring-ssl")
+    def expiring_ssl(self, request):
+        from datetime import timedelta
+        from django.utils import timezone
+        days = int(request.query_params.get("days", 14))
+        threshold = timezone.now() + timedelta(days=days)
+        qs = (
+            self.get_queryset()
+            .select_related("domain_info")
+            .filter(
+                domain_info__ssl_expires_at__isnull=False,
+                domain_info__ssl_expires_at__lte=threshold,
+            )
+            .order_by("domain_info__ssl_expires_at")
+        )
+        data = [
+            {
+                "id": str(w.id),
+                "name": w.name,
+                "domain": w.domain,
+                "days_until_expiry": w.domain_info.ssl_days_until_expiry,
+            }
+            for w in qs
+        ]
+        return Response(data)

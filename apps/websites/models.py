@@ -56,6 +56,7 @@ class Website(BaseModel):
     notes = models.TextField(blank=True)
     tags = models.JSONField(default=list, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    health_score = models.IntegerField(default=100)
 
     objects = TeamScopedQuerySet.as_manager()
 
@@ -79,6 +80,65 @@ class Website(BaseModel):
         self.site_id = self._generate_site_id()
         self.save(update_fields=["site_id"])
         return self.site_id
+
+    def recalculate_health_score(self) -> None:
+        """Compute and persist a 0-100 health score from pending issues."""
+        from django.core.exceptions import ObjectDoesNotExist
+        from django.utils import timezone
+        from apps.scripts.models import ScriptChange
+
+        deductions = 0
+
+        pending_sevs = list(
+            ScriptChange.objects.filter(
+                website=self, acknowledged_at__isnull=True
+            ).values_list("severity", flat=True)
+        )
+        sev_count: dict[str, int] = {}
+        for s in pending_sevs:
+            sev_count[s] = sev_count.get(s, 0) + 1
+
+        deductions += min(sev_count.get("critical", 0) * 15, 30)
+        deductions += min(sev_count.get("high", 0) * 10, 30)
+        deductions += min(sev_count.get("medium", 0) * 3, 15)
+        deductions += min(sev_count.get("low", 0) * 1, 5)
+
+        try:
+            d = self.domain_info
+            now = timezone.now()
+            if d.expires_at:
+                days = max(0, (d.expires_at - now).days)
+                if days <= 7:
+                    deductions += 20
+                elif days <= 30:
+                    deductions += 8
+            if d.ssl_expires_at:
+                days = max(0, (d.ssl_expires_at - now).days)
+                if days <= 7:
+                    deductions += 20
+                elif days <= 14:
+                    deductions += 12
+                elif days <= 30:
+                    deductions += 5
+        except ObjectDoesNotExist:
+            pass
+
+        try:
+            from apps.site_health.models import VulnerabilityReport
+            vuln_sevs = list(
+                VulnerabilityReport.objects.filter(website=self)
+                .values_list("severity", flat=True)
+            )
+            v_count: dict[str, int] = {}
+            for v in vuln_sevs:
+                v_count[v] = v_count.get(v, 0) + 1
+            deductions += min(v_count.get("critical", 0) * 8, 16)
+            deductions += min(v_count.get("high", 0) * 4, 8)
+        except Exception:
+            pass
+
+        score = max(0, min(100, 100 - deductions))
+        Website.objects.filter(pk=self.pk).update(health_score=score)
 
     @staticmethod
     def _generate_site_id() -> str:

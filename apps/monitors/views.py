@@ -1,3 +1,7 @@
+import urllib.request
+
+from django.conf import settings
+from django.core.mail import send_mail
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -163,6 +167,65 @@ class NotificationChannelDetailView(generics.RetrieveUpdateDestroyAPIView):
         if team is None:
             return NotificationChannel.objects.none()
         return NotificationChannel.objects.filter(team=team)
+
+
+class NotificationChannelTestView(APIView):
+    """POST /api/v1/notification-channels/<pk>/test/ — send a test payload through the channel."""
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def post(self, request, pk):
+        team = request.user.active_team
+        if not team:
+            return Response({"success": False, "message": "No active team."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            channel = NotificationChannel.objects.get(pk=pk, team=team)
+        except NotificationChannel.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        ok, message = _test_channel(channel)
+        return Response({"success": ok, "message": message})
+
+
+def _test_channel(channel) -> tuple[bool, str]:
+    if channel.channel_type == "email":
+        return _test_email(channel)
+    if channel.channel_type == "clickup":
+        return _test_clickup(channel)
+    return False, f"Unknown channel type: {channel.channel_type}"
+
+
+def _test_email(channel) -> tuple[bool, str]:
+    addresses = channel.config.get("addresses", [])
+    if not addresses:
+        return False, "No email addresses configured."
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
+    try:
+        send_mail(
+            subject="[Digivault] Test notification",
+            message="This is a test notification from Digivault. Your email alerts are working correctly.",
+            from_email=from_email,
+            recipient_list=addresses,
+            fail_silently=False,
+        )
+        return True, f"Test email sent to {', '.join(addresses)}"
+    except Exception as e:
+        return False, str(e)
+
+
+def _test_clickup(channel) -> tuple[bool, str]:
+    api_token = channel.config.get("api_token", "")
+    task_id = channel.config.get("task_id", "")
+    if not api_token or not task_id:
+        return False, "Missing api_token or task_id in config."
+    url = f"https://api.clickup.com/api/v2/task/{task_id}"
+    req = urllib.request.Request(url, headers={"Authorization": api_token})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status == 200:
+                return True, f"ClickUp task '{task_id}' verified successfully."
+            return False, f"ClickUp returned HTTP {resp.status}."
+    except Exception as e:
+        return False, str(e)
 
 
 # ------------------------------------------------------------------

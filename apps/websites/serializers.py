@@ -19,6 +19,7 @@ class WebsiteSerializer(BaseModelSerializer):
             "platform",
             "site_id",
             "status",
+            "health_score",
             "notes",
             "tags",
             "last_seen_at",
@@ -30,7 +31,7 @@ class WebsiteSerializer(BaseModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "site_id", "last_seen_at", "created_at", "updated_at")
+        read_only_fields = ("id", "site_id", "health_score", "last_seen_at", "created_at", "updated_at")
 
     def get_script_count(self, obj) -> int:
         return getattr(obj, "script_count", 0)

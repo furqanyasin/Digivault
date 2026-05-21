@@ -224,6 +224,8 @@ class AcknowledgeChangeView(APIView):
         from apps.scripts.tasks import _update_website_status
         _update_website_status(change.website)
 
+        change.website.recalculate_health_score()
+
         return Response(ScriptChangeSerializer(change).data)
 
 

@@ -12,6 +12,7 @@ urlpatterns = [
     # Notification channels
     path("notification-channels/", views.NotificationChannelListCreateView.as_view(), name="notification-channel-list"),
     path("notification-channels/<uuid:pk>/", views.NotificationChannelDetailView.as_view(), name="notification-channel-detail"),
+    path("notification-channels/<uuid:pk>/test/", views.NotificationChannelTestView.as_view(), name="notification-channel-test"),
     # Per-monitor notification rules
     path("monitors/<uuid:monitor_pk>/notification-rules/", views.MonitorNotificationRuleListCreateView.as_view(), name="monitor-notification-rules"),
     path("monitors/<uuid:monitor_pk>/notification-rules/<uuid:pk>/", views.MonitorNotificationRuleDetailView.as_view(), name="monitor-notification-rule-detail"),

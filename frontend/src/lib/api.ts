@@ -90,6 +90,7 @@ export interface Website {
   platform: string;
   site_id: string;
   status: string;
+  health_score: number;
   notes: string;
   tags: string[];
   script_count: number;

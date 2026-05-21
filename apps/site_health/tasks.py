@@ -123,6 +123,7 @@ def run_security_scan(website_id: str) -> None:
         state.last_scanned_at = timezone.now()
         state.scan_status = "done"
         state.save(update_fields=["last_scanned_at", "scan_status", "plugins_detected"])
+        website.recalculate_health_score()
 
     except Exception as exc:
         logger.exception("Security scan failed for website %s", website_id)

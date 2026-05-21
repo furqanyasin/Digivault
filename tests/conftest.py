@@ -1,8 +1,18 @@
 import pytest
+from unittest.mock import patch
 from rest_framework.test import APIClient
 
 from apps.accounts.models import TeamMembership, User
 from apps.accounts.services import TeamService
+
+
+@pytest.fixture(autouse=True)
+def no_network_in_tests():
+    """Block all real network calls that fire during website creation fixtures."""
+    with patch("apps.websites.tasks._run_uptime_check", return_value=None), \
+         patch("apps.websites.tasks._run_domain_check", return_value=None), \
+         patch("apps.websites.tasks._run_performance_check", return_value=None):
+        yield
 
 
 @pytest.fixture

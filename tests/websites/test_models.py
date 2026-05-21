@@ -57,7 +57,7 @@ class TestWebsiteAPI:
             format="json",
         )
         client.credentials(
-            HTTP_AUTHORIZATION=f"Bearer {resp.data['data']['access']}"
+            HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}"
         )
         return client
 
@@ -69,7 +69,7 @@ class TestWebsiteAPI:
             format="json",
         )
         assert resp.status_code == 201
-        assert resp.data["data"]["name"] == "Client A"
+        assert resp.data["name"] == "Client A"
 
     def test_list_websites_scoped_to_team(self, owner, team):
         Website.objects.create(team=team, name="Mine", domain="mine.com")
@@ -81,7 +81,7 @@ class TestWebsiteAPI:
 
         client = self._make_client(owner)
         resp = client.get("/api/v1/websites/")
-        names = [w["name"] for w in resp.data["data"]]
+        names = [w["name"] for w in resp.data]
         assert "Mine" in names
         assert "Theirs" not in names
 
@@ -90,7 +90,7 @@ class TestWebsiteAPI:
         client = self._make_client(owner)
         resp = client.get(f"/api/v1/websites/{site.pk}/snippet/")
         assert resp.status_code == 200
-        assert site.site_id in resp.data["data"]["snippet"]
+        assert site.site_id in resp.data["snippet"]
 
     def test_regenerate_snippet(self, owner, team):
         site = Website.objects.create(team=team, name="Regen", domain="regen.io")
@@ -98,4 +98,13 @@ class TestWebsiteAPI:
         client = self._make_client(owner)
         resp = client.post(f"/api/v1/websites/{site.pk}/regenerate-snippet/")
         assert resp.status_code == 200
-        assert resp.data["data"]["site_id"] != old_id
+        assert resp.data["site_id"] != old_id
+
+    def test_health_score_in_response(self, owner, team):
+        Website.objects.create(team=team, name="HS Test", domain="hstest.com")
+        client = self._make_client(owner)
+        resp = client.get("/api/v1/websites/")
+        assert resp.status_code == 200
+        first = resp.data[0]
+        assert "health_score" in first
+        assert isinstance(first["health_score"], int)

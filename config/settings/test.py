@@ -7,3 +7,8 @@ CACHES = {
         "LOCATION": "test-cache",
     }
 }
+
+# Run Celery tasks synchronously and store results in memory — no Redis needed in tests
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_RESULT_BACKEND = "cache+memory://"

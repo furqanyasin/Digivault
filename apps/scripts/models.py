@@ -149,6 +149,7 @@ class ScriptChange(BaseModel):
         INLINE_CHANGED = "inline_changed", "Inline Content Changed"
 
     class Severity(models.TextChoices):
+        CRITICAL = "critical", "Critical"
         HIGH = "high", "High"
         MEDIUM = "medium", "Medium"
         LOW = "low", "Low"

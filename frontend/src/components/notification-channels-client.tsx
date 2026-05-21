@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Bell } from "lucide-react";
+import { Plus, Trash2, Bell, FlaskConical, CheckCircle2, XCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -173,6 +173,21 @@ function AddChannelForm({ onCreated }: { onCreated: () => void }) {
 export function NotificationChannelsClient({ initialChannels }: { initialChannels: NotificationChannel[] }) {
   const router = useRouter();
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<Record<string, { success: boolean; message: string } | null>>({});
+
+  async function handleTest(id: string) {
+    setTesting(id);
+    setTestResult((prev) => ({ ...prev, [id]: null }));
+    try {
+      const res = await fetch(`/api/notification-channels/${id}/test`, { method: "POST" });
+      const data = await res.json().catch(() => ({ success: false, message: "Unknown error" }));
+      setTestResult((prev) => ({ ...prev, [id]: { success: data.success, message: data.message } }));
+      setTimeout(() => setTestResult((prev) => ({ ...prev, [id]: null })), 4000);
+    } finally {
+      setTesting(null);
+    }
+  }
 
   async function deleteChannel(id: string, name: string) {
     if (!confirm(`Delete "${name}"? This will also remove it from all monitors.`)) return;
@@ -208,17 +223,37 @@ export function NotificationChannelsClient({ initialChannels }: { initialChannel
                   <div className="min-w-0">
                     <p className="font-medium text-sm">{ch.name}</p>
                     <p className="text-xs text-muted-foreground font-mono truncate max-w-sm">{configSummary(ch)}</p>
+                    {testResult[ch.id] && (
+                      <p className={`text-xs mt-0.5 flex items-center gap-1 ${testResult[ch.id]!.success ? "text-emerald-600" : "text-red-600"}`}>
+                        {testResult[ch.id]!.success
+                          ? <CheckCircle2 className="h-3 w-3" />
+                          : <XCircle className="h-3 w-3" />}
+                        {testResult[ch.id]!.message.slice(0, 80)}
+                      </p>
+                    )}
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-red-500 hover:text-red-600 shrink-0"
-                  disabled={deleting === ch.id}
-                  onClick={() => deleteChannel(ch.id, ch.name)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-slate-500 hover:text-slate-700"
+                    disabled={testing === ch.id}
+                    title="Send a test notification"
+                    onClick={() => handleTest(ch.id)}
+                  >
+                    {testing === ch.id ? "…" : <FlaskConical className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-red-500 hover:text-red-600"
+                    disabled={deleting === ch.id}
+                    onClick={() => deleteChannel(ch.id, ch.name)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           ))}

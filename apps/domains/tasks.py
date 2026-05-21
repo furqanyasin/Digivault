@@ -52,6 +52,7 @@ def check_domain(self, website_id: str) -> None:
     )
 
     _create_expiry_alerts(domain_info)
+    website.recalculate_health_score()
 
 
 def _create_expiry_alerts(domain_info: DomainInfo) -> None:
