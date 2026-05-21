@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Globe, Plus, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
+import { Globe, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { StatusPage } from "@/lib/api";
 import { CreateStatusPageButton } from "@/components/create-status-page-button";
+import { DeleteStatusPageButton } from "@/components/delete-status-page-button";
 
 function statusInfo(s: StatusPage["overall_status"]) {
   switch (s) {
@@ -59,6 +60,7 @@ export default async function StatusPagesPage() {
                     <CardTitle className="text-base leading-snug">{page.name}</CardTitle>
                     <div className="flex items-center gap-1 shrink-0">
                       {info.icon}
+                      <DeleteStatusPageButton id={page.id} name={page.name} />
                     </div>
                   </div>
                   <p className={`text-xs font-medium ${info.color}`}>{info.label}</p>
