@@ -49,7 +49,8 @@ class PreAuthSessionAuthentication:
 
 logger = logging.getLogger(__name__)
 
-_SESSION_TTL = 300  # 5 minutes
+_SESSION_TTL = 300        # 5 minutes
+_DEVICE_TRUST_TTL = 36000  # 10 hours
 
 
 class TotpSetupThrottle(UserRateThrottle):
@@ -177,7 +178,10 @@ class TotpConfirmView(APIView):
         if isinstance(request.successful_authenticator, PreAuthSessionAuthentication):
             pre_auth_key = request.META.get("HTTP_X_PRE_AUTH_KEY", "")
             cache.delete(f"preauth:{pre_auth_key}")
+            device_token = secrets.token_hex(32)
+            cache.set(f"device_trust:{device_token}", str(user.pk), timeout=_DEVICE_TRUST_TTL)
             response_data.update(_issue_tokens(user))
+            response_data["device_trust_token"] = device_token
             AuditService.log(
                 actor=user, action=ActivityLog.Action.AUTH_LOGIN,
                 team=user.active_team,
@@ -309,6 +313,24 @@ class LoginView(APIView):
         cache.set(f"preauth:{session_key}", str(user.pk), timeout=_SESSION_TTL)
 
         if user.totp_enabled:
+            # Check for a trusted device cookie (set after prior successful 2FA)
+            device_token = request.META.get("HTTP_X_2FA_DEVICE_TOKEN", "").strip()
+            if device_token:
+                trusted_user_id = cache.get(f"device_trust:{device_token}")
+                if trusted_user_id and str(trusted_user_id) == str(user.pk):
+                    # Device trusted — skip 2FA prompt, issue tokens + roll device token
+                    cache.delete(f"preauth:{session_key}")
+                    cache.delete(f"device_trust:{device_token}")
+                    new_device_token = secrets.token_hex(32)
+                    cache.set(f"device_trust:{new_device_token}", str(user.pk), timeout=_DEVICE_TRUST_TTL)
+                    AuditService.log(
+                        actor=user, action=ActivityLog.Action.AUTH_LOGIN,
+                        team=user.active_team,
+                        description="Logged in (trusted device — 2FA skipped)",
+                        ip_address=_get_ip(request),
+                    )
+                    return Response({**_issue_tokens(user), "device_trust_token": new_device_token})
+
             return Response({"requires_2fa": True, "session_key": session_key})
 
         # 2FA mandatory — not yet set up
@@ -346,19 +368,24 @@ class TotpVerifyView(APIView):
         except User.DoesNotExist:
             return Response(status=status.HTTP_401_UNAUTHORIZED)
 
+        def _issue_with_device_trust(log_description: str) -> Response:
+            device_token = secrets.token_hex(32)
+            cache.set(f"device_trust:{device_token}", str(user.pk), timeout=_DEVICE_TRUST_TTL)
+            AuditService.log(
+                actor=user, action=ActivityLog.Action.AUTH_LOGIN,
+                team=user.active_team,
+                description=log_description,
+                ip_address=_get_ip(request),
+            )
+            return Response({**_issue_tokens(user), "device_trust_token": device_token})
+
         # Try backup code first
         code_hash = _hash_backup_code(code.upper())
         if code_hash in user.totp_backup_codes:
             user.totp_backup_codes = [h for h in user.totp_backup_codes if h != code_hash]
             user.save(update_fields=["totp_backup_codes"])
             cache.delete(f"preauth:{session_key}")
-            AuditService.log(
-                actor=user, action=ActivityLog.Action.AUTH_LOGIN,
-                team=user.active_team,
-                description="Logged in with backup code",
-                ip_address=_get_ip(request),
-            )
-            return Response(_issue_tokens(user))
+            return _issue_with_device_trust("Logged in with backup code")
 
         # Verify TOTP
         if not user.totp_secret:
@@ -370,13 +397,7 @@ class TotpVerifyView(APIView):
             return Response({"detail": "Invalid code."}, status=status.HTTP_401_UNAUTHORIZED)
 
         cache.delete(f"preauth:{session_key}")
-        AuditService.log(
-            actor=user, action=ActivityLog.Action.AUTH_LOGIN,
-            team=user.active_team,
-            description="Logged in with 2FA",
-            ip_address=_get_ip(request),
-        )
-        return Response(_issue_tokens(user))
+        return _issue_with_device_trust("Logged in with 2FA")
 
 
 def _get_ip(request) -> str | None:

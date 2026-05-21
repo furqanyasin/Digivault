@@ -44,8 +44,8 @@ export default function LoginPage() {
         setStep("totp");
         return;
       }
-      // Direct login (no 2FA)
-      _onAuthenticated(data.access);
+      // Tokens already set as cookies (trusted device or no 2FA)
+      _onAuthenticated();
     } catch {
       toast({ variant: "destructive", title: "Network error", description: "Could not reach the server" });
     } finally {
@@ -68,7 +68,7 @@ export default function LoginPage() {
         setCode("");
         return;
       }
-      _onAuthenticated(data.access);
+      _onAuthenticated();
     } catch {
       toast({ variant: "destructive", title: "Network error", description: "Could not reach the server" });
     } finally {
@@ -76,13 +76,7 @@ export default function LoginPage() {
     }
   }
 
-  function _onAuthenticated(access: string) {
-    try {
-      window.postMessage(
-        { type: "DIGIVAULT_EXTENSION_AUTH", access, email: form.email },
-        window.location.origin
-      );
-    } catch { /* extension not installed */ }
+  function _onAuthenticated() {
     router.push("/dashboard");
   }
 

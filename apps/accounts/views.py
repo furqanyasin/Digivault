@@ -461,8 +461,22 @@ class TeamCreateUserView(APIView):
         if TeamMembership.objects.filter(team=team, user__email=email).exists():
             return Response({"detail": "A user with this email is already a team member."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if User.objects.filter(email__iexact=email).exists():
-            return Response({"detail": "A user with this email already exists."}, status=status.HTTP_400_BAD_REQUEST)
+        existing_user = User.objects.filter(email__iexact=email).first()
+        if existing_user:
+            # User account exists (e.g. previously removed from team) — just add the membership
+            membership = TeamMembership.objects.create(user=existing_user, team=team, role=role)
+            if not existing_user.active_team:
+                User.objects.filter(pk=existing_user.pk).update(active_team=team)
+            AuditService.log(
+                actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_JOINED,
+                team=team,
+                description=f"{existing_user.email} added to team as {role} (existing account)",
+                resource_type="team_membership",
+            )
+            return Response(
+                {"detail": f"{existing_user.email} added to team as {role}.", "id": str(membership.pk)},
+                status=status.HTTP_201_CREATED,
+            )
 
         try:
             validate_password(password)

@@ -31,24 +31,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data, { status: upstream.status });
   }
 
+  const cookieOpts = (maxAge: number) => ({
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge,
+  });
+
   const res = NextResponse.json(data);
 
   // If the backend issued tokens (pre-auth setup flow), set cookies
   if (data.access && data.refresh) {
-    res.cookies.set("ss_access", data.access as string, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 5,
-    });
-    res.cookies.set("ss_refresh", data.refresh as string, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
-    });
+    res.cookies.set("ss_access", data.access as string, cookieOpts(60 * 5));
+    res.cookies.set("ss_refresh", data.refresh as string, cookieOpts(60 * 60 * 24 * 7));
+    if (data.device_trust_token) {
+      res.cookies.set("ss_2fa_device", data.device_trust_token as string, cookieOpts(60 * 60 * 10));
+    }
   }
 
   return res;

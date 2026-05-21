@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Lock, ExternalLink, Pencil, Trash2, Plus,
-  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server,
+  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server, Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,11 +99,13 @@ function badge(t: string) { return TYPE_BADGE[t] ?? "bg-slate-50 text-slate-600 
 
 // ─── Credential card ──────────────────────────────────────────────────────────
 
-function CredCard({ cred, subtitle, onView, onDelete }: {
+function CredCard({ cred, subtitle, canWrite, onView, onDelete, onShare }: {
   cred: Credential;
   subtitle: string;
+  canWrite: boolean;
   onView: () => void;
   onDelete: () => void;
+  onShare: () => void;
 }) {
   return (
     <div
@@ -136,22 +138,43 @@ function CredCard({ cred, subtitle, onView, onDelete }: {
           {typeLabel(cred.credential_type)}
         </span>
         <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onView(); }}
-            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="Edit"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="p-1 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-            title="Delete"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {canWrite ? (
+            <>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onView(); }}
+                className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                title="Edit"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onShare(); }}
+                className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                title="Share credentials"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className="p-1 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onView(); }}
+              className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+              title="View"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -160,9 +183,10 @@ function CredCard({ cred, subtitle, onView, onDelete }: {
 
 // ─── Detail / edit modal ──────────────────────────────────────────────────────
 
-function CredentialModal({ cred, subtitle, onClose, onDeleted, onUpdated }: {
+function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdated }: {
   cred: Credential;
   subtitle: string;
+  canWrite: boolean;
   onClose: () => void;
   onDeleted: () => void;
   onUpdated: (updated: Credential) => void;
@@ -254,7 +278,7 @@ function CredentialModal({ cred, subtitle, onClose, onDeleted, onUpdated }: {
       <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
         <div className={`h-24 bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center relative`}>
           <Lock className="h-10 w-10 text-white/75" />
-          {!editMode && (
+          {!editMode && canWrite && (
             <button
               onClick={() => setEditMode(true)}
               className="absolute top-3 right-3 p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
@@ -372,30 +396,32 @@ function CredentialModal({ cred, subtitle, onClose, onDeleted, onUpdated }: {
             </div>
           )}
 
-          <div className="flex items-center gap-2 pt-1 border-t">
-            {editMode ? (
-              <>
-                <Button variant="outline" size="sm" onClick={() => setEditMode(false)} disabled={saveLoading}>Cancel</Button>
-                <Button size="sm" onClick={handleSave} disabled={saveLoading}>{saveLoading ? "Saving…" : "Save changes"}</Button>
-              </>
-            ) : !deleteConfirm ? (
-              <Button
-                variant="ghost" size="sm"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-auto"
-                onClick={() => setDeleteConfirm(true)}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete
-              </Button>
-            ) : (
-              <div className="flex items-center gap-2 ml-auto">
-                <span className="text-xs text-muted-foreground">Delete permanently?</span>
-                <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(false)} disabled={deleting}>Cancel</Button>
-                <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
-                  {deleting ? "…" : "Delete"}
+          {canWrite && (
+            <div className="flex items-center gap-2 pt-1 border-t">
+              {editMode ? (
+                <>
+                  <Button variant="outline" size="sm" onClick={() => setEditMode(false)} disabled={saveLoading}>Cancel</Button>
+                  <Button size="sm" onClick={handleSave} disabled={saveLoading}>{saveLoading ? "Saving…" : "Save changes"}</Button>
+                </>
+              ) : !deleteConfirm ? (
+                <Button
+                  variant="ghost" size="sm"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-auto"
+                  onClick={() => setDeleteConfirm(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete
                 </Button>
-              </div>
-            )}
-          </div>
+              ) : (
+                <div className="flex items-center gap-2 ml-auto">
+                  <span className="text-xs text-muted-foreground">Delete permanently?</span>
+                  <Button variant="outline" size="sm" onClick={() => setDeleteConfirm(false)} disabled={deleting}>Cancel</Button>
+                  <Button variant="destructive" size="sm" onClick={handleDelete} disabled={deleting}>
+                    {deleting ? "…" : "Delete"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -564,12 +590,133 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
   );
 }
 
+// ─── Share credential modal ───────────────────────────────────────────────────
+
+function ShareCredentialModal({ cred, onClose }: {
+  cred: Credential;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [revealed, setRevealed] = useState<RevealData | null>(null);
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/credentials/${cred.id}/reveal`, { method: "POST" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (active && data) setRevealed(data as RevealData); })
+      .catch(() => {})
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [cred.id]);
+
+  function copy(text: string, label: string) {
+    navigator.clipboard.writeText(text);
+    toast({ title: `${label} copied` });
+  }
+
+  function copyAll() {
+    if (!revealed) return;
+    const lines = [
+      `Label: ${cred.label}`,
+      cred.login_url ? `URL: ${cred.login_url}` : null,
+      revealed.username ? `Username: ${revealed.username}` : null,
+      revealed.password ? `Password: ${revealed.password}` : null,
+      revealed.notes ? `Notes: ${revealed.notes}` : null,
+    ].filter(Boolean).join("\n");
+    navigator.clipboard.writeText(lines);
+    toast({ title: "All credentials copied to clipboard" });
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
+        <div className={`h-20 bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center`}>
+          <Share2 className="h-8 w-8 text-white/80" />
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <h2 className="font-bold text-lg leading-tight">{cred.label}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Share these credentials securely</p>
+          </div>
+
+          {loading ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">Revealing credentials…</div>
+          ) : !revealed ? (
+            <div className="py-6 text-center text-sm text-destructive">Could not reveal credentials</div>
+          ) : (
+            <div className="space-y-3">
+              {cred.login_url && (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Login URL</p>
+                    <p className="text-sm font-mono truncate">{cred.login_url}</p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copy(cred.login_url!, "URL")}>
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+
+              {revealed.username && (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Username</p>
+                    <p className="text-sm font-mono truncate">{revealed.username}</p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copy(revealed.username, "Username")}>
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+
+              {revealed.password && (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Password</p>
+                    <p className="text-sm font-mono truncate">{showPw ? revealed.password : "••••••••••••"}</p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => setShowPw((v) => !v)}>
+                    {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copy(revealed.password, "Password")}>
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
+
+              {revealed.notes && (
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Notes</p>
+                  <p className="text-sm text-muted-foreground whitespace-pre-line">{revealed.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {revealed && (
+            <div className="pt-1 border-t flex gap-2">
+              <Button size="sm" variant="outline" className="flex-1" onClick={copyAll}>
+                <Copy className="h-3.5 w-3.5 mr-1.5" />Copy all
+              </Button>
+              <Button size="sm" variant="ghost" className="flex-1" onClick={onClose}>Done</Button>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Section header ───────────────────────────────────────────────────────────
 
-function SectionHeader({ icon: Icon, title, count, onAdd }: {
+function SectionHeader({ icon: Icon, title, count, canWrite, onAdd }: {
   icon: React.ElementType;
   title: string;
   count: number;
+  canWrite: boolean;
   onAdd: () => void;
 }) {
   return (
@@ -583,23 +730,27 @@ function SectionHeader({ icon: Icon, title, count, onAdd }: {
           <p className="text-xs text-muted-foreground">{count} saved</p>
         </div>
       </div>
-      <Button size="sm" variant="outline" onClick={onAdd}>
-        <Plus className="h-3.5 w-3.5 mr-1" />Add
-      </Button>
+      {canWrite && (
+        <Button size="sm" variant="outline" onClick={onAdd}>
+          <Plus className="h-3.5 w-3.5 mr-1" />Add
+        </Button>
+      )}
     </div>
   );
 }
 
 // ─── Empty section state ──────────────────────────────────────────────────────
 
-function SectionEmpty({ label, onAdd }: { label: string; onAdd: () => void }) {
+function SectionEmpty({ label, canWrite, onAdd }: { label: string; canWrite: boolean; onAdd: () => void }) {
   return (
     <div className="border rounded-xl py-10 flex flex-col items-center gap-2 text-center">
       <KeyRound className="h-8 w-8 text-muted-foreground opacity-30" />
       <p className="text-sm text-muted-foreground">{label}</p>
-      <Button size="sm" variant="ghost" onClick={onAdd}>
-        <Plus className="h-3.5 w-3.5 mr-1" />Add one
-      </Button>
+      {canWrite && (
+        <Button size="sm" variant="ghost" onClick={onAdd}>
+          <Plus className="h-3.5 w-3.5 mr-1" />Add one
+        </Button>
+      )}
     </div>
   );
 }
@@ -609,15 +760,20 @@ function SectionEmpty({ label, onAdd }: { label: string; onAdd: () => void }) {
 export function CredentialsVaultClient({
   initialCredentials,
   websites,
+  myRole,
 }: {
   initialCredentials: Credential[];
   websites: Website[];
+  myRole: string;
 }) {
+  const canWrite = myRole === "manager" || myRole === "owner";
+
   const [credentials, setCredentials] = useState(initialCredentials);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Credential | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null);
   const [addSection, setAddSection] = useState<Section | null>(null);
+  const [shareTarget, setShareTarget] = useState<Credential | null>(null);
 
   const websiteCreds = useMemo(() => credentials.filter((c) => c.website_id !== null), [credentials]);
   const hostingCreds = useMemo(() => credentials.filter((c) => c.website_id === null), [credentials]);
@@ -673,9 +829,11 @@ export function CredentialsVaultClient({
               : "Securely store all your logins in one place"}
           </p>
         </div>
-        <Button onClick={() => setAddSection("hosting")}>
-          <Plus className="h-4 w-4 mr-1.5" />New item
-        </Button>
+        {canWrite && (
+          <Button onClick={() => setAddSection("hosting")}>
+            <Plus className="h-4 w-4 mr-1.5" />New item
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -705,11 +863,13 @@ export function CredentialsVaultClient({
           icon={Globe}
           title="Website Credentials"
           count={websiteCreds.length}
+          canWrite={canWrite}
           onAdd={() => setAddSection("website")}
         />
         {filtered.website.length === 0 ? (
           <SectionEmpty
             label={search ? "No website credentials match your search." : "No website logins saved yet — add a WordPress admin, Wix, Shopify, or other site login."}
+            canWrite={canWrite}
             onAdd={() => setAddSection("website")}
           />
         ) : (
@@ -719,8 +879,10 @@ export function CredentialsVaultClient({
                 key={cred.id}
                 cred={cred}
                 subtitle={credSubtitle(cred)}
+                canWrite={canWrite}
                 onView={() => setSelected(cred)}
                 onDelete={() => setDeleteTarget(cred)}
+                onShare={() => setShareTarget(cred)}
               />
             ))}
           </div>
@@ -733,11 +895,13 @@ export function CredentialsVaultClient({
           icon={Server}
           title="Hosting &amp; General"
           count={hostingCreds.length}
+          canWrite={canWrite}
           onAdd={() => setAddSection("hosting")}
         />
         {filtered.hosting.length === 0 ? (
           <SectionEmpty
             label={search ? "No hosting credentials match your search." : "No hosting or general logins saved yet — add SiteGround, cPanel, GoDaddy, Cloudflare, and more."}
+            canWrite={canWrite}
             onAdd={() => setAddSection("hosting")}
           />
         ) : (
@@ -747,8 +911,10 @@ export function CredentialsVaultClient({
                 key={cred.id}
                 cred={cred}
                 subtitle={typeLabel(cred.credential_type)}
+                canWrite={canWrite}
                 onView={() => setSelected(cred)}
                 onDelete={() => setDeleteTarget(cred)}
+                onShare={() => setShareTarget(cred)}
               />
             ))}
           </div>
@@ -760,9 +926,17 @@ export function CredentialsVaultClient({
         <CredentialModal
           cred={selected}
           subtitle={credSubtitle(selected)}
+          canWrite={canWrite}
           onClose={() => setSelected(null)}
           onDeleted={() => handleDeleted(selected.id)}
           onUpdated={handleUpdated}
+        />
+      )}
+
+      {shareTarget && !selected && (
+        <ShareCredentialModal
+          cred={shareTarget}
+          onClose={() => setShareTarget(null)}
         />
       )}
 
@@ -781,7 +955,7 @@ export function CredentialsVaultClient({
         </Dialog>
       )}
 
-      {addSection && (
+      {canWrite && addSection && (
         <AddItemModal
           websites={websites}
           defaultSection={addSection}

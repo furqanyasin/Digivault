@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+const COOKIE_OPTS = (maxAge: number) => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  path: "/",
+  maxAge,
+});
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
 
@@ -17,27 +25,23 @@ export async function POST(req: NextRequest) {
   }
 
   const envelope = await upstream.json().catch(() => ({}));
-  const data: Record<string, unknown> = envelope?.data ?? envelope;
+  const data = (envelope?.data ?? envelope) as Record<string, unknown>;
 
   if (!upstream.ok) {
     return NextResponse.json(data, { status: upstream.status });
   }
 
-  const { access, refresh } = data as { access: string; refresh: string };
-  const res = NextResponse.json({ ok: true, access, refresh });
-  res.cookies.set("ss_access", access, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 5,
-  });
-  res.cookies.set("ss_refresh", refresh, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
+  const { access, refresh, device_trust_token } = data as {
+    access: string;
+    refresh: string;
+    device_trust_token?: string;
+  };
+
+  const res = NextResponse.json({ ok: true });
+  res.cookies.set("ss_access", access, COOKIE_OPTS(60 * 5));
+  res.cookies.set("ss_refresh", refresh, COOKIE_OPTS(60 * 60 * 24 * 7));
+  if (device_trust_token) {
+    res.cookies.set("ss_2fa_device", device_trust_token, COOKIE_OPTS(60 * 60 * 10));
+  }
   return res;
 }

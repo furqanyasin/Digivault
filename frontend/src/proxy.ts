@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/2fa/", "/api/auth", "/api/public"];
+const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/2fa/", "/status/", "/api/auth", "/api/public"];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
