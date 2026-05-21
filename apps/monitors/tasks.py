@@ -5,6 +5,8 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 
+from apps.monitors.notifications import notify_status_change
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,12 +38,16 @@ def run_due_checks():
 
 @shared_task(
     bind=True,
-    max_retries=2,
-    default_retry_delay=5,
+    max_retries=0,
     name="monitors.check_single_monitor",
 )
 def check_single_monitor(self, monitor_id: str):
-    """Run one health check for a monitor and persist the result."""
+    """Run one health check and apply retry + dedup logic.
+
+    Only fires a down alert after consecutive_failures reaches retry_count.
+    Only fires a recovery alert when transitioning from is_alerting=True back to up.
+    No duplicate alerts while a monitor stays down.
+    """
     from apps.monitors.checker import run_check
     from apps.monitors.models import Monitor, MonitorCheck
 
@@ -75,29 +81,42 @@ def check_single_monitor(self, monitor_id: str):
         error_message=result.get("error_message", ""),
     )
 
-    # Update monitor state
-    Monitor.objects.filter(pk=monitor.pk).update(
-        status=new_status,
-        last_checked_at=timezone.now(),
-        last_response_time=result.get("response_time_ms"),
-    )
+    if new_status == "up":
+        should_notify = monitor.is_alerting
+        Monitor.objects.filter(pk=monitor.pk).update(
+            status=new_status,
+            last_checked_at=timezone.now(),
+            last_response_time=result.get("response_time_ms"),
+            consecutive_failures=0,
+            is_alerting=False,
+        )
+    else:
+        new_failures = monitor.consecutive_failures + 1
+        fires_alert = new_failures >= monitor.retry_count and not monitor.is_alerting
+        should_notify = fires_alert
+        Monitor.objects.filter(pk=monitor.pk).update(
+            status=new_status,
+            last_checked_at=timezone.now(),
+            last_response_time=result.get("response_time_ms"),
+            consecutive_failures=new_failures,
+            is_alerting=monitor.is_alerting or fires_alert,
+        )
 
-    # Recalculate uptime stats
     monitor.refresh_from_db()
     monitor.recalculate_uptime()
 
     logger.info(
-        "monitor %s (%s) → %s  %sms",
+        "monitor %s (%s) → %s  %sms  failures=%d alerting=%s",
         monitor.name,
         monitor.url,
         new_status,
         result.get("response_time_ms"),
+        monitor.consecutive_failures,
+        monitor.is_alerting,
     )
 
-    # Fire notifications if status changed (skip "pending" as initial state)
-    if previous_status != new_status and previous_status != "pending":
+    if should_notify and previous_status != "pending":
         try:
-            from apps.monitors.notifications import notify_status_change
             notify_status_change(monitor, previous_status, new_status)
         except Exception:
             logger.exception("notify_status_change failed for monitor %s", monitor_id)
