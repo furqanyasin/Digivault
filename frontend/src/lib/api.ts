@@ -200,6 +200,7 @@ export interface TeamMember {
     timezone: string;
   };
   role: string;
+  totp_enabled: boolean;
   created_at: string;
 }
 

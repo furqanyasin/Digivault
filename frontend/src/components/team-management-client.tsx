@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus, Trash2, Check, ShieldAlert, X } from "lucide-react";
+import { UserPlus, Trash2, Check, ShieldAlert, ShieldOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -113,6 +113,16 @@ export function TeamManagementClient({
     if (!confirm("Remove this member from the team?")) return;
     await fetch(`/api/teams/${teamId}/members/${memberId}`, { method: "DELETE" });
     refresh();
+  }
+
+  async function handleDisable2fa(userId: string, memberName: string) {
+    if (!confirm(`Disable 2FA for ${memberName}? They will need to re-enrol on next login.`)) return;
+    const res = await fetch("/api/auth/2fa/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    if (res.ok) refresh();
   }
 
   async function handleResetAction(id: string, action: "approve" | "reject") {
@@ -273,17 +283,35 @@ export function TeamManagementClient({
                     </TableCell>
                     {canManage && (
                       <TableCell>
-                        {canModify && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-red-500 hover:text-red-600"
-                            title="Remove member"
-                            onClick={() => handleRemoveMember(member.id)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {canModify && member.totp_enabled && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-amber-500 hover:text-amber-600"
+                              title="Disable 2FA for this member"
+                              onClick={() => handleDisable2fa(
+                                member.user.id,
+                                (member.user.first_name || member.user.last_name)
+                                  ? `${member.user.first_name} ${member.user.last_name}`.trim()
+                                  : member.user.email
+                              )}
+                            >
+                              <ShieldOff className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          {canModify && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-red-500 hover:text-red-600"
+                              title="Remove member"
+                              onClick={() => handleRemoveMember(member.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>

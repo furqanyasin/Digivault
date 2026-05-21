@@ -52,11 +52,12 @@ class TeamSerializer(BaseModelSerializer):
 
 class TeamMembershipSerializer(BaseModelSerializer):
     user = UserSerializer(read_only=True)
+    totp_enabled = serializers.BooleanField(source="user.totp_enabled", read_only=True)
 
     class Meta:
         model = TeamMembership
-        fields = ("id", "user", "role", "created_at")
-        read_only_fields = ("id", "created_at")
+        fields = ("id", "user", "role", "totp_enabled", "created_at")
+        read_only_fields = ("id", "totp_enabled", "created_at")
 
 
 class TeamInvitationSerializer(BaseModelSerializer):
