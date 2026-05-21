@@ -20,6 +20,7 @@ class ActivityLogSerializer(serializers.ModelSerializer):
             "resource_id",
             "description",
             "ip_address",
+            "metadata",
             "created_at",
         )
 

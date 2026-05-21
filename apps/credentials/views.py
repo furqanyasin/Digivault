@@ -185,10 +185,12 @@ class CredentialDetailView(generics.RetrieveUpdateDestroyAPIView):
             notes=d.get("notes"),
             updated_by=request.user,
         )
+        changed_fields = [k for k in ("label", "credential_type", "login_url", "username", "password", "notes") if d.get(k) is not None]
         AuditService.log_request(
             request, ActivityLog.Action.CREDENTIAL_UPDATED,
             description=f"Updated credential '{updated.label}'",
             resource_type="credential", resource_id=updated.pk,
+            metadata={"fields_changed": changed_fields},
         )
         return Response(CredentialSerializer(updated).data)
 

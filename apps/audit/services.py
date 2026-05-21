@@ -21,6 +21,7 @@ class AuditService:
         resource_type: str = "",
         resource_id: str = "",
         ip_address: str | None = None,
+        metadata: dict | None = None,
     ) -> None:
         try:
             from apps.audit.models import ActivityLog
@@ -33,6 +34,7 @@ class AuditService:
                 resource_type=resource_type,
                 resource_id=str(resource_id) if resource_id else "",
                 ip_address=ip_address,
+                metadata=metadata or {},
             )
         except Exception:
             logger.exception(
@@ -43,7 +45,7 @@ class AuditService:
             )
 
     @staticmethod
-    def log_request(request, action: str, description: str = "", resource_type: str = "", resource_id: str = "") -> None:
+    def log_request(request, action: str, description: str = "", resource_type: str = "", resource_id: str = "", metadata: dict | None = None) -> None:
         """Convenience wrapper that extracts actor, team, and IP from a DRF request."""
         actor = request.user if request.user.is_authenticated else None
         team = getattr(actor, "active_team", None) if actor else None
@@ -58,6 +60,7 @@ class AuditService:
             resource_type=resource_type,
             resource_id=resource_id,
             ip_address=ip,
+            metadata=metadata,
         )
 
 

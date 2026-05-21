@@ -14,6 +14,7 @@ interface LogEntry {
   resource_type: string;
   description: string;
   ip_address: string | null;
+  metadata: Record<string, unknown>;
   created_at: string;
 }
 
@@ -52,6 +53,23 @@ function formatDate(iso: string) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function renderMetadata(action: string, metadata: Record<string, unknown>): string | null {
+  if (!metadata || Object.keys(metadata).length === 0) return null;
+  if (action === "team.member_role_changed" && metadata.previous_role && metadata.new_role) {
+    return `${metadata.previous_role} → ${metadata.new_role}`;
+  }
+  if (action === "team.member_removed" && metadata.role) {
+    return `role: ${metadata.role}`;
+  }
+  if (action === "settings.team_name_changed" && metadata.previous_name && metadata.new_name) {
+    return `"${metadata.previous_name}" → "${metadata.new_name}"`;
+  }
+  if (action === "credential.updated" && Array.isArray(metadata.fields_changed)) {
+    return `fields changed: ${(metadata.fields_changed as string[]).join(", ")}`;
+  }
+  return null;
 }
 
 function initials(name: string, email: string | null) {
@@ -203,7 +221,14 @@ export default function LogsPage() {
                         {log.action_label}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{log.description}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      <div>{log.description}</div>
+                      {renderMetadata(log.action, log.metadata) && (
+                        <div className="text-xs text-muted-foreground/60 mt-0.5 font-mono">
+                          {renderMetadata(log.action, log.metadata)}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs font-mono text-muted-foreground">
                       {log.ip_address ?? "—"}
                     </td>

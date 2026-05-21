@@ -100,6 +100,7 @@ class TeamDetailView(generics.RetrieveUpdateAPIView):
                 request, ActivityLog.Action.SETTINGS_TEAM_NAME_CHANGED,
                 description=f"Renamed team from '{old_name}' to '{new_name}'",
                 resource_type="team", resource_id=str(team.pk),
+                metadata={"previous_name": old_name, "new_name": new_name},
             )
         return response
 
@@ -173,6 +174,7 @@ class TeamMemberDetailView(APIView):
             team=team,
             description=f"Changed {target.user.email}'s role from {old_role} to {new_role}",
             resource_type="team_membership", resource_id=str(target.pk),
+            metadata={"previous_role": old_role, "new_role": new_role},
         )
         return Response(TeamMembershipSerializer(target).data)
 
@@ -197,6 +199,7 @@ class TeamMemberDetailView(APIView):
             team=team,
             description=f"Removed {removed_email} ({removed_role}) from the team",
             resource_type="team_membership", resource_id=str(pk),
+            metadata={"role": removed_role},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
