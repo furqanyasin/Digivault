@@ -68,7 +68,7 @@ class Monitor(models.Model):
     )
     timeout = models.PositiveIntegerField(default=30, help_text="Seconds")
     retry_count = models.PositiveIntegerField(
-        default=1, help_text="Consecutive failures before incident"
+        default=3, help_text="Consecutive failures before incident"
     )
 
     # Current state
@@ -76,6 +76,8 @@ class Monitor(models.Model):
         max_length=20, choices=Status.choices, default=Status.PENDING
     )
     is_active = models.BooleanField(default=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    is_alerting = models.BooleanField(default=False)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     last_response_time = models.PositiveIntegerField(
         null=True, blank=True, help_text="ms"
