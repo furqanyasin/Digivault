@@ -56,6 +56,7 @@ class ActivityLog(BaseModel):
     resource_id = models.CharField(max_length=100, blank=True)
     description = models.CharField(max_length=300)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
