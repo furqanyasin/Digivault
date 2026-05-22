@@ -52,6 +52,7 @@ def check_domain(self, website_id: str) -> None:
     )
 
     _create_expiry_alerts(domain_info)
+    _deliver_unsent_alerts(domain_info)
     website.recalculate_health_score()
 
 
@@ -82,6 +83,29 @@ def _create_expiry_alerts(domain_info: DomainInfo) -> None:
                     days_until_expiry=threshold,
                     defaults={"sent": False},
                 )
+
+
+def _deliver_unsent_alerts(domain_info: DomainInfo) -> None:
+    """Deliver the most urgent unsent alert per type; mark superseded thresholds sent.
+
+    A domain that is already close to expiry crosses several thresholds at once
+    (30/14/7 days). Sending one message per threshold is noise — instead send the
+    single most urgent one and treat the wider thresholds as covered by it.
+    """
+    from apps.domains.notifications import deliver_domain_alert
+
+    for alert_type in (DomainAlert.AlertType.DOMAIN, DomainAlert.AlertType.SSL):
+        unsent = list(
+            domain_info.alerts.filter(sent=False, alert_type=alert_type)
+            .order_by("days_until_expiry")
+        )
+        if not unsent:
+            continue
+        delivered = deliver_domain_alert(unsent[0])
+        if delivered and len(unsent) > 1:
+            DomainAlert.objects.filter(pk__in=[a.pk for a in unsent[1:]]).update(
+                sent=True, sent_at=timezone.now()
+            )
 
 
 @shared_task(name="domains.check_all_domains")

@@ -19,8 +19,8 @@ async function getData(token: string) {
   const [websitesResult, monitorsResult, expiringDomainsResult, expiringSslResult] = await Promise.allSettled([
     api.get<Website[]>("/api/v1/websites/", token),
     api.get<Monitor[]>("/api/v1/monitors/", token),
-    api.get<ExpiringItem[]>("/api/v1/websites/expiring-domains/?days=30", token),
-    api.get<ExpiringItem[]>("/api/v1/websites/expiring-ssl/?days=14", token),
+    api.get<ExpiringItem[]>("/api/v1/websites/expiring-domains/?days=3650", token),
+    api.get<ExpiringItem[]>("/api/v1/websites/expiring-ssl/?days=3650", token),
   ]);
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
   const monitors = monitorsResult.status === "fulfilled" ? monitorsResult.value : [];
@@ -89,6 +89,61 @@ function RiskDonut({ high, medium, low }: { high: number; medium: number; low: n
       })}
       <text x="22" y="26" textAnchor="middle" fontSize="10" fontWeight="bold" fill="currentColor">{total}</text>
     </svg>
+  );
+}
+
+function ExpiryCard({ title, items }: { title: string; items: ExpiringItem[] }) {
+  const soonest = items[0]?.days_until_expiry ?? null;
+  const urgentCount = items.filter((i) => (i.days_until_expiry ?? 9999) <= 30).length;
+  const border =
+    soonest != null && soonest <= 7
+      ? "border-red-200 dark:border-red-900"
+      : soonest != null && soonest <= 30
+      ? "border-amber-200 dark:border-amber-900"
+      : "border-emerald-200 dark:border-emerald-900";
+  return (
+    <Card className={border}>
+      <CardHeader className="pb-2 pt-4">
+        <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+          {title} Expiry
+          {urgentCount > 0 && (
+            <span className="text-xs font-normal text-amber-600">· {urgentCount} within 30d</span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pb-4 space-y-1.5">
+        {items.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No {title.toLowerCase()} data yet — populated by the daily domain check.
+          </p>
+        ) : (
+          <>
+            {items.slice(0, 5).map((item) => {
+              const d = item.days_until_expiry;
+              const color =
+                d == null
+                  ? "text-muted-foreground"
+                  : d <= 7
+                  ? "text-red-600"
+                  : d <= 30
+                  ? "text-amber-600"
+                  : "text-emerald-600";
+              return (
+                <div key={item.id} className="flex items-center justify-between text-xs">
+                  <span className="truncate min-w-0 font-mono">{item.domain}</span>
+                  <span className={`ml-2 shrink-0 font-semibold ${color}`}>
+                    {d == null ? "—" : `${d}d`}
+                  </span>
+                </div>
+              );
+            })}
+            {items.length > 5 && (
+              <p className="text-xs text-muted-foreground">+{items.length - 5} more</p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -208,89 +263,54 @@ export default async function DashboardPage() {
         })}
       </div>
 
-      {/* Needs Attention */}
-      {(downMonitors.length > 0 || expiringDomains.length > 0 || expiringSsl.length > 0) && (
-        <div>
-          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
-            Needs Attention
-          </h2>
-          <div className="grid gap-3 md:grid-cols-3">
-            {downMonitors.length > 0 && (
-              <Card className="border-red-200 dark:border-red-900">
-                <CardHeader className="pb-2 pt-4">
-                  <CardTitle className="text-sm font-medium text-red-600">
-                    {downMonitors.length} Monitor{downMonitors.length > 1 ? "s" : ""} Down
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4 space-y-1.5">
-                  {downMonitors.slice(0, 4).map((m) => (
-                    <div key={m.id} className="flex items-center justify-between text-xs">
-                      <span className="flex items-center gap-1.5 min-w-0">
-                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${m.status === "down" ? "bg-red-500" : "bg-amber-500"}`} />
-                        <span className="truncate">{m.name}</span>
-                      </span>
-                      <Badge variant={m.status === "down" ? "destructive" : "warning"} className="text-xs ml-2 shrink-0">
-                        {m.status}
-                      </Badge>
-                    </div>
-                  ))}
-                  {downMonitors.length > 4 && (
-                    <p className="text-xs text-muted-foreground">+{downMonitors.length - 4} more</p>
-                  )}
-                  <Link href="/monitors">
-                    <Button variant="outline" size="sm" className="w-full mt-2 h-7 text-xs">View monitors →</Button>
-                  </Link>
-                </CardContent>
-              </Card>
-            )}
-            {expiringDomains.length > 0 && (
-              <Card className="border-amber-200 dark:border-amber-900">
-                <CardHeader className="pb-2 pt-4">
-                  <CardTitle className="text-sm font-medium text-amber-600">
-                    {expiringDomains.length} Domain{expiringDomains.length > 1 ? "s" : ""} Expiring
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4 space-y-1.5">
-                  {expiringDomains.slice(0, 4).map((item) => (
-                    <div key={item.id} className="flex items-center justify-between text-xs">
-                      <span className="truncate min-w-0 font-mono">{item.domain}</span>
-                      <span className={`ml-2 shrink-0 font-semibold ${(item.days_until_expiry ?? 99) <= 7 ? "text-red-600" : "text-amber-600"}`}>
-                        {item.days_until_expiry}d
-                      </span>
-                    </div>
-                  ))}
-                  {expiringDomains.length > 4 && (
-                    <p className="text-xs text-muted-foreground">+{expiringDomains.length - 4} more</p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-            {expiringSsl.length > 0 && (
-              <Card className="border-amber-200 dark:border-amber-900">
-                <CardHeader className="pb-2 pt-4">
-                  <CardTitle className="text-sm font-medium text-amber-600">
-                    {expiringSsl.length} SSL Cert{expiringSsl.length > 1 ? "s" : ""} Expiring
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pb-4 space-y-1.5">
-                  {expiringSsl.slice(0, 4).map((item) => (
-                    <div key={item.id} className="flex items-center justify-between text-xs">
-                      <span className="truncate min-w-0 font-mono">{item.domain}</span>
-                      <span className={`ml-2 shrink-0 font-semibold ${(item.days_until_expiry ?? 99) <= 7 ? "text-red-600" : "text-amber-600"}`}>
-                        {item.days_until_expiry}d
-                      </span>
-                    </div>
-                  ))}
-                  {expiringSsl.length > 4 && (
-                    <p className="text-xs text-muted-foreground">+{expiringSsl.length - 4} more</p>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
+      {/* Domains, SSL & Uptime — always visible */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+          <Activity className="h-5 w-5 text-violet-500" />
+          Domains, SSL &amp; Uptime
+        </h2>
+        <div className="grid gap-3 md:grid-cols-3">
+          {/* Monitors */}
+          <Card className={downMonitors.length > 0 ? "border-red-200 dark:border-red-900" : "border-emerald-200 dark:border-emerald-900"}>
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className={`text-sm font-medium ${downMonitors.length > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                {downMonitors.length > 0
+                  ? `${downMonitors.length} Monitor${downMonitors.length > 1 ? "s" : ""} Down`
+                  : `All ${monitors.length} Monitor${monitors.length === 1 ? "" : "s"} Up`}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pb-4 space-y-1.5">
+              {downMonitors.length > 0 ? (
+                downMonitors.slice(0, 4).map((m) => (
+                  <div key={m.id} className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${m.status === "down" ? "bg-red-500" : "bg-amber-500"}`} />
+                      <span className="truncate">{m.name}</span>
+                    </span>
+                    <Badge variant={m.status === "down" ? "destructive" : "warning"} className="text-xs ml-2 shrink-0">
+                      {m.status}
+                    </Badge>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground">Every monitored endpoint is responding.</p>
+              )}
+              {downMonitors.length > 4 && (
+                <p className="text-xs text-muted-foreground">+{downMonitors.length - 4} more</p>
+              )}
+              <Link href="/monitors">
+                <Button variant="outline" size="sm" className="w-full mt-2 h-7 text-xs">View monitors →</Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          {/* Domain expiry */}
+          <ExpiryCard title="Domain" items={expiringDomains} />
+
+          {/* SSL expiry */}
+          <ExpiryCard title="SSL" items={expiringSsl} />
         </div>
-      )}
+      </div>
 
       {/* High-risk alerts */}
       {highRisk.length > 0 && (
