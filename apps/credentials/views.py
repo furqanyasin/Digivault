@@ -22,6 +22,7 @@ class HandoffExchangeThrottle(AnonRateThrottle):
 
 from apps.common.permissions import IsTeamMember, RolePermission
 from apps.credentials.models import Credential, CredentialAccessLog
+from apps.credentials.permissions import can_modify_credential
 from apps.credentials.serializers import (
     CredentialAccessLogSerializer,
     CredentialSerializer,
@@ -56,7 +57,11 @@ class TeamCredentialListCreateView(generics.ListCreateAPIView):
         team = self.request.user.active_team
         if team is None:
             return Credential.objects.none()
-        return Credential.objects.filter(team=team).select_related("website")
+        return (
+            Credential.objects.visible_to(self.request.user)
+            .filter(team=team)
+            .select_related("website")
+        )
 
     def create(self, request, *args, **kwargs):
         team = request.user.active_team
@@ -115,10 +120,11 @@ class CredentialListCreateView(generics.ListCreateAPIView):
         team = self.request.user.active_team
         if team is None:
             return Credential.objects.none()
-        return Credential.objects.filter(
-            team=team,
-            website_id=self.kwargs["website_pk"],
-        ).select_related("website")
+        return (
+            Credential.objects.visible_to(self.request.user)
+            .filter(team=team, website_id=self.kwargs["website_pk"])
+            .select_related("website")
+        )
 
     def create(self, request, *args, **kwargs):
         team = request.user.active_team
@@ -168,10 +174,16 @@ class CredentialDetailView(generics.RetrieveUpdateDestroyAPIView):
         team = self.request.user.active_team
         if team is None:
             return Credential.objects.none()
-        return Credential.objects.filter(team=team).select_related("website")
+        return (
+            Credential.objects.visible_to(self.request.user)
+            .filter(team=team)
+            .select_related("website")
+        )
 
     def update(self, request, *args, **kwargs):
         credential = self.get_object()
+        if not can_modify_credential(request.user, credential):
+            return Response(status=status.HTTP_403_FORBIDDEN)
         serializer = CredentialWriteSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
@@ -195,6 +207,9 @@ class CredentialDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Response(CredentialSerializer(updated).data)
 
     def perform_destroy(self, instance):
+        if not can_modify_credential(self.request.user, instance):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied()
         AuditService.log_request(
             self.request, ActivityLog.Action.CREDENTIAL_DELETED,
             description=f"Deleted credential '{instance.label}'",
@@ -215,7 +230,10 @@ class CredentialRevealView(APIView):
     def post(self, request, pk):
         team = request.user.active_team
         try:
-            credential = Credential.objects.get(pk=pk, team=team)
+            credential = (
+                Credential.objects.visible_to(request.user)
+                .get(pk=pk, team=team)
+            )
         except Credential.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
@@ -274,7 +292,7 @@ class ExtensionCredentialLookupView(generics.ListAPIView):
         if team is None:
             return Credential.objects.none()
         domain = self.request.query_params.get("domain", "").strip().lower()
-        return Credential.objects.filter(
+        return Credential.objects.visible_to(self.request.user).filter(
             website__team=team,
             website__domain__iexact=domain,
         )

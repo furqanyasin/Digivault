@@ -144,7 +144,7 @@ class TestCredentialAPI:
             {"email": user.email, "password": "Pass123!"},
             format="json",
         )
-        c.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['data']['access']}")
+        c.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
         return c
 
     def test_create_and_list(self, website, owner):
@@ -165,7 +165,7 @@ class TestCredentialAPI:
 
         list_resp = client.get(f"/api/v1/websites/{website.pk}/credentials/")
         assert list_resp.status_code == 200
-        labels = [c["label"] for c in list_resp.data["data"]]
+        labels = [c["label"] for c in list_resp.data]
         assert "WordPress Admin" in labels
 
     def test_list_response_has_no_password_field(self, website, owner):
@@ -175,7 +175,7 @@ class TestCredentialAPI:
         )
         client = self._client(owner)
         resp = client.get(f"/api/v1/websites/{website.pk}/credentials/")
-        for item in resp.data["data"]:
+        for item in resp.data:
             assert "password" not in item
             assert "_password" not in item
 
@@ -187,4 +187,4 @@ class TestCredentialAPI:
         client = self._client(owner)
         resp = client.post(f"/api/v1/credentials/{cred.pk}/reveal/")
         assert resp.status_code == 200
-        assert resp.data["data"]["password"] == "revpass"
+        assert resp.data["password"] == "revpass"
