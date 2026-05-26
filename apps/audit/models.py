@@ -24,6 +24,8 @@ class ActivityLog(BaseModel):
         CREDENTIAL_REVEALED = "credential.revealed", "Credential revealed"
         CREDENTIAL_UPDATED = "credential.updated", "Credential updated"
         CREDENTIAL_DELETED = "credential.deleted", "Credential deleted"
+        CREDENTIAL_SHARED = "credential.shared", "Credential shared"
+        CREDENTIAL_UNSHARED = "credential.unshared", "Credential unshared"
         # Websites
         WEBSITE_CREATED = "website.created", "Website created"
         WEBSITE_DELETED = "website.deleted", "Website deleted"
