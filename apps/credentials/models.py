@@ -1,9 +1,29 @@
 import hashlib
 
 from django.db import models
+from django.db.models import Q
 
 from apps.common.models import BaseModel
 from apps.credentials import encryption
+
+
+class CredentialQuerySet(models.QuerySet):
+    def visible_to(self, user):
+        if user is None or not user.is_authenticated:
+            return self.none()
+
+        from apps.accounts.models import TeamMembership
+
+        privileged_team_ids = TeamMembership.objects.filter(
+            user=user,
+            role__in=[TeamMembership.Role.OWNER, TeamMembership.Role.MANAGER],
+        ).values_list("team_id", flat=True)
+
+        return self.filter(
+            Q(team_id__in=privileged_team_ids)
+            | Q(created_by=user)
+            | Q(shares__user=user)
+        ).distinct()
 
 
 class Credential(BaseModel):
@@ -73,6 +93,8 @@ class Credential(BaseModel):
             models.Index(fields=["team", "credential_type"], name="credentials_team_type_idx"),
         ]
 
+    objects = CredentialQuerySet.as_manager()
+
     def __str__(self) -> str:
         site = self.website or "standalone"
         return f"{self.label} ({self.credential_type}) — {site}"
@@ -139,3 +161,40 @@ class CredentialAccessLog(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.user.email} {self.action} '{self.credential.label}'"
+
+
+class CredentialShare(BaseModel):
+    """Grants a developer view+reveal access to a single credential.
+
+    Owners and managers do not need rows here — their access is implicit
+    via role.  A creator also does not need a row.  Modification of the
+    credential remains gated by `can_modify_credential`.
+    """
+
+    credential = models.ForeignKey(
+        Credential, on_delete=models.CASCADE, related_name="shares"
+    )
+    user = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="credential_shares",
+    )
+    shared_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="credential_shares_granted",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["credential", "user"],
+                name="credentialshare_unique_per_user",
+            )
+        ]
+        indexes = [models.Index(fields=["user", "credential"])]
+
+    def __str__(self) -> str:
+        return f"{self.credential.label} → {self.user.email}"
