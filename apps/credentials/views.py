@@ -428,3 +428,116 @@ class WebHandoffExchangeView(APIView):
             )
         cache.delete(key)
         return Response(tokens)
+
+
+from apps.credentials.models import CredentialShare
+from apps.credentials.serializers import (
+    CredentialShareSerializer,
+    CredentialShareWriteSerializer,
+)
+
+
+class CredentialShareListCreateView(APIView):
+    """GET/POST /api/v1/credentials/<pk>/shares/"""
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def _get_credential(self, request, pk):
+        team = request.user.active_team
+        if team is None:
+            return None
+        return (
+            Credential.objects
+            .visible_to(request.user)
+            .filter(pk=pk, team=team)
+            .first()
+        )
+
+    def get(self, request, pk):
+        cred = self._get_credential(request, pk)
+        if cred is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        shares = cred.shares.select_related("user", "shared_by")
+        return Response(
+            CredentialShareSerializer(shares, many=True).data
+        )
+
+    def post(self, request, pk):
+        cred = self._get_credential(request, pk)
+        if cred is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not can_modify_credential(request.user, cred):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        ser = CredentialShareWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        from apps.accounts.models import TeamMembership
+
+        memberships = TeamMembership.objects.filter(
+            team=cred.team, user_id__in=ser.validated_data["user_ids"]
+        ).select_related("user")
+        valid_user_ids = {m.user_id for m in memberships}
+        invalid = set(ser.validated_data["user_ids"]) - valid_user_ids
+        if invalid:
+            return Response(
+                {"detail": f"Users not in team: {sorted(str(u) for u in invalid)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Only developers need shares; owners/managers already have access.
+        target_user_ids = [
+            m.user_id for m in memberships
+            if m.role == TeamMembership.Role.DEVELOPER
+        ]
+        created_ids = []
+        for uid in target_user_ids:
+            _, created = CredentialShare.objects.get_or_create(
+                credential=cred, user_id=uid,
+                defaults={"shared_by": request.user},
+            )
+            if created:
+                created_ids.append(str(uid))
+
+        if created_ids:
+            AuditService.log_request(
+                request, ActivityLog.Action.CREDENTIAL_SHARED,
+                description=f"Shared credential '{cred.label}' with {len(created_ids)} user(s)",
+                resource_type="credential", resource_id=cred.pk,
+                metadata={"shared_with_user_ids": created_ids},
+            )
+
+        shares = cred.shares.select_related("user", "shared_by")
+        return Response(
+            CredentialShareSerializer(shares, many=True).data,
+            status=status.HTTP_201_CREATED if created_ids else status.HTTP_200_OK,
+        )
+
+
+class CredentialShareDeleteView(APIView):
+    """DELETE /api/v1/credentials/<pk>/shares/<user_id>/"""
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def delete(self, request, pk, user_id):
+        team = request.user.active_team
+        if team is None:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        try:
+            cred = Credential.objects.get(pk=pk, team=team)
+        except Credential.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not can_modify_credential(request.user, cred):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        deleted, _ = CredentialShare.objects.filter(
+            credential=cred, user_id=user_id
+        ).delete()
+        if not deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        AuditService.log_request(
+            request, ActivityLog.Action.CREDENTIAL_UNSHARED,
+            description=f"Unshared credential '{cred.label}'",
+            resource_type="credential", resource_id=cred.pk,
+            metadata={"unshared_user_id": str(user_id)},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
