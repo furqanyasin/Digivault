@@ -7,7 +7,7 @@ Finish the half-built features so there are no dead settings or inconsistent beh
 
 ## Progress summary
 - ✅ **1.1 SMS** — removed (channel choice + `sms_phone_number` + serializer); migration `alerts/0003`. *(decision: remove)*
-- ⬜ **1.2 Channel unification** — deferred (larger refactor unifying monitor + alert channels).
+- 🟡 **1.2 Channel parity** — ✅ monitors can now deliver to **Slack** (`_send_slack` + `_test_slack` + `NotificationChannel.ChannelType.SLACK`; migration `monitors/0007`). ⬜ Full single-model merge of monitor+alert channels (and alerts→ClickUp) still deferred — it's a design decision (which model wins) + data migration, not a silent refactor.
 - ✅ **1.3 Script workflow** — bulk review (`scripts/bulk-review/`) + per-script timeline (`scripts/<id>/timeline/`) + **alert suppression** (`AlertSuppression` model gates `dispatch_for_change`; `websites/<id>/alert-suppressions/` CRUD).
 - ✅ **1.4 Credential health** — `last_password_changed_at` + `password_strength` (auto on `set_password`) + `password_age_days` + `.stale_passwords()` queryset; migration `credentials/0006`.
 - ✅ **1.5 Domain 3-day alert** — committed `d059ecf`.

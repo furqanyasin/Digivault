@@ -1,3 +1,4 @@
+import json
 import urllib.request
 
 from django.conf import settings
@@ -191,7 +192,28 @@ def _test_channel(channel) -> tuple[bool, str]:
         return _test_email(channel)
     if channel.channel_type == "clickup":
         return _test_clickup(channel)
+    if channel.channel_type == "slack":
+        return _test_slack(channel)
     return False, f"Unknown channel type: {channel.channel_type}"
+
+
+def _test_slack(channel) -> tuple[bool, str]:
+    webhook_url = channel.config.get("webhook_url", "")
+    if not webhook_url:
+        return False, "Missing webhook_url in config."
+    payload = {"text": "[Digivault] Test notification — your Slack alerts are working."}
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url, data=data,
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status == 200:
+                return True, "Test message sent to Slack."
+            return False, f"Slack returned HTTP {resp.status}."
+    except Exception as e:
+        return False, str(e)
 
 
 def _test_email(channel) -> tuple[bool, str]:
