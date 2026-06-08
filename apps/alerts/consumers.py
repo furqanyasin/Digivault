@@ -1,9 +1,13 @@
 """WebSocket consumer for real-time in-app alert delivery.
 
 Connection flow:
-  1. Client connects: ws://host/ws/alerts/?token=<JWT access token>
+  1. Client supplies a JWT access token, preferring header-based auth:
+       - Sec-WebSocket-Protocol: bearer, <token>   (browser-friendly)
+       - Authorization: Bearer <token>             (non-browser clients)
+       - ?token=<token>                            (legacy fallback; may leak in logs)
   2. Consumer validates the token with SimpleJWT.
-  3. On success: joins team-scoped channel group and sends a hello frame.
+  3. On success: joins team-scoped channel group and sends a hello frame
+     (echoing the "bearer" subprotocol when header auth was used).
   4. On failure: closes immediately with code 4001 (auth error).
 
 Push flow (server → client):
@@ -31,7 +35,8 @@ class AlertConsumer(AsyncWebsocketConsumer):
     """One connection per browser tab.  Messages flow server → client only."""
 
     async def connect(self):
-        user, team = await self._authenticate()
+        token_str, subprotocol = self._extract_token(self.scope)
+        user, team = await self._authenticate(token_str)
         if user is None or team is None:
             await self.close(code=4001)
             return
@@ -41,7 +46,11 @@ class AlertConsumer(AsyncWebsocketConsumer):
         self.group_name = _team_group_name(team.pk)
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
-        await self.accept()
+        # Echo the negotiated subprotocol when the client authenticated via header.
+        if subprotocol:
+            await self.accept(subprotocol=subprotocol)
+        else:
+            await self.accept()
         await self.send(text_data=json.dumps({"type": "connection_established"}))
 
     async def disconnect(self, close_code):
@@ -64,20 +73,45 @@ class AlertConsumer(AsyncWebsocketConsumer):
     # Auth
     # ------------------------------------------------------------------
 
-    async def _authenticate(self):
-        """Validate the JWT token from the query string.
+    async def _authenticate(self, token_str: str | None):
+        """Validate a JWT token. Returns (user, team) or (None, None).
 
-        Returns (user, team) or (None, None) on any failure.
         Runs DB queries via sync_to_async so as not to block the event loop.
         """
         from channels.db import database_sync_to_async
 
-        query_string = self.scope.get("query_string", b"").decode()
-        token_str = self._parse_token(query_string)
         if not token_str:
             return None, None
-
         return await database_sync_to_async(self._validate_token)(token_str)
+
+    @classmethod
+    def _extract_token(cls, scope) -> tuple[str | None, str | None]:
+        """Resolve the JWT, preferring header-based auth over the query string.
+
+        Order:
+          1. Sec-WebSocket-Protocol subprotocol: ["bearer", "<token>"]
+             (browser-friendly — browsers can't set arbitrary WS headers).
+             Returns the token + the "bearer" subprotocol to echo on accept.
+          2. Authorization: Bearer <token> header (non-browser clients).
+          3. ?token=<token> query string (legacy fallback; may leak in logs).
+
+        Returns (token, subprotocol_to_echo). subprotocol is None unless #1 used.
+        """
+        # 1. Subprotocol
+        subprotocols = scope.get("subprotocols") or []
+        if len(subprotocols) >= 2 and subprotocols[0].lower() == "bearer":
+            return subprotocols[1], "bearer"
+
+        # 2. Authorization header
+        for name, value in scope.get("headers", []) or []:
+            if name == b"authorization":
+                decoded = value.decode()
+                if decoded.lower().startswith("bearer "):
+                    return decoded[7:].strip(), None
+
+        # 3. Query string (legacy)
+        token = cls._parse_token(scope.get("query_string", b"").decode())
+        return token, None
 
     @staticmethod
     def _parse_token(query_string: str) -> str | None:

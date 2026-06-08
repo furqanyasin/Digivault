@@ -46,7 +46,13 @@ These are the only items in the roadmap with **no existing models/tasks** — tr
 
 ---
 
-## 3.3 — Status page enhancements ⬜
+## 3.3 — Status page enhancements ✅ (backend)
+
+**Shipped:** branding (`logo_url`, `brand_color` on StatusPage); `StatusPageIncident` model (investigating→resolved, auto `resolved_at`) + CRUD; `MaintenanceWindow` model (+ `is_active`) + CRUD; public page now returns branding + active/recent incidents + upcoming/active maintenance. Migration `status_pages/0002`. Tests: `test_incidents_maintenance.py` (5). Frontend rendering still pending.
+
+---
+
+## 3.3 — Status page enhancements (original plan) ⬜
 
 ### Tasks
 - [ ] Branding (logo, colors) per status page.

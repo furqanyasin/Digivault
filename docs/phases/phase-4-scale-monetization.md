@@ -46,7 +46,13 @@
 
 ---
 
-## 4.4 — WebSocket header auth + real-time dashboard ⬜
+## 4.4 — WebSocket header auth + real-time dashboard 🟡
+
+**Shipped (backend):** `AlertConsumer` now resolves the JWT from (1) `Sec-WebSocket-Protocol: bearer, <token>` subprotocol, (2) `Authorization: Bearer` header, then (3) `?token=` query string (legacy fallback). Header auth keeps the token out of URLs/logs; the negotiated `bearer` subprotocol is echoed on accept. Tests: `test_ws_token_extraction.py` (4). ⬜ Frontend dashboard real-time wiring still pending.
+
+---
+
+## 4.4 — WebSocket header auth + real-time dashboard (original) ⬜
 
 ### Tasks
 - [ ] Move WS auth from query-string JWT to subprotocol/header (avoid token leakage in logs/proxies).

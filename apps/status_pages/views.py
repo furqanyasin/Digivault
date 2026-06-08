@@ -5,12 +5,76 @@ from rest_framework.views import APIView
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
 from apps.monitors.models import Monitor
-from apps.status_pages.models import StatusPage, StatusPageMonitor
+from apps.status_pages.models import (
+    MaintenanceWindow,
+    StatusPage,
+    StatusPageIncident,
+    StatusPageMonitor,
+)
 from apps.status_pages.serializers import (
+    MaintenanceWindowSerializer,
     PublicStatusPageSerializer,
+    StatusPageIncidentSerializer,
     StatusPageMonitorSerializer,
     StatusPageSerializer,
 )
+
+
+class _PageScopedChildMixin:
+    """Shared team-scoped access to a status page's child objects."""
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    child_model = None
+    child_related = None  # related_name on StatusPage
+
+    def _get_page(self):
+        team = self.request.user.active_team
+        return StatusPage.objects.filter(pk=self.kwargs["page_pk"], team=team).first()
+
+    def get_queryset(self):
+        page = self._get_page()
+        if page is None:
+            return self.child_model.objects.none()
+        return getattr(page, self.child_related).all()
+
+    def perform_create(self, serializer):
+        page = self._get_page()
+        if page is None:
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Status page not found.")
+        serializer.save(status_page=page)
+
+
+class StatusPageIncidentListCreateView(_PageScopedChildMixin, generics.ListCreateAPIView):
+    """GET/POST /api/v1/status-pages/<page_pk>/incidents/"""
+
+    serializer_class = StatusPageIncidentSerializer
+    child_model = StatusPageIncident
+    child_related = "incidents"
+
+
+class StatusPageIncidentDetailView(_PageScopedChildMixin, generics.RetrieveUpdateDestroyAPIView):
+    """GET/PATCH/DELETE /api/v1/status-pages/<page_pk>/incidents/<pk>/"""
+
+    serializer_class = StatusPageIncidentSerializer
+    child_model = StatusPageIncident
+    child_related = "incidents"
+
+
+class MaintenanceWindowListCreateView(_PageScopedChildMixin, generics.ListCreateAPIView):
+    """GET/POST /api/v1/status-pages/<page_pk>/maintenance/"""
+
+    serializer_class = MaintenanceWindowSerializer
+    child_model = MaintenanceWindow
+    child_related = "maintenance_windows"
+
+
+class MaintenanceWindowDetailView(_PageScopedChildMixin, generics.RetrieveUpdateDestroyAPIView):
+    """GET/PATCH/DELETE /api/v1/status-pages/<page_pk>/maintenance/<pk>/"""
+
+    serializer_class = MaintenanceWindowSerializer
+    child_model = MaintenanceWindow
+    child_related = "maintenance_windows"
 
 
 class StatusPageListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
@@ -86,7 +150,7 @@ class PublicStatusPageView(APIView):
         try:
             page = (
                 StatusPage.objects.prefetch_related(
-                    "monitors__monitor"
+                    "monitors__monitor", "incidents", "maintenance_windows"
                 ).get(slug=slug)
             )
         except StatusPage.DoesNotExist:
