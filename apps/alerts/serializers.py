@@ -15,7 +15,6 @@ class AlertRuleSerializer(BaseModelSerializer):
             "change_types",
             "delivery_mode",
             "slack_webhook_url",
-            "sms_phone_number",
             "is_active",
             "created_at",
             "updated_at",
@@ -23,7 +22,6 @@ class AlertRuleSerializer(BaseModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at")
         extra_kwargs = {
             "slack_webhook_url": {"write_only": True},
-            "sms_phone_number": {"write_only": True},
         }
 
 

@@ -13,7 +13,6 @@ class AlertRule(BaseModel):
     class Channel(models.TextChoices):
         EMAIL = "email", "Email"
         SLACK = "slack", "Slack"
-        SMS = "sms", "SMS"
         IN_APP = "in_app", "In-App"
 
     class DeliveryMode(models.TextChoices):
@@ -48,7 +47,6 @@ class AlertRule(BaseModel):
     )
     # Channel-specific destination
     slack_webhook_url = models.URLField(max_length=500, blank=True)
-    sms_phone_number = models.CharField(max_length=20, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:

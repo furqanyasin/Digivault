@@ -2,12 +2,39 @@ import hashlib
 
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 from apps.common.models import BaseModel
 from apps.credentials import encryption
 
 
+def score_password_strength(plaintext: str) -> int:
+    """Heuristic password strength score 0–4 (no plaintext is stored).
+
+    Computed at set-time so we never need to decrypt to assess strength.
+    """
+    if not plaintext:
+        return 0
+    score = 0
+    if len(plaintext) >= 8:
+        score += 1
+    if len(plaintext) >= 12:
+        score += 1
+    if any(c.islower() for c in plaintext) and any(c.isupper() for c in plaintext):
+        score += 1
+    if any(c.isdigit() for c in plaintext):
+        score += 1
+    if any(not c.isalnum() for c in plaintext):
+        score += 1
+    return min(score, 4)
+
+
 class CredentialQuerySet(models.QuerySet):
+    def stale_passwords(self, older_than_days: int = 180):
+        """Credentials whose password hasn't changed in `older_than_days`."""
+        cutoff = timezone.now() - timezone.timedelta(days=older_than_days)
+        return self.filter(last_password_changed_at__lt=cutoff)
+
     def visible_to(self, user):
         if user is None or not user.is_authenticated:
             return self.none()
@@ -87,6 +114,10 @@ class Credential(BaseModel):
         related_name="created_credentials",
     )
 
+    # Password health (auto-maintained by set_password)
+    last_password_changed_at = models.DateTimeField(null=True, blank=True)
+    password_strength = models.PositiveSmallIntegerField(default=0)
+
     class Meta:
         ordering = ["credential_type", "label"]
         indexes = [
@@ -116,6 +147,14 @@ class Credential(BaseModel):
 
     def set_password(self, plaintext: str) -> None:
         self._password = encryption.encrypt(plaintext)
+        self.last_password_changed_at = timezone.now()
+        self.password_strength = score_password_strength(plaintext)
+
+    @property
+    def password_age_days(self) -> int | None:
+        if not self.last_password_changed_at:
+            return None
+        return (timezone.now() - self.last_password_changed_at).days
 
     def get_password(self) -> str:
         return encryption.decrypt(bytes(self._password)) if self._password else ""

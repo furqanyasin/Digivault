@@ -1,9 +1,19 @@
 # Phase 1 — Close Functional Gaps
 
-**Status:** ⬜ Not started
+**Status:** 🟢 Mostly done — 1.1, 1.3 (partial), 1.4, 1.5, 1.6 complete; 1.2 (channel unification) + 1.3 suppression deferred.
 **Blocks launch:** Items 1–2 partially (decide-or-implement SMS; channel parity).
 
 Finish the half-built features so there are no dead settings or inconsistent behavior.
+
+## Progress summary
+- ✅ **1.1 SMS** — removed (channel choice + `sms_phone_number` + serializer); migration `alerts/0003`. *(decision: remove)*
+- ⬜ **1.2 Channel unification** — deferred (larger refactor unifying monitor + alert channels).
+- 🟡 **1.3 Script workflow** — ✅ bulk review (`scripts/bulk-review/`) + ✅ per-script timeline (`scripts/<id>/timeline/`); ⬜ alert suppression deferred.
+- ✅ **1.4 Credential health** — `last_password_changed_at` + `password_strength` (auto on `set_password`) + `password_age_days` + `.stale_passwords()` queryset; migration `credentials/0006`.
+- ✅ **1.5 Domain 3-day alert** — committed `d059ecf`.
+- ✅ **1.6 Audit search + CSV export** — filters (action/resource_type/date/q/user_id) + `logs/export/`.
+
+**Tests added:** `test_password_health.py` (4), `test_bulk_and_timeline.py` (4), `audit/test_search_export.py` (8). All touched-app suites green (67 passed).
 
 ---
 

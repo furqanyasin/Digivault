@@ -9,6 +9,7 @@ class CredentialSerializer(BaseModelSerializer):
 
     website_id = serializers.SerializerMethodField()
     website_name = serializers.SerializerMethodField()
+    password_age_days = serializers.ReadOnlyField()
 
     class Meta:
         model = Credential
@@ -20,10 +21,17 @@ class CredentialSerializer(BaseModelSerializer):
             "credential_type",
             "login_url",
             "created_by_id",
+            "last_password_changed_at",
+            "password_strength",
+            "password_age_days",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "website_id", "website_name", "created_by_id", "created_at", "updated_at")
+        read_only_fields = (
+            "id", "website_id", "website_name", "created_by_id",
+            "last_password_changed_at", "password_strength", "password_age_days",
+            "created_at", "updated_at",
+        )
 
     def get_website_id(self, obj) -> str | None:
         return str(obj.website.id) if obj.website_id else None
