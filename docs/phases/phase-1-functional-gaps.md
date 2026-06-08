@@ -8,7 +8,7 @@ Finish the half-built features so there are no dead settings or inconsistent beh
 ## Progress summary
 - ✅ **1.1 SMS** — removed (channel choice + `sms_phone_number` + serializer); migration `alerts/0003`. *(decision: remove)*
 - ⬜ **1.2 Channel unification** — deferred (larger refactor unifying monitor + alert channels).
-- 🟡 **1.3 Script workflow** — ✅ bulk review (`scripts/bulk-review/`) + ✅ per-script timeline (`scripts/<id>/timeline/`); ⬜ alert suppression deferred.
+- ✅ **1.3 Script workflow** — bulk review (`scripts/bulk-review/`) + per-script timeline (`scripts/<id>/timeline/`) + **alert suppression** (`AlertSuppression` model gates `dispatch_for_change`; `websites/<id>/alert-suppressions/` CRUD).
 - ✅ **1.4 Credential health** — `last_password_changed_at` + `password_strength` (auto on `set_password`) + `password_age_days` + `.stale_passwords()` queryset; migration `credentials/0006`.
 - ✅ **1.5 Domain 3-day alert** — committed `d059ecf`.
 - ✅ **1.6 Audit search + CSV export** — filters (action/resource_type/date/q/user_id) + `logs/export/`.

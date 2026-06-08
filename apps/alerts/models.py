@@ -57,6 +57,49 @@ class AlertRule(BaseModel):
         return f"{self.team.name} — {self.channel} ({target})"
 
 
+class AlertSuppression(BaseModel):
+    """Mute alerts for a known script on a website (by provider or source domain).
+
+    Checked in AlertService.dispatch_for_change — a change whose script matches
+    an active suppression produces no notifications.
+    """
+
+    class MatchType(models.TextChoices):
+        PROVIDER = "provider", "Provider"
+        DOMAIN = "domain", "Source domain"
+
+    website = models.ForeignKey(
+        "websites.Website",
+        on_delete=models.CASCADE,
+        related_name="alert_suppressions",
+    )
+    match_type = models.CharField(max_length=10, choices=MatchType.choices)
+    match_value = models.CharField(max_length=255)
+    reason = models.CharField(max_length=500, blank=True)
+    created_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="alert_suppressions",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = [("website", "match_type", "match_value")]
+
+    def __str__(self) -> str:
+        return f"suppress {self.match_type}={self.match_value} on {self.website}"
+
+    def matches(self, change) -> bool:
+        script = getattr(change, "script", None)
+        if script is None:
+            return False
+        if self.match_type == self.MatchType.PROVIDER:
+            return (script.provider or "") == self.match_value
+        return (script.src_domain or "") == self.match_value
+
+
 class Notification(BaseModel):
     """A generated alert instance for one rule + one script change."""
 

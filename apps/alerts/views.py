@@ -3,9 +3,14 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.alerts.models import AlertRule, Notification
-from apps.alerts.serializers import AlertRuleSerializer, NotificationSerializer
+from apps.alerts.models import AlertRule, AlertSuppression, Notification
+from apps.alerts.serializers import (
+    AlertRuleSerializer,
+    AlertSuppressionSerializer,
+    NotificationSerializer,
+)
 from apps.common.permissions import IsTeamMember, RolePermission
+from apps.websites.models import Website
 
 
 class AlertRuleListCreateView(generics.ListCreateAPIView):
@@ -54,6 +59,43 @@ class NotificationListView(generics.ListAPIView):
         if unread == "true":
             qs = qs.filter(read=False)
         return qs
+
+
+class AlertSuppressionListCreateView(generics.ListCreateAPIView):
+    """GET/POST /api/v1/websites/<website_pk>/alert-suppressions/"""
+
+    serializer_class = AlertSuppressionSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def _website(self):
+        team = self.request.user.active_team
+        return Website.objects.filter(pk=self.kwargs["website_pk"], team=team).first()
+
+    def get_queryset(self):
+        website = self._website()
+        if website is None:
+            return AlertSuppression.objects.none()
+        return AlertSuppression.objects.filter(website=website)
+
+    def perform_create(self, serializer):
+        website = self._website()
+        if website is None:
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Website not found.")
+        serializer.save(website=website, created_by=self.request.user)
+
+
+class AlertSuppressionDeleteView(generics.DestroyAPIView):
+    """DELETE /api/v1/alert-suppressions/<pk>/"""
+
+    serializer_class = AlertSuppressionSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return AlertSuppression.objects.none()
+        return AlertSuppression.objects.filter(website__team=team)
 
 
 class MarkNotificationsReadView(APIView):

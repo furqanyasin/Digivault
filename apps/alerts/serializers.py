@@ -1,7 +1,20 @@
 from rest_framework import serializers
 
-from apps.alerts.models import AlertRule, Notification
+from apps.alerts.models import AlertRule, AlertSuppression, Notification
 from apps.common.serializers import BaseModelSerializer
+
+
+class AlertSuppressionSerializer(BaseModelSerializer):
+    class Meta:
+        model = AlertSuppression
+        fields = (
+            "id",
+            "match_type",
+            "match_value",
+            "reason",
+            "created_at",
+        )
+        read_only_fields = ("id", "created_at")
 
 
 class AlertRuleSerializer(BaseModelSerializer):
