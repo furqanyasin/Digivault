@@ -6,7 +6,7 @@
 ## Progress summary
 - ✅ **2.1 Health Center** — `build_health_snapshot()` + derived security score; `GET websites/<id>/health/`.
 - ⬜ **2.2 Renewal Center** — frontend screen (backend renewal data exists via 1.5 + 2.5).
-- ✅ **2.3 Reporting** — `reports` app, PDF/CSV, generate + download + monthly task (commit `c358eb1`).
+- ✅ **2.3 Reporting** — `reports` app, PDF/CSV, generate + download + monthly task (commit `c358eb1`). **Frontend:** `/reports` page (generate form + list + download) + BFF routes (`/api/reports`, `/api/reports/generate`, `/api/reports/[id]/download`) + nav link. tsc + eslint clean; needs visual QA.
 - ✅ **2.4 Performance trends** — `weekly_trend()` + `detect_regression()`/`alert_on_regression()`; `GET websites/<id>/performance/trends/`; regression fires in-app Notification from run-view + task.
 - ✅ **2.5 Client enrichment** — `assigned_to`, `monthly_revenue`, `support_tier`, `contract_renewal_date` + `assigned_websites_count`; migration `clients/0003`.
 
