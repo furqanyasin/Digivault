@@ -25,7 +25,7 @@ def auth_client(registered_user):
         {"email": "test@example.com", "password": "SecurePass1!"},
         format="json",
     )
-    token = response.data["data"]["access"]
+    token = response.data["access"]
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
     return client
 
@@ -51,8 +51,12 @@ class TestRegistration:
             },
             format="json",
         )
-        assert "data" in response.data
-        assert "errors" in response.data
+        # The envelope exists in the rendered body, not in DRF's pre-render resp.data
+        import json
+
+        body = json.loads(response.content)
+        assert "data" in body
+        assert "errors" in body
 
     def test_duplicate_email_returns_400(self, api_client, registered_user):
         response = api_client.post(
@@ -84,8 +88,8 @@ class TestTokenObtain:
             format="json",
         )
         assert response.status_code == 200
-        assert "access" in response.data["data"]
-        assert "refresh" in response.data["data"]
+        assert "access" in response.data
+        assert "refresh" in response.data
 
     def test_invalid_password_returns_401(self, api_client, registered_user):
         response = api_client.post(
@@ -101,7 +105,7 @@ class TestMeEndpoint:
     def test_me_returns_current_user(self, auth_client, registered_user):
         response = auth_client.get("/api/v1/auth/me/")
         assert response.status_code == 200
-        assert response.data["data"]["email"] == registered_user.email
+        assert response.data["email"] == registered_user.email
 
     def test_me_unauthenticated_returns_401(self, api_client):
         response = api_client.get("/api/v1/auth/me/")
@@ -117,7 +121,7 @@ class TestTeamAPI:
             format="json",
         )
         assert response.status_code == 201
-        assert response.data["data"]["name"] == "My Agency"
+        assert response.data["name"] == "My Agency"
 
     def test_list_teams_returns_only_user_teams(
         self, auth_client, registered_user
@@ -128,7 +132,7 @@ class TestTeamAPI:
         )
         TeamService.create(name="Other Team", owner=other_owner)
         response = auth_client.get("/api/v1/auth/teams/")
-        names = [t["name"] for t in response.data["data"]]
+        names = [t["name"] for t in response.data]
         assert "My Team" in names
         assert "Other Team" not in names
 
@@ -140,6 +144,6 @@ class TestTeamAPI:
         )
         response = auth_client.get(f"/api/v1/auth/teams/{team.pk}/members/")
         assert response.status_code == 200
-        emails = [m["user"]["email"] for m in response.data["data"]]
+        emails = [m["user"]["email"] for m in response.data]
         assert registered_user.email in emails
         assert "dev@example.com" in emails

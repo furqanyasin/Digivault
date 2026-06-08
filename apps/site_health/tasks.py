@@ -180,3 +180,26 @@ def _heuristic_scan(plugin_names: list[str]) -> list[dict]:
                     "source": "heuristic",
                 })
     return results
+
+
+@shared_task(name="site_health.purge_old_php_errors")
+def purge_old_php_errors(days: int = 90) -> int:
+    """Delete PhpError rows older than `days`. Chunked to avoid long locks."""
+    from apps.site_health.models import PhpError
+
+    cutoff = timezone.now() - timezone.timedelta(days=days)
+    total = 0
+    chunk = 1000
+    while True:
+        ids = list(
+            PhpError.objects.filter(captured_at__lt=cutoff).values_list(
+                "pk", flat=True
+            )[:chunk]
+        )
+        if not ids:
+            break
+        deleted, _ = PhpError.objects.filter(pk__in=ids).delete()
+        total += deleted
+
+    logger.info("site_health.purge_old_php_errors: removed %d rows", total)
+    return total

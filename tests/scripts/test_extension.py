@@ -39,8 +39,8 @@ class TestExtensionLookup:
         client = APIClient()
         resp = client.get("/api/extension/lookup/", {"domain": "notregistered.xyz"})
         assert resp.status_code == 200
-        assert resp.data["data"]["registered"] is False
-        assert resp.data["data"]["script_count"] == 0
+        assert resp.data["registered"] is False
+        assert resp.data["script_count"] == 0
 
     def test_registered_domain_returns_scripts(self, website):
         _make_script(website, provider="google-analytics")
@@ -48,7 +48,7 @@ class TestExtensionLookup:
         client = APIClient()
         resp = client.get("/api/extension/lookup/", {"domain": "extsite.io"})
         assert resp.status_code == 200
-        data = resp.data["data"]
+        data = resp.data
         assert data["registered"] is True
         assert data["script_count"] == 2
         assert data["has_unknown"] is True
@@ -59,7 +59,7 @@ class TestExtensionLookup:
         _make_script(website, provider="inactive-script", is_active=False)
         client = APIClient()
         resp = client.get("/api/extension/lookup/", {"domain": "extsite.io"})
-        data = resp.data["data"]
+        data = resp.data
         assert data["script_count"] == 1
 
     def test_missing_domain_param_returns_400(self):
@@ -70,7 +70,7 @@ class TestExtensionLookup:
     def test_domain_strips_https_prefix(self, website):
         client = APIClient()
         resp = client.get("/api/extension/lookup/", {"domain": "https://extsite.io/page"})
-        data = resp.data["data"]
+        data = resp.data
         assert data["registered"] is True
 
     def test_truncation_at_ten_scripts(self, website):
@@ -85,6 +85,6 @@ class TestExtensionLookup:
             )
         client = APIClient()
         resp = client.get("/api/extension/lookup/", {"domain": "extsite.io"})
-        data = resp.data["data"]
+        data = resp.data
         assert data["script_count"] == 15
         assert len(data["scripts"]) == 10

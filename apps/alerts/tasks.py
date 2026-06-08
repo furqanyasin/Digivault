@@ -62,3 +62,24 @@ def send_digest(mode: str = "daily_digest") -> int:
 
     logger.info("send_digest(%s): queued %d deliveries", mode, count)
     return count
+
+
+@shared_task(name="alerts.purge_old_notifications")
+def purge_old_notifications(days: int = 90) -> int:
+    """Delete non-pending Notification rows older than `days`. Chunked."""
+    cutoff = timezone.now() - timezone.timedelta(days=days)
+    total = 0
+    chunk = 1000
+    while True:
+        ids = list(
+            Notification.objects.filter(created_at__lt=cutoff)
+            .exclude(delivery_status=Notification.DeliveryStatus.PENDING)
+            .values_list("pk", flat=True)[:chunk]
+        )
+        if not ids:
+            break
+        deleted, _ = Notification.objects.filter(pk__in=ids).delete()
+        total += deleted
+
+    logger.info("alerts.purge_old_notifications: removed %d rows", total)
+    return total

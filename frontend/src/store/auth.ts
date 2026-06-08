@@ -1,41 +1,26 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import type { User } from "@/lib/api";
 
+/**
+ * Client-side auth state.
+ *
+ * SECURITY: JWTs are NEVER stored here or in any browser-accessible storage
+ * (localStorage/sessionStorage). Access + refresh tokens live exclusively in
+ * httpOnly cookies (`ss_access` / `ss_refresh`) set by the BFF route handlers
+ * under src/app/api/* — see src/app/api/auth/login/route.ts. Browser JS cannot
+ * read those cookies, so an XSS payload cannot exfiltrate the session.
+ *
+ * This store therefore holds only the non-sensitive `user` profile, in memory
+ * only (no persistence). It is safe to hydrate from `/api/auth/me` on load.
+ */
 interface AuthState {
-  accessToken: string | null;
-  refreshToken: string | null;
   user: User | null;
-  setTokens: (access: string, refresh: string) => void;
-  setUser: (user: User) => void;
-  setAccessToken: (access: string) => void;
+  setUser: (user: User | null) => void;
   clear: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      accessToken: null,
-      refreshToken: null,
-      user: null,
-
-      setTokens: (access, refresh) =>
-        set({ accessToken: access, refreshToken: refresh }),
-
-      setUser: (user) => set({ user }),
-
-      setAccessToken: (access) => set({ accessToken: access }),
-
-      clear: () =>
-        set({ accessToken: null, refreshToken: null, user: null }),
-    }),
-    {
-      name: "auth",
-      partialize: (s) => ({
-        accessToken: s.accessToken,
-        refreshToken: s.refreshToken,
-        user: s.user,
-      }),
-    }
-  )
-);
+export const useAuthStore = create<AuthState>()((set) => ({
+  user: null,
+  setUser: (user) => set({ user }),
+  clear: () => set({ user: null }),
+}));

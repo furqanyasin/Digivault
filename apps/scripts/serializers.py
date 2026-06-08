@@ -3,6 +3,12 @@ from rest_framework import serializers
 from apps.common.serializers import BaseModelSerializer
 from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
 
+# Hard caps on ingest payload list lengths — a single page should never
+# legitimately exceed these, and they bound the work queued into Celery.
+MAX_SCRIPTS_PER_PAYLOAD = 500
+MAX_FORMS_PER_PAYLOAD = 100
+MAX_FIELDS_PER_FORM = 200
+
 
 class IngestScriptSerializer(serializers.Serializer):
     """A single script entry within an ingest payload."""
@@ -31,7 +37,9 @@ class IngestFormSerializer(serializers.Serializer):
     form_name = serializers.CharField(max_length=200, allow_blank=True, default="")
     form_action = serializers.CharField(max_length=2048, allow_blank=True, default="")
     form_method = serializers.CharField(max_length=10, allow_blank=True, default="post")
-    fields = IngestFormFieldSerializer(many=True, default=list)
+    fields = IngestFormFieldSerializer(
+        many=True, default=list, max_length=MAX_FIELDS_PER_FORM
+    )
 
 
 class IngestPayloadSerializer(serializers.Serializer):
@@ -39,8 +47,10 @@ class IngestPayloadSerializer(serializers.Serializer):
 
     site_id = serializers.CharField(max_length=64)
     page_url = serializers.URLField(max_length=2048)
-    scripts = IngestScriptSerializer(many=True)
-    forms = IngestFormSerializer(many=True, default=list)
+    scripts = IngestScriptSerializer(many=True, max_length=MAX_SCRIPTS_PER_PAYLOAD)
+    forms = IngestFormSerializer(
+        many=True, default=list, max_length=MAX_FORMS_PER_PAYLOAD
+    )
     user_agent = serializers.CharField(max_length=512, allow_blank=True, default="")
     snippet_version = serializers.CharField(max_length=20, allow_blank=True, default="")
 

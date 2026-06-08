@@ -1,0 +1,20 @@
+[run]
+source = apps
+omit =
+    */migrations/*
+    */tests/*
+    */__init__.py
+    */apps.py
+    */admin.py
+    config/*
+
+[report]
+# Floor enforced when coverage runs (CI: `pytest --cov=apps`). Baseline 59%;
+# raise this as coverage improves (target ≥85% on critical modules — see 0.6b).
+fail_under = 55
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    def __str__
+show_missing = True

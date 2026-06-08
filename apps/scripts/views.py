@@ -67,7 +67,17 @@ class IngestView(APIView):
     authentication_classes = []
     throttle_classes = [IngestThrottle]
 
+    # Reject obviously-oversized bodies before parsing JSON.
+    MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
+
     def post(self, request):
+        content_length = request.META.get("CONTENT_LENGTH")
+        try:
+            if content_length and int(content_length) > self.MAX_BODY_BYTES:
+                return Response(status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        except (TypeError, ValueError):
+            pass
+
         serializer = IngestPayloadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

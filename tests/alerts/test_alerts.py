@@ -109,7 +109,7 @@ class TestNotificationAPI:
             {"email": user.email, "password": "Pass123!"},
             format="json",
         )
-        c.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['data']['access']}")
+        c.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
         return c
 
     def test_list_notifications(self, website, owner, team):
@@ -121,7 +121,7 @@ class TestNotificationAPI:
         client = self._client(owner)
         resp = client.get("/api/v1/notifications/")
         assert resp.status_code == 200
-        assert len(resp.data["data"]) >= 1
+        assert len(resp.data) >= 1
 
     def test_mark_all_read(self, website, owner, team):
         change = _make_change(website)
@@ -134,7 +134,7 @@ class TestNotificationAPI:
         assert resp.status_code == 200
         assert Notification.objects.filter(team=team, read=False).count() == 0
 
-    def test_create_alert_rule(self, owner):
+    def test_create_alert_rule(self, owner, team):
         client = self._client(owner)
         resp = client.post(
             "/api/v1/alert-rules/",

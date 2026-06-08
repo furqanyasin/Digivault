@@ -18,3 +18,4 @@ daphne==4.1.2
 requests==2.32.3
 pyotp==2.9.0
 qrcode[pil]==7.4.2
+sentry-sdk==2.20.0

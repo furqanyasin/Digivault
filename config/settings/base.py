@@ -229,13 +229,42 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=8, minute=0),
         "kwargs": {"mode": "daily_digest"},
     },
+    # Retention & rollups (Phase 0.1)
+    "rollup-daily-uptime": {
+        "task": "monitors.rollup_daily_uptime",
+        "schedule": crontab(hour=0, minute=15),
+    },
+    "purge-old-monitor-checks": {
+        "task": "monitors.purge_old_checks",
+        "schedule": crontab(hour=1, minute=0),
+    },
+    "purge-old-performance-reports-weekly": {
+        "task": "performance.purge_old_reports",
+        "schedule": crontab(hour=2, minute=0, day_of_week="sunday"),
+    },
+    "purge-old-php-errors-weekly": {
+        "task": "site_health.purge_old_php_errors",
+        "schedule": crontab(hour=2, minute=30, day_of_week="sunday"),
+    },
+    "purge-old-notifications-weekly": {
+        "task": "alerts.purge_old_notifications",
+        "schedule": crontab(hour=2, minute=45, day_of_week="sunday"),
+    },
+    # Dead-man's-switch heartbeat (Phase 0.5) — no-op unless HEARTBEAT_PING_URL set
+    "system-heartbeat": {
+        "task": "common.system_heartbeat",
+        "schedule": 300.0,  # every 5 minutes
+    },
 }
 
 # ------------------------------------------------------------------
 # Vault
 # ------------------------------------------------------------------
 
-VAULT_ENCRYPTION_KEY = env("VAULT_ENCRYPTION_KEY")
+# Legacy single key (still honored). Prefer VAULT_ENCRYPTION_KEYS for rotation.
+VAULT_ENCRYPTION_KEY = env("VAULT_ENCRYPTION_KEY", default="")
+# Ordered list of Fernet keys: first encrypts new data, all are tried on decrypt.
+VAULT_ENCRYPTION_KEYS = env.list("VAULT_ENCRYPTION_KEYS", default=[])
 
 # ------------------------------------------------------------------
 # Frontend
@@ -296,3 +325,53 @@ CSP_BASE_URI = ("'none'",)
 CSP_FORM_ACTION = ("'self'",)
 # Report-only in dev — enforced in production via override
 CSP_REPORT_ONLY = True
+
+# ------------------------------------------------------------------
+# Observability (Phase 0.5)
+# ------------------------------------------------------------------
+
+LOG_LEVEL = env("LOG_LEVEL", default="INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {"handlers": ["console"], "level": LOG_LEVEL},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
+        "celery": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "apps": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+
+# Dead-man's-switch heartbeat ping URL (healthchecks.io / cronitor / etc.)
+HEARTBEAT_PING_URL = env("HEARTBEAT_PING_URL", default="")
+
+# Sentry — only initialised when SENTRY_DSN is provided. Guarded import so the
+# project loads whether or not sentry-sdk is installed in the active env.
+SENTRY_DSN = env("SENTRY_DSN", default="")
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.django import DjangoIntegration
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration(), CeleryIntegration()],
+            traces_sample_rate=env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.0),
+            send_default_pii=False,
+            environment=env("SENTRY_ENVIRONMENT", default="production"),
+        )
+    except ImportError:
+        pass

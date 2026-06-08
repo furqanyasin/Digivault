@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -49,3 +50,26 @@ def check_website_performance(self, website_id: str, strategy: str = "mobile") -
         "Performance %s (%s): score=%s fcp=%s lcp=%s",
         website.domain, strategy, result.performance_score, result.fcp_ms, result.lcp_ms,
     )
+
+
+@shared_task(name="performance.purge_old_reports")
+def purge_old_reports(days: int = 365) -> int:
+    """Delete PerformanceReport rows older than `days` (default 12 months). Chunked."""
+    from apps.performance.models import PerformanceReport
+
+    cutoff = timezone.now() - timezone.timedelta(days=days)
+    total = 0
+    chunk = 1000
+    while True:
+        ids = list(
+            PerformanceReport.objects.filter(checked_at__lt=cutoff).values_list(
+                "pk", flat=True
+            )[:chunk]
+        )
+        if not ids:
+            break
+        deleted, _ = PerformanceReport.objects.filter(pk__in=ids).delete()
+        total += deleted
+
+    logger.info("performance.purge_old_reports: removed %d rows", total)
+    return total
