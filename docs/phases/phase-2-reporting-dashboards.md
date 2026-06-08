@@ -37,9 +37,13 @@ Surface the data you already collect into the views agencies actually use daily.
 
 ---
 
-## 2.3 — Automated reporting system ⬜
+## 2.3 — Automated reporting system ✅
 
-> New feature. The biggest net-new build in this phase.
+> New feature. The biggest net-new build in this phase. **Done** (ReportLab).
+
+**Shipped:** new `apps/reports/` app — `Report` model (migration `0001`); `ReportBuilder` (gather + PDF via ReportLab + CSV); `generate_report` service (renders + persists to `media/reports/`); Celery `reports.generate_for_website` + `reports.generate_monthly` (beat: 1st of month 04:00 UTC); API `GET /reports/`, `POST /reports/generate/`, `GET /reports/<id>/download/`. Report covers overview, script changes, domain/SSL, performance, security (vulns + PHP errors), and derived recommendations. Tests: `tests/reports/test_reports.py` (7). `reportlab==4.2.5` added.
+
+> Note: PDF *visual* layout needs human QA — automated tests assert valid PDF/CSV bytes + content, not appearance.
 
 ### Tasks
 - [ ] `Report` model (team, website|null, period, generated_at, format, file ref, status).

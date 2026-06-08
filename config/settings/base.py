@@ -48,6 +48,7 @@ LOCAL_APPS = [
     "apps.chat",
     "apps.site_health",
     "apps.audit",
+    "apps.reports",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -254,6 +255,11 @@ CELERY_BEAT_SCHEDULE = {
     "system-heartbeat": {
         "task": "common.system_heartbeat",
         "schedule": 300.0,  # every 5 minutes
+    },
+    # Monthly client reports (Phase 2.3) — 1st of month, 04:00 UTC
+    "generate-monthly-reports": {
+        "task": "reports.generate_monthly",
+        "schedule": crontab(day_of_month=1, hour=4, minute=0),
     },
 }
 
