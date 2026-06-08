@@ -202,9 +202,16 @@ class ScriptChange(BaseModel):
 class DetectedForm(BaseModel):
     """A web form detected on a website page by the tracking snippet.
 
-    Unique per (website, page_url, form_action).  Updated in place on each
-    ingest so that field lists stay current without duplication.
+    Unique per (website, page_url, fingerprint).  Updated in place on each
+    ingest so that field lists stay current without duplication.  A page can
+    carry several forms (e.g. div-based forms that all post to an empty action),
+    so a structural fingerprint — not the action alone — disambiguates them.
     """
+
+    class DetectionType(models.TextChoices):
+        NATIVE = "native", "Native <form>"
+        DOM = "dom", "Div-based / JS"
+        EMBEDDED = "embedded", "Embedded (iframe)"
 
     website = models.ForeignKey(
         "websites.Website",
@@ -218,15 +225,46 @@ class DetectedForm(BaseModel):
     form_method = models.CharField(max_length=10, default="post")
     # JSON list: [{name, type, label, required}]
     fields = models.JSONField(default=list)
+    detection_type = models.CharField(
+        max_length=10,
+        choices=DetectionType.choices,
+        default=DetectionType.NATIVE,
+    )
+    # For embedded forms — the third-party provider (e.g. "HubSpot", "Typeform").
+    provider = models.CharField(max_length=100, blank=True)
+    # Structural hash that uniquely identifies a form within a page.
+    fingerprint = models.CharField(max_length=64, db_index=True)
     first_seen_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["page_url", "form_action"]
-        unique_together = [("website", "page_url", "form_action")]
+        unique_together = [("website", "page_url", "fingerprint")]
         indexes = [
             models.Index(fields=["website", "page_url"]),
         ]
+
+    @staticmethod
+    def compute_fingerprint(form_data: dict) -> str:
+        """Stable 32-char hash identifying a form within a page.
+
+        Derived from detection type, identifiers, action, and the set of field
+        names so that re-sends of the same form update in place while distinct
+        forms on one page (including action-less div forms) stay separate.
+        """
+        import hashlib
+
+        field_names = sorted(
+            (f.get("name", "") or "") for f in form_data.get("fields", [])
+        )
+        basis = "|".join([
+            form_data.get("detection_type", DetectedForm.DetectionType.NATIVE),
+            form_data.get("form_id", "") or "",
+            form_data.get("form_name", "") or "",
+            form_data.get("form_action", "") or "",
+            ",".join(field_names),
+        ])
+        return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:32]
 
     def __str__(self) -> str:
         return f"Form {self.form_action or '(no action)'} on {self.page_url}"

@@ -37,6 +37,11 @@ class IngestFormSerializer(serializers.Serializer):
     form_name = serializers.CharField(max_length=200, allow_blank=True, default="")
     form_action = serializers.CharField(max_length=2048, allow_blank=True, default="")
     form_method = serializers.CharField(max_length=10, allow_blank=True, default="post")
+    detection_type = serializers.ChoiceField(
+        choices=DetectedForm.DetectionType.values,
+        default=DetectedForm.DetectionType.NATIVE,
+    )
+    provider = serializers.CharField(max_length=100, allow_blank=True, default="")
     fields = IngestFormFieldSerializer(
         many=True, default=list, max_length=MAX_FIELDS_PER_FORM
     )
@@ -90,6 +95,7 @@ class DetectedFormSerializer(BaseModelSerializer):
         fields = (
             "id", "page_url", "form_id", "form_name",
             "form_action", "form_method", "fields",
+            "detection_type", "provider",
             "first_seen_at", "last_seen_at",
         )
         read_only_fields = fields

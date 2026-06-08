@@ -296,15 +296,20 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
 
 
 def _upsert_form(website, page_url: str, form_data: dict) -> None:
-    form_action = form_data.get("form_action", "")
+    fingerprint = DetectedForm.compute_fingerprint(form_data)
     DetectedForm.objects.update_or_create(
         website=website,
         page_url=page_url,
-        form_action=form_action,
+        fingerprint=fingerprint,
         defaults={
             "form_id": form_data.get("form_id", ""),
             "form_name": form_data.get("form_name", ""),
+            "form_action": form_data.get("form_action", ""),
             "form_method": (form_data.get("form_method") or "post").lower(),
+            "detection_type": form_data.get(
+                "detection_type", DetectedForm.DetectionType.NATIVE
+            ),
+            "provider": form_data.get("provider", ""),
             "fields": form_data.get("fields", []),
         },
     )
