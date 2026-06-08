@@ -5,17 +5,17 @@ from apps.credentials.views import (
     CredentialDetailView,
     CredentialListCreateView,
     CredentialRevealView,
+    CredentialShareDeleteView,
+    CredentialShareListCreateView,
     TeamCredentialListCreateView,
 )
 
 urlpatterns = [
-    # Team-level vault: all credentials (website + standalone)
     path(
         "credentials/",
         TeamCredentialListCreateView.as_view(),
         name="credential-team-list-create",
     ),
-    # Website-scoped list (kept for extension lookup)
     path(
         "websites/<uuid:website_pk>/credentials/",
         CredentialListCreateView.as_view(),
@@ -35,5 +35,15 @@ urlpatterns = [
         "websites/<uuid:website_pk>/credential-audit/",
         CredentialAccessLogView.as_view(),
         name="credential-audit",
+    ),
+    path(
+        "credentials/<uuid:pk>/shares/",
+        CredentialShareListCreateView.as_view(),
+        name="credential-share-list-create",
+    ),
+    path(
+        "credentials/<uuid:pk>/shares/<uuid:user_id>/",
+        CredentialShareDeleteView.as_view(),
+        name="credential-share-delete",
     ),
 ]

@@ -2,9 +2,11 @@ from django.urls import path
 
 from apps.scripts.views import (
     AcknowledgeChangeView,
+    BulkScriptReviewView,
     ExtensionLookupView,
     IngestView,
     ScriptReviewView,
+    ScriptTimelineView,
     SnippetJsView,
     WebsiteChangeListView,
     WebsiteFormListView,
@@ -36,9 +38,19 @@ script_urlpatterns = [
         name="change-acknowledge",
     ),
     path(
+        "websites/<uuid:website_pk>/scripts/bulk-review/",
+        BulkScriptReviewView.as_view(),
+        name="script-bulk-review",
+    ),
+    path(
         "websites/<uuid:website_pk>/scripts/<uuid:pk>/review/",
         ScriptReviewView.as_view(),
         name="script-review",
+    ),
+    path(
+        "websites/<uuid:website_pk>/scripts/<uuid:pk>/timeline/",
+        ScriptTimelineView.as_view(),
+        name="script-timeline",
     ),
     path(
         "websites/<uuid:website_pk>/forms/",

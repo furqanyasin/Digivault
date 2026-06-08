@@ -36,7 +36,7 @@ class TestDomainIntelligenceService:
                 "registrar": "GoDaddy",
                 "creation_date": datetime(2020, 1, 1, tzinfo=timezone.utc),
                 "expiration_date": datetime(2026, 1, 1, tzinfo=timezone.utc),
-                "name_servers": ["ns1.cloudflare.com", "ns2.cloudflare.com"],
+                "name_servers": ["kara.ns.cloudflare.com", "rick.ns.cloudflare.com"],
             })()
             mock_ssl.return_value.__enter__ = lambda s: s
             mock_ssl.return_value.__exit__ = lambda *a: None
@@ -88,7 +88,8 @@ class TestDomainAlerts:
 
     def test_duplicate_alerts_not_created(self, website):
         from datetime import timedelta
-        expires_soon = datetime.now(tz=timezone.utc) + timedelta(days=5)
+        # Expire in 2 days so every threshold (incl. the 3-day one) is crossed.
+        expires_soon = datetime.now(tz=timezone.utc) + timedelta(days=2)
         info = DomainInfo.objects.create(website=website, expires_at=expires_soon)
 
         from apps.domains.tasks import _create_expiry_alerts
@@ -101,6 +102,23 @@ class TestDomainAlerts:
         # Should equal number of thresholds crossed — no duplicates
         assert count == len(DOMAIN_ALERT_THRESHOLDS)
 
+    def test_three_day_threshold_fires_near_expiry(self, website):
+        from datetime import timedelta
+        # 2 days to expiry → the 3-day alert must be among those created.
+        info = DomainInfo.objects.create(
+            website=website,
+            expires_at=datetime.now(tz=timezone.utc) + timedelta(days=2),
+        )
+        from apps.domains.tasks import _create_expiry_alerts
+        _create_expiry_alerts(info)
+
+        thresholds = set(
+            DomainAlert.objects.filter(
+                domain_info=info, alert_type=DomainAlert.AlertType.DOMAIN
+            ).values_list("days_until_expiry", flat=True)
+        )
+        assert 3 in thresholds
+
 
 @pytest.mark.django_db
 class TestDomainAPI:
@@ -112,18 +130,33 @@ class TestDomainAPI:
             {"email": user.email, "password": "Pass123!"},
             format="json",
         )
-        c.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['data']['access']}")
+        c.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
         return c
 
-    def test_domain_info_no_data_returns_detail(self, website, owner):
+    def test_domain_info_no_data_returns_404(self, website, owner):
         client = self._client(owner)
         resp = client.get(f"/api/v1/websites/{website.pk}/domain/")
-        assert resp.status_code == 200
-        assert "detail" in resp.data["data"]
+        # No DomainInfo has been gathered yet → 404 (frontend treats as "not checked")
+        assert resp.status_code == 404
 
-    def test_domain_refresh_queues_task(self, website, owner):
+    def test_domain_refresh_runs_check_and_returns_data(self, website, owner):
         client = self._client(owner)
-        with patch("apps.domains.views.check_domain.delay") as mock_task:
+        from datetime import datetime, timezone as dt_tz
+
+        from apps.domains.services import DomainCheckResult
+
+        fake = DomainCheckResult(
+            registrar="GoDaddy",
+            expires_at=datetime(2027, 1, 1, tzinfo=dt_tz.utc),
+            nameservers=["kara.ns.cloudflare.com"],
+            hosting_provider="Kinsta",
+            uses_cloudflare=True,
+        )
+        # The refresh endpoint runs the check synchronously; mock the network call.
+        with patch(
+            "apps.domains.views.DomainIntelligenceService.check", return_value=fake
+        ) as mock_check:
             resp = client.post(f"/api/v1/websites/{website.pk}/domain/refresh/")
-        assert resp.status_code == 202
-        mock_task.assert_called_once_with(str(website.pk))
+        assert resp.status_code == 200
+        mock_check.assert_called_once()
+        assert resp.data["registrar"] == "GoDaddy"

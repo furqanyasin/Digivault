@@ -82,7 +82,36 @@ class WebsitePerformanceRunView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
+        # Fire an in-app alert if this run is a significant regression.
+        from apps.performance.trends import alert_on_regression
+        alert_on_regression(website, strategy)
+
         return Response(PerformanceReportSerializer(report).data, status=status.HTTP_201_CREATED)
+
+
+class WebsitePerformanceTrendView(APIView):
+    """GET /api/v1/websites/<website_pk>/performance/trends/?strategy=mobile&weeks=8"""
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get(self, request, website_pk):
+        team = request.user.active_team
+        website = Website.objects.filter(pk=website_pk, team=team).first()
+        if website is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        from apps.performance.trends import detect_regression, weekly_trend
+
+        strategy = request.query_params.get("strategy", "mobile")
+        if strategy not in ("mobile", "desktop"):
+            strategy = "mobile"
+        weeks = min(int(request.query_params.get("weeks", 8)), 26)
+
+        return Response({
+            "strategy": strategy,
+            "weekly": weekly_trend(website, strategy, weeks),
+            "regression": detect_regression(website, strategy),
+        })
 
 
 class WebsiteCruxListView(generics.ListAPIView):

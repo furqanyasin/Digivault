@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from apps.alerts.models import AlertRule, Notification
+from apps.alerts.models import AlertRule, AlertSuppression, Notification
 from apps.scripts.models import ScriptChange
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,10 @@ class AlertService:
         """
         website = change.website
         team = website.team
+
+        # Suppression gate — a muted provider/domain produces no notifications
+        if change.script_id and cls._is_suppressed(change):
+            return []
 
         # Collect applicable rules: per-website overrides + global fallback
         website_rules = list(
@@ -60,6 +64,11 @@ class AlertService:
                 notifications.append(notif)
 
         return notifications
+
+    @staticmethod
+    def _is_suppressed(change: ScriptChange) -> bool:
+        suppressions = AlertSuppression.objects.filter(website_id=change.website_id)
+        return any(s.matches(change) for s in suppressions)
 
     @staticmethod
     def _rule_matches(rule: AlertRule, change: ScriptChange) -> bool:

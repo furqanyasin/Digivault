@@ -67,7 +67,17 @@ class IngestView(APIView):
     authentication_classes = []
     throttle_classes = [IngestThrottle]
 
+    # Reject obviously-oversized bodies before parsing JSON.
+    MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
+
     def post(self, request):
+        content_length = request.META.get("CONTENT_LENGTH")
+        try:
+            if content_length and int(content_length) > self.MAX_BODY_BYTES:
+                return Response(status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        except (TypeError, ValueError):
+            pass
+
         serializer = IngestPayloadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -252,6 +262,63 @@ class ScriptReviewView(APIView):
         script.review_status = review_status
         script.save(update_fields=["review_status"])
         return Response(ScriptSerializer(script).data)
+
+
+class BulkScriptReviewView(APIView):
+    """POST /api/v1/websites/<website_pk>/scripts/bulk-review/
+
+    Body: {"script_ids": [...], "review_status": "approved|blocked|ignored|pending"}
+    Updates review_status on all listed scripts that belong to the caller's team.
+    Returns {"updated": <count>}.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    _ALLOWED = {s.value for s in Script.ReviewStatus}
+
+    def post(self, request, website_pk):
+        team = request.user.active_team
+        review_status = request.data.get("review_status")
+        script_ids = request.data.get("script_ids") or []
+
+        if review_status not in self._ALLOWED:
+            return Response(
+                {"detail": f"review_status must be one of {sorted(self._ALLOWED)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not isinstance(script_ids, list) or not script_ids:
+            return Response(
+                {"detail": "script_ids must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated = Script.objects.filter(
+            pk__in=script_ids,
+            website_id=website_pk,
+            website__team=team,
+        ).update(review_status=review_status)
+
+        return Response({"updated": updated})
+
+
+class ScriptTimelineView(generics.ListAPIView):
+    """GET /api/v1/websites/<website_pk>/scripts/<pk>/timeline/
+
+    The change history for a single script, newest first.
+    """
+
+    serializer_class = ScriptChangeSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return ScriptChange.objects.none()
+        return ScriptChange.objects.filter(
+            website__team=team,
+            website_id=self.kwargs["website_pk"],
+            script_id=self.kwargs["pk"],
+        ).select_related("script", "acknowledged_by")
 
 
 class WebsiteFormListView(generics.ListAPIView):

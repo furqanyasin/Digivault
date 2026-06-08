@@ -40,7 +40,7 @@ def auth_client(user, team):
         {"email": user.email, "password": "SecurePass1!"},
         format="json",
     )
-    token = response.data["data"]["access"]
+    token = response.data["access"]
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
     return client
 

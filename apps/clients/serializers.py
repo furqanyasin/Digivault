@@ -6,6 +6,7 @@ from apps.common.serializers import BaseModelSerializer
 
 class ClientSerializer(BaseModelSerializer):
     domain = serializers.CharField(read_only=True)
+    assigned_websites_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Client
@@ -16,10 +17,18 @@ class ClientSerializer(BaseModelSerializer):
             "csm_migration_confirmation", "running_ppc_ads",
             "website_built_by_digi", "website_maintained_by_digi",
             "notes", "comments",
+            "assigned_to", "monthly_revenue", "support_tier",
+            "contract_renewal_date", "assigned_websites_count",
             "clickup_task_id", "clickup_synced_at",
             "created_at", "updated_at",
         )
-        read_only_fields = ("id", "domain", "clickup_synced_at", "created_at", "updated_at")
+        read_only_fields = (
+            "id", "domain", "assigned_websites_count",
+            "clickup_synced_at", "created_at", "updated_at",
+        )
+
+    def get_assigned_websites_count(self, obj) -> int:
+        return obj.websites.count()
 
 
 class ClientLookupSerializer(serializers.Serializer):

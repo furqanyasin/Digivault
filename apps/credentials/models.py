@@ -1,9 +1,56 @@
 import hashlib
 
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
 from apps.common.models import BaseModel
 from apps.credentials import encryption
+
+
+def score_password_strength(plaintext: str) -> int:
+    """Heuristic password strength score 0–4 (no plaintext is stored).
+
+    Computed at set-time so we never need to decrypt to assess strength.
+    """
+    if not plaintext:
+        return 0
+    score = 0
+    if len(plaintext) >= 8:
+        score += 1
+    if len(plaintext) >= 12:
+        score += 1
+    if any(c.islower() for c in plaintext) and any(c.isupper() for c in plaintext):
+        score += 1
+    if any(c.isdigit() for c in plaintext):
+        score += 1
+    if any(not c.isalnum() for c in plaintext):
+        score += 1
+    return min(score, 4)
+
+
+class CredentialQuerySet(models.QuerySet):
+    def stale_passwords(self, older_than_days: int = 180):
+        """Credentials whose password hasn't changed in `older_than_days`."""
+        cutoff = timezone.now() - timezone.timedelta(days=older_than_days)
+        return self.filter(last_password_changed_at__lt=cutoff)
+
+    def visible_to(self, user):
+        if user is None or not user.is_authenticated:
+            return self.none()
+
+        from apps.accounts.models import TeamMembership
+
+        privileged_team_ids = TeamMembership.objects.filter(
+            user=user,
+            role__in=[TeamMembership.Role.OWNER, TeamMembership.Role.MANAGER],
+        ).values_list("team_id", flat=True)
+
+        return self.filter(
+            Q(team_id__in=privileged_team_ids)
+            | Q(created_by=user)
+            | Q(shares__user=user)
+        ).distinct()
 
 
 class Credential(BaseModel):
@@ -67,11 +114,17 @@ class Credential(BaseModel):
         related_name="created_credentials",
     )
 
+    # Password health (auto-maintained by set_password)
+    last_password_changed_at = models.DateTimeField(null=True, blank=True)
+    password_strength = models.PositiveSmallIntegerField(default=0)
+
     class Meta:
         ordering = ["credential_type", "label"]
         indexes = [
             models.Index(fields=["team", "credential_type"], name="credentials_team_type_idx"),
         ]
+
+    objects = CredentialQuerySet.as_manager()
 
     def __str__(self) -> str:
         site = self.website or "standalone"
@@ -94,6 +147,14 @@ class Credential(BaseModel):
 
     def set_password(self, plaintext: str) -> None:
         self._password = encryption.encrypt(plaintext)
+        self.last_password_changed_at = timezone.now()
+        self.password_strength = score_password_strength(plaintext)
+
+    @property
+    def password_age_days(self) -> int | None:
+        if not self.last_password_changed_at:
+            return None
+        return (timezone.now() - self.last_password_changed_at).days
 
     def get_password(self) -> str:
         return encryption.decrypt(bytes(self._password)) if self._password else ""
@@ -139,3 +200,40 @@ class CredentialAccessLog(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.user.email} {self.action} '{self.credential.label}'"
+
+
+class CredentialShare(BaseModel):
+    """Grants a developer view+reveal access to a single credential.
+
+    Owners and managers do not need rows here — their access is implicit
+    via role.  A creator also does not need a row.  Modification of the
+    credential remains gated by `can_modify_credential`.
+    """
+
+    credential = models.ForeignKey(
+        Credential, on_delete=models.CASCADE, related_name="shares"
+    )
+    user = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="credential_shares",
+    )
+    shared_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="credential_shares_granted",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["credential", "user"],
+                name="credentialshare_unique_per_user",
+            )
+        ]
+        indexes = [models.Index(fields=["user", "credential"])]
+
+    def __str__(self) -> str:
+        return f"{self.credential.label} → {self.user.email}"

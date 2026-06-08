@@ -154,6 +154,38 @@ class MonitorCheck(models.Model):
         return f"{self.monitor.name} — {self.status} at {self.checked_at}"
 
 
+class MonitorUptimeRollup(models.Model):
+    """Daily aggregate of MonitorCheck rows for one monitor.
+
+    Raw checks are purged after a retention window (see monitors.purge_old_checks);
+    these rollups are the durable long-term record used for trends and reporting.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    monitor = models.ForeignKey(
+        Monitor, on_delete=models.CASCADE, related_name="uptime_rollups"
+    )
+    date = models.DateField()
+    checks_total = models.PositiveIntegerField(default=0)
+    checks_up = models.PositiveIntegerField(default=0)
+    checks_degraded = models.PositiveIntegerField(default=0)
+    avg_response_time_ms = models.FloatField(null=True, blank=True)
+    uptime_pct = models.FloatField(default=0.0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-date"]
+        unique_together = ("monitor", "date")
+        indexes = [
+            models.Index(fields=["monitor", "date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.monitor.name} {self.date}: {self.uptime_pct}%"
+
+
 class NotificationChannel(models.Model):
     """Reusable outbound notification destination scoped to a team.
 
@@ -166,6 +198,7 @@ class NotificationChannel(models.Model):
     class ChannelType(models.TextChoices):
         EMAIL = "email", "Email"
         CLICKUP = "clickup", "ClickUp"
+        SLACK = "slack", "Slack"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="notification_channels")

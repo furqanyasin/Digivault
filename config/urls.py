@@ -37,6 +37,8 @@ urlpatterns = [
     path("api/v1/", include("apps.chat.urls")),
     # Activity audit log
     path("api/v1/", include("apps.audit.urls")),
+    # Client reports (PDF/CSV)
+    path("api/v1/", include("apps.reports.urls")),
     # Site health — PHP errors ingest (public) + website-scoped endpoints
     path("api/", include(site_health_urlpatterns)),
     path("api/v1/websites/<uuid:website_pk>/", include(site_health_website_urlpatterns)),

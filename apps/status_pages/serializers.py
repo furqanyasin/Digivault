@@ -1,8 +1,36 @@
+from django.db import models
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
 from apps.monitors.serializers import MonitorSerializer
-from apps.status_pages.models import StatusPage, StatusPageMonitor
+from apps.status_pages.models import (
+    MaintenanceWindow,
+    StatusPage,
+    StatusPageIncident,
+    StatusPageMonitor,
+)
+
+
+class StatusPageIncidentSerializer(BaseModelSerializer):
+    class Meta:
+        model = StatusPageIncident
+        fields = (
+            "id", "title", "body", "status",
+            "created_at", "updated_at", "resolved_at",
+        )
+        read_only_fields = ("id", "created_at", "updated_at", "resolved_at")
+
+
+class MaintenanceWindowSerializer(BaseModelSerializer):
+    is_active = serializers.ReadOnlyField()
+
+    class Meta:
+        model = MaintenanceWindow
+        fields = (
+            "id", "title", "message", "scheduled_start", "scheduled_end",
+            "is_active", "created_at",
+        )
+        read_only_fields = ("id", "is_active", "created_at")
 
 
 class StatusPageMonitorSerializer(BaseModelSerializer):
@@ -37,6 +65,8 @@ class StatusPageSerializer(BaseModelSerializer):
             "slug",
             "description",
             "allow_indexing",
+            "logo_url",
+            "brand_color",
             "overall_status",
             "created_at",
             "updated_at",
@@ -74,6 +104,27 @@ class PublicStatusPageSerializer(serializers.Serializer):
     slug = serializers.SlugField()
     description = serializers.CharField()
     allow_indexing = serializers.BooleanField()
+    logo_url = serializers.CharField()
+    brand_color = serializers.CharField()
     overall_status = serializers.CharField()
     monitors = PublicStatusPageMonitorSerializer(many=True)
+    incidents = serializers.SerializerMethodField()
+    maintenance = serializers.SerializerMethodField()
     updated_at = serializers.DateTimeField()
+
+    def get_incidents(self, obj):
+        # Unresolved incidents + those resolved within the last 7 days.
+        from django.utils import timezone
+
+        cutoff = timezone.now() - timezone.timedelta(days=7)
+        qs = obj.incidents.filter(
+            models.Q(resolved_at__isnull=True) | models.Q(resolved_at__gte=cutoff)
+        )
+        return StatusPageIncidentSerializer(qs, many=True).data
+
+    def get_maintenance(self, obj):
+        # Active + upcoming maintenance windows.
+        from django.utils import timezone
+
+        qs = obj.maintenance_windows.filter(scheduled_end__gte=timezone.now())
+        return MaintenanceWindowSerializer(qs, many=True).data

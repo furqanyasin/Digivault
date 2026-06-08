@@ -3,6 +3,8 @@ from django.urls import path
 from apps.alerts.views import (
     AlertRuleDetailView,
     AlertRuleListCreateView,
+    AlertSuppressionDeleteView,
+    AlertSuppressionListCreateView,
     MarkNotificationsReadView,
     NotificationListView,
 )
@@ -15,5 +17,15 @@ urlpatterns = [
         "notifications/mark-read/",
         MarkNotificationsReadView.as_view(),
         name="notification-mark-read",
+    ),
+    path(
+        "websites/<uuid:website_pk>/alert-suppressions/",
+        AlertSuppressionListCreateView.as_view(),
+        name="alert-suppression-list",
+    ),
+    path(
+        "alert-suppressions/<uuid:pk>/",
+        AlertSuppressionDeleteView.as_view(),
+        name="alert-suppression-delete",
     ),
 ]

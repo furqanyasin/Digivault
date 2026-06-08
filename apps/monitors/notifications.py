@@ -79,6 +79,18 @@ def _send_clickup(channel, monitor, old_status: str, new_status: str) -> None:
             raise RuntimeError(f"ClickUp delivery returned HTTP {resp.status}")
 
 
+def _send_slack(channel, monitor, old_status: str, new_status: str) -> None:
+    webhook_url = channel.config.get("webhook_url", "")
+    if not webhook_url:
+        logger.warning("Slack channel %s missing webhook_url", channel.id)
+        return
+    _http_post(
+        webhook_url,
+        {"text": _summary(monitor, old_status, new_status)},
+        name="Slack",
+    )
+
+
 # ------------------------------------------------------------------
 # Dispatcher registry
 # ------------------------------------------------------------------
@@ -86,6 +98,7 @@ def _send_clickup(channel, monitor, old_status: str, new_status: str) -> None:
 _SENDERS = {
     "email": _send_email,
     "clickup": _send_clickup,
+    "slack": _send_slack,
 }
 
 

@@ -22,6 +22,11 @@ class StatusPage(models.Model):
         default=False,
         help_text="Allow search engines to index this page. Off by default.",
     )
+    # Branding
+    logo_url = models.URLField(max_length=500, blank=True)
+    brand_color = models.CharField(
+        max_length=9, blank=True, help_text="Hex color, e.g. #2563eb"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -48,6 +53,67 @@ class StatusPage(models.Model):
         if "degraded" in statuses:
             return "degraded"
         return "operational"
+
+
+class StatusPageIncident(models.Model):
+    """A public incident posted to a status page (investigating → resolved)."""
+
+    class Status(models.TextChoices):
+        INVESTIGATING = "investigating", "Investigating"
+        IDENTIFIED = "identified", "Identified"
+        MONITORING = "monitoring", "Monitoring"
+        RESOLVED = "resolved", "Resolved"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status_page = models.ForeignKey(
+        StatusPage, on_delete=models.CASCADE, related_name="incidents"
+    )
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=15, choices=Status.choices, default=Status.INVESTIGATING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        if self.status == self.Status.RESOLVED and self.resolved_at is None:
+            self.resolved_at = timezone.now()
+        if self.status != self.Status.RESOLVED:
+            self.resolved_at = None
+        super().save(*args, **kwargs)
+
+
+class MaintenanceWindow(models.Model):
+    """A scheduled maintenance window shown on a status page."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status_page = models.ForeignKey(
+        StatusPage, on_delete=models.CASCADE, related_name="maintenance_windows"
+    )
+    title = models.CharField(max_length=200)
+    message = models.TextField(blank=True)
+    scheduled_start = models.DateTimeField()
+    scheduled_end = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["scheduled_start"]
+
+    def __str__(self):
+        return f"{self.title} ({self.scheduled_start:%Y-%m-%d %H:%M})"
+
+    @property
+    def is_active(self) -> bool:
+        now = timezone.now()
+        return self.scheduled_start <= now <= self.scheduled_end
 
 
 class StatusPageMonitor(models.Model):

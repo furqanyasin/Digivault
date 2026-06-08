@@ -120,3 +120,88 @@ def check_single_monitor(self, monitor_id: str):
             notify_status_change(monitor, previous_status, new_status)
         except Exception:
             logger.exception("notify_status_change failed for monitor %s", monitor_id)
+
+
+@shared_task(name="monitors.rollup_daily_uptime")
+def rollup_daily_uptime(target_date: str | None = None) -> int:
+    """Aggregate one day of MonitorCheck rows into MonitorUptimeRollup.
+
+    Idempotent: re-running for the same date upserts the existing rollup.
+    `target_date` is an ISO date string (YYYY-MM-DD); defaults to yesterday (UTC).
+    Returns the number of monitor rollups written.
+    """
+    import datetime
+
+    from django.conf import settings
+    from django.db.models import Avg, Count, Q
+
+    from apps.monitors.models import MonitorCheck, MonitorUptimeRollup
+
+    if target_date:
+        day = datetime.date.fromisoformat(target_date)
+    else:
+        day = (timezone.now() - datetime.timedelta(days=1)).date()
+
+    naive_start = datetime.datetime.combine(day, datetime.time.min)
+    start = timezone.make_aware(naive_start) if settings.USE_TZ else naive_start
+    end = start + datetime.timedelta(days=1)
+
+    stats = (
+        MonitorCheck.objects.filter(checked_at__gte=start, checked_at__lt=end)
+        .values("monitor_id")
+        .annotate(
+            total=Count("id"),
+            up=Count("id", filter=Q(status=MonitorCheck.Status.UP)),
+            degraded=Count("id", filter=Q(status=MonitorCheck.Status.DEGRADED)),
+            avg_rt=Avg("response_time_ms"),
+        )
+    )
+
+    written = 0
+    for row in stats:
+        total = row["total"]
+        up = row["up"]
+        uptime_pct = round((up / total) * 100, 2) if total else 0.0
+        avg_rt = round(row["avg_rt"], 2) if row["avg_rt"] is not None else None
+        MonitorUptimeRollup.objects.update_or_create(
+            monitor_id=row["monitor_id"],
+            date=day,
+            defaults={
+                "checks_total": total,
+                "checks_up": up,
+                "checks_degraded": row["degraded"],
+                "avg_response_time_ms": avg_rt,
+                "uptime_pct": uptime_pct,
+            },
+        )
+        written += 1
+
+    logger.info("monitors.rollup_daily_uptime: %s → %d monitor rollups", day, written)
+    return written
+
+
+@shared_task(name="monitors.purge_old_checks")
+def purge_old_checks(days: int = 35) -> int:
+    """Delete raw MonitorCheck rows older than `days`. Chunked to avoid long locks.
+
+    Default 35 days keeps a safety margin over the 30-day uptime window so
+    recalculate_uptime() still has full raw data; rollups hold older history.
+    """
+    from apps.monitors.models import MonitorCheck
+
+    cutoff = timezone.now() - timezone.timedelta(days=days)
+    total = 0
+    chunk = 1000
+    while True:
+        ids = list(
+            MonitorCheck.objects.filter(checked_at__lt=cutoff).values_list(
+                "pk", flat=True
+            )[:chunk]
+        )
+        if not ids:
+            break
+        deleted, _ = MonitorCheck.objects.filter(pk__in=ids).delete()
+        total += deleted
+
+    logger.info("monitors.purge_old_checks: removed %d rows older than %dd", total, days)
+    return total

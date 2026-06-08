@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
-from apps.credentials.models import Credential, CredentialAccessLog
+from apps.credentials.models import Credential, CredentialAccessLog, CredentialShare
 
 
 class CredentialSerializer(BaseModelSerializer):
@@ -9,6 +9,7 @@ class CredentialSerializer(BaseModelSerializer):
 
     website_id = serializers.SerializerMethodField()
     website_name = serializers.SerializerMethodField()
+    password_age_days = serializers.ReadOnlyField()
 
     class Meta:
         model = Credential
@@ -19,10 +20,18 @@ class CredentialSerializer(BaseModelSerializer):
             "label",
             "credential_type",
             "login_url",
+            "created_by_id",
+            "last_password_changed_at",
+            "password_strength",
+            "password_age_days",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "website_id", "website_name", "created_at", "updated_at")
+        read_only_fields = (
+            "id", "website_id", "website_name", "created_by_id",
+            "last_password_changed_at", "password_strength", "password_age_days",
+            "created_at", "updated_at",
+        )
 
     def get_website_id(self, obj) -> str | None:
         return str(obj.website.id) if obj.website_id else None
@@ -65,3 +74,44 @@ class CredentialAccessLogSerializer(BaseModelSerializer):
 
     def get_user_email(self, obj) -> str:
         return obj.user.email
+
+
+class CredentialShareSerializer(BaseModelSerializer):
+    user_id = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    role = serializers.SerializerMethodField()
+    shared_by_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CredentialShare
+        fields = ("id", "user_id", "email", "name", "role",
+                  "shared_by_email", "created_at")
+        read_only_fields = fields
+
+    def get_user_id(self, obj) -> str:
+        return str(obj.user_id)
+
+    def get_email(self, obj) -> str:
+        return obj.user.email
+
+    def get_name(self, obj) -> str:
+        first = obj.user.first_name or ""
+        last = obj.user.last_name or ""
+        return (first + " " + last).strip() or obj.user.email
+
+    def get_role(self, obj) -> str:
+        from apps.accounts.models import TeamMembership
+        m = TeamMembership.objects.filter(
+            user=obj.user, team=obj.credential.team
+        ).first()
+        return m.role if m else "developer"
+
+    def get_shared_by_email(self, obj) -> str | None:
+        return obj.shared_by.email if obj.shared_by else None
+
+
+class CredentialShareWriteSerializer(serializers.Serializer):
+    user_ids = serializers.ListField(
+        child=serializers.UUIDField(), allow_empty=False
+    )

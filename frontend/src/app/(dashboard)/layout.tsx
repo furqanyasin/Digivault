@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { Shield, Globe, Bell, Key, Users, LayoutDashboard, Activity, MonitorCheck, Building2, Settings, ClipboardList } from "lucide-react";
+import { Shield, Globe, Bell, Key, Users, LayoutDashboard, Activity, MonitorCheck, Building2, Settings, ClipboardList, FileText, CalendarClock } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TeamSwitcher } from "@/components/team-switcher";
@@ -14,8 +14,10 @@ const navItems = [
   { href: "/clients", label: "Clients", icon: Building2 },
   { href: "/websites", label: "Websites", icon: Globe },
   { href: "/monitors", label: "Monitors", icon: Activity },
+  { href: "/renewals", label: "Renewal Center", icon: CalendarClock },
   { href: "/status-pages", label: "Status Pages", icon: MonitorCheck },
   { href: "/alerts", label: "Alerts", icon: Bell },
+  { href: "/reports", label: "Reports", icon: FileText },
   { href: "/credentials", label: "Credentials", icon: Key },
   { href: "/team", label: "Team", icon: Users },
   { href: "/logs", label: "Activity Log", icon: ClipboardList },
