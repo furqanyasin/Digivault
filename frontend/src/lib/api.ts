@@ -300,6 +300,8 @@ export interface DetectedForm {
   form_name: string;
   form_action: string;
   form_method: string;
+  detection_type: "native" | "dom" | "embedded";
+  provider: string;
   fields: { name: string; type: string; label: string; required: boolean }[];
   first_seen_at: string;
   last_seen_at: string;

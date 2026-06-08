@@ -125,6 +125,8 @@ class IngestView(APIView):
                         "form_name": f["form_name"],
                         "form_action": f["form_action"],
                         "form_method": f["form_method"],
+                        "detection_type": f["detection_type"],
+                        "provider": f["provider"],
                         "fields": f["fields"],
                     }
                     for f in data.get("forms", [])

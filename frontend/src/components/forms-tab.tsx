@@ -15,6 +15,30 @@ const METHOD_COLOR: Record<string, string> = {
   get: "bg-slate-100 text-slate-700",
 };
 
+const DETECTION_LABEL: Record<DetectedForm["detection_type"], string> = {
+  native: "native",
+  dom: "div-based",
+  embedded: "embedded",
+};
+
+const DETECTION_COLOR: Record<DetectedForm["detection_type"], string> = {
+  native: "bg-emerald-100 text-emerald-800",
+  dom: "bg-amber-100 text-amber-800",
+  embedded: "bg-violet-100 text-violet-800",
+};
+
+function DetectionBadge({ form }: { form: DetectedForm }) {
+  const label =
+    form.detection_type === "embedded" && form.provider
+      ? `embedded — ${form.provider}`
+      : DETECTION_LABEL[form.detection_type] ?? form.detection_type;
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${DETECTION_COLOR[form.detection_type] ?? "bg-slate-100 text-slate-700"}`}>
+      {label}
+    </span>
+  );
+}
+
 function FieldBadge({ field }: { field: DetectedForm["fields"][number] }) {
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-mono bg-muted">
@@ -56,6 +80,7 @@ export function FormsTab({ forms }: Props) {
           <TableRow>
             <TableHead>Page / Action</TableHead>
             <TableHead>Method</TableHead>
+            <TableHead>Detected as</TableHead>
             <TableHead>ID / Name</TableHead>
             <TableHead>Fields</TableHead>
             <TableHead>Last seen</TableHead>
@@ -78,6 +103,9 @@ export function FormsTab({ forms }: Props) {
                 <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase ${METHOD_COLOR[form.form_method] ?? "bg-slate-100 text-slate-700"}`}>
                   {form.form_method}
                 </span>
+              </TableCell>
+              <TableCell>
+                <DetectionBadge form={form} />
               </TableCell>
               <TableCell className="text-xs font-mono text-muted-foreground">
                 {form.form_id && <div>#{form.form_id}</div>}
