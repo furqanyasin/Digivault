@@ -1,7 +1,16 @@
 # Phase 2 — Reporting & Agency Dashboards
 
-**Status:** ⬜ Not started
+**Status:** 🟢 Backend done — 2.1, 2.3, 2.4, 2.5 complete; 2.2 + Health Center UI are frontend (deferred).
 **Blocks launch:** Reporting is a stated launch requirement; dashboards are high-value but can trail.
+
+## Progress summary
+- ✅ **2.1 Health Center** — `build_health_snapshot()` + derived security score; `GET websites/<id>/health/`.
+- ⬜ **2.2 Renewal Center** — frontend screen (backend renewal data exists via 1.5 + 2.5).
+- ✅ **2.3 Reporting** — `reports` app, PDF/CSV, generate + download + monthly task (commit `c358eb1`).
+- ✅ **2.4 Performance trends** — `weekly_trend()` + `detect_regression()`/`alert_on_regression()`; `GET websites/<id>/performance/trends/`; regression fires in-app Notification from run-view + task.
+- ✅ **2.5 Client enrichment** — `assigned_to`, `monthly_revenue`, `support_tier`, `contract_renewal_date` + `assigned_websites_count`; migration `clients/0003`.
+
+**Tests:** `test_health_center.py` (3), `test_trends.py` (5), `clients/test_enrichment.py` (1), `reports/test_reports.py` (7). Touched suites green (39).
 
 Surface the data you already collect into the views agencies actually use daily.
 

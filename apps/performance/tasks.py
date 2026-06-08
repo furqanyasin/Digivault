@@ -51,6 +51,10 @@ def check_website_performance(self, website_id: str, strategy: str = "mobile") -
         website.domain, strategy, result.performance_score, result.fcp_ms, result.lcp_ms,
     )
 
+    if not result.error:
+        from apps.performance.trends import alert_on_regression
+        alert_on_regression(website, strategy)
+
 
 @shared_task(name="performance.purge_old_reports")
 def purge_old_reports(days: int = 365) -> int:

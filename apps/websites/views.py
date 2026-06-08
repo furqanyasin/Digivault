@@ -123,6 +123,14 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         )
         return website
 
+    @action(detail=True, methods=["get"], url_path="health")
+    def health(self, request, pk=None):
+        """Aggregated Health Center snapshot for one website (Phase 2.1)."""
+        from apps.websites.health import build_health_snapshot
+
+        website = self.get_object()
+        return Response(build_health_snapshot(website))
+
     @action(detail=True, methods=["get"], url_path="snippet")
     def snippet(self, request, pk=None):
         """Return snippet HTML and platform-specific installation instructions."""

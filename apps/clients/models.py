@@ -42,6 +42,12 @@ class Client(BaseModel):
         NO = "no", "No"
         UNKNOWN = "", "Unknown"
 
+    class SupportTier(models.TextChoices):
+        NONE = "", "None"
+        BASIC = "basic", "Basic"
+        STANDARD = "standard", "Standard"
+        PREMIUM = "premium", "Premium"
+
     team = models.ForeignKey(
         "accounts.Team",
         on_delete=models.CASCADE,
@@ -63,6 +69,22 @@ class Client(BaseModel):
     website_maintained_by_digi = models.CharField(max_length=50, blank=True, default="")
     notes = models.TextField(blank=True)
     comments = models.TextField(blank=True)
+
+    # Commercial / ownership (Phase 2.5)
+    assigned_to = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_clients",
+    )
+    monthly_revenue = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+    support_tier = models.CharField(
+        max_length=20, choices=SupportTier.choices, blank=True, default=""
+    )
+    contract_renewal_date = models.DateField(null=True, blank=True)
 
     clickup_task_id = models.CharField(max_length=64, blank=True, db_index=True)
     clickup_synced_at = models.DateTimeField(null=True, blank=True)
