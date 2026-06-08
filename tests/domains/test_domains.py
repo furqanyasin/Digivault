@@ -88,7 +88,8 @@ class TestDomainAlerts:
 
     def test_duplicate_alerts_not_created(self, website):
         from datetime import timedelta
-        expires_soon = datetime.now(tz=timezone.utc) + timedelta(days=5)
+        # Expire in 2 days so every threshold (incl. the 3-day one) is crossed.
+        expires_soon = datetime.now(tz=timezone.utc) + timedelta(days=2)
         info = DomainInfo.objects.create(website=website, expires_at=expires_soon)
 
         from apps.domains.tasks import _create_expiry_alerts
@@ -100,6 +101,23 @@ class TestDomainAlerts:
         ).count()
         # Should equal number of thresholds crossed — no duplicates
         assert count == len(DOMAIN_ALERT_THRESHOLDS)
+
+    def test_three_day_threshold_fires_near_expiry(self, website):
+        from datetime import timedelta
+        # 2 days to expiry → the 3-day alert must be among those created.
+        info = DomainInfo.objects.create(
+            website=website,
+            expires_at=datetime.now(tz=timezone.utc) + timedelta(days=2),
+        )
+        from apps.domains.tasks import _create_expiry_alerts
+        _create_expiry_alerts(info)
+
+        thresholds = set(
+            DomainAlert.objects.filter(
+                domain_info=info, alert_type=DomainAlert.AlertType.DOMAIN
+            ).values_list("days_until_expiry", flat=True)
+        )
+        assert 3 in thresholds
 
 
 @pytest.mark.django_db

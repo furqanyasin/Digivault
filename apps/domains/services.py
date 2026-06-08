@@ -45,7 +45,7 @@ _HOSTING_PATTERNS: list[tuple[re.Pattern, str]] = [
 _CLOUDFLARE_NS_PATTERN = re.compile(r"\.ns\.cloudflare\.com$", re.I)
 
 # Domain expiry thresholds that trigger alerts (days before expiry)
-DOMAIN_ALERT_THRESHOLDS = [90, 60, 30, 14, 7]
+DOMAIN_ALERT_THRESHOLDS = [90, 60, 30, 14, 7, 3]
 SSL_ALERT_THRESHOLDS = [90, 30, 7]
 
 
