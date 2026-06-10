@@ -8,24 +8,13 @@ import { api } from "@/lib/api";
 import type { Website, ScriptChange, Monitor } from "@/lib/api";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
-interface ExpiringItem {
-  id: string;
-  name: string;
-  domain: string;
-  days_until_expiry: number | null;
-}
-
 async function getData(token: string) {
-  const [websitesResult, monitorsResult, expiringDomainsResult, expiringSslResult] = await Promise.allSettled([
+  const [websitesResult, monitorsResult] = await Promise.allSettled([
     api.get<Website[]>("/api/v1/websites/", token),
     api.get<Monitor[]>("/api/v1/monitors/", token),
-    api.get<ExpiringItem[]>("/api/v1/websites/expiring-domains/?days=3650", token),
-    api.get<ExpiringItem[]>("/api/v1/websites/expiring-ssl/?days=3650", token),
   ]);
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
   const monitors = monitorsResult.status === "fulfilled" ? monitorsResult.value : [];
-  const expiringDomains = expiringDomainsResult.status === "fulfilled" ? expiringDomainsResult.value : [];
-  const expiringSsl = expiringSslResult.status === "fulfilled" ? expiringSslResult.value : [];
 
   const dashboardSites = websites.filter((w) => !w.domain?.includes("digilaticsvps")).slice(0, 5);
   const changeSets = await Promise.allSettled(
@@ -37,7 +26,7 @@ async function getData(token: string) {
     .filter((r) => r.status === "fulfilled")
     .flatMap((r) => (r as PromiseFulfilledResult<ScriptChange[]>).value);
 
-  return { websites, allChanges, monitors, expiringDomains, expiringSsl };
+  return { websites, allChanges, monitors };
 }
 
 function extractDomain(url: string): string {
@@ -92,61 +81,6 @@ function RiskDonut({ high, medium, low }: { high: number; medium: number; low: n
   );
 }
 
-function ExpiryCard({ title, items }: { title: string; items: ExpiringItem[] }) {
-  const soonest = items[0]?.days_until_expiry ?? null;
-  const urgentCount = items.filter((i) => (i.days_until_expiry ?? 9999) <= 30).length;
-  const border =
-    soonest != null && soonest <= 7
-      ? "border-red-200 dark:border-red-900"
-      : soonest != null && soonest <= 30
-      ? "border-amber-200 dark:border-amber-900"
-      : "border-emerald-200 dark:border-emerald-900";
-  return (
-    <Card className={border}>
-      <CardHeader className="pb-2 pt-4">
-        <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-          {title} Expiry
-          {urgentCount > 0 && (
-            <span className="text-xs font-normal text-amber-600">· {urgentCount} within 30d</span>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pb-4 space-y-1.5">
-        {items.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No {title.toLowerCase()} data yet — populated by the daily domain check.
-          </p>
-        ) : (
-          <>
-            {items.slice(0, 5).map((item) => {
-              const d = item.days_until_expiry;
-              const color =
-                d == null
-                  ? "text-muted-foreground"
-                  : d <= 7
-                  ? "text-red-600"
-                  : d <= 30
-                  ? "text-amber-600"
-                  : "text-emerald-600";
-              return (
-                <div key={item.id} className="flex items-center justify-between text-xs">
-                  <span className="truncate min-w-0 font-mono">{item.domain}</span>
-                  <span className={`ml-2 shrink-0 font-semibold ${color}`}>
-                    {d == null ? "—" : `${d}d`}
-                  </span>
-                </div>
-              );
-            })}
-            {items.length > 5 && (
-              <p className="text-xs text-muted-foreground">+{items.length - 5} more</p>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 const STATUS_DOT: Record<string, string> = {
   active: "bg-emerald-500",
   warning: "bg-amber-500",
@@ -163,8 +97,7 @@ const STATUS_BAR: Record<string, string> = {
 
 export default async function DashboardPage() {
   const token = await getAccessToken();
-  const { websites, allChanges, monitors, expiringDomains, expiringSsl } = await getData(token ?? "");
-  const downMonitors = monitors.filter((m) => m.status === "down" || m.status === "degraded");
+  const { websites, allChanges, monitors } = await getData(token ?? "");
 
   const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
   function isInternal(c: ScriptChange) {
@@ -261,55 +194,6 @@ export default async function DashboardPage() {
           );
           return href ? <Link key={label} href={href}>{card}</Link> : <div key={label}>{card}</div>;
         })}
-      </div>
-
-      {/* Domains, SSL & Uptime — always visible */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-          <Activity className="h-5 w-5 text-violet-500" />
-          Domains, SSL &amp; Uptime
-        </h2>
-        <div className="grid gap-3 md:grid-cols-3">
-          {/* Monitors */}
-          <Card className={downMonitors.length > 0 ? "border-red-200 dark:border-red-900" : "border-emerald-200 dark:border-emerald-900"}>
-            <CardHeader className="pb-2 pt-4">
-              <CardTitle className={`text-sm font-medium ${downMonitors.length > 0 ? "text-red-600" : "text-emerald-600"}`}>
-                {downMonitors.length > 0
-                  ? `${downMonitors.length} Monitor${downMonitors.length > 1 ? "s" : ""} Down`
-                  : `All ${monitors.length} Monitor${monitors.length === 1 ? "" : "s"} Up`}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pb-4 space-y-1.5">
-              {downMonitors.length > 0 ? (
-                downMonitors.slice(0, 4).map((m) => (
-                  <div key={m.id} className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1.5 min-w-0">
-                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${m.status === "down" ? "bg-red-500" : "bg-amber-500"}`} />
-                      <span className="truncate">{m.name}</span>
-                    </span>
-                    <Badge variant={m.status === "down" ? "destructive" : "warning"} className="text-xs ml-2 shrink-0">
-                      {m.status}
-                    </Badge>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs text-muted-foreground">Every monitored endpoint is responding.</p>
-              )}
-              {downMonitors.length > 4 && (
-                <p className="text-xs text-muted-foreground">+{downMonitors.length - 4} more</p>
-              )}
-              <Link href="/monitors">
-                <Button variant="outline" size="sm" className="w-full mt-2 h-7 text-xs">View monitors →</Button>
-              </Link>
-            </CardContent>
-          </Card>
-
-          {/* Domain expiry */}
-          <ExpiryCard title="Domain" items={expiringDomains} />
-
-          {/* SSL expiry */}
-          <ExpiryCard title="SSL" items={expiringSsl} />
-        </div>
       </div>
 
       {/* High-risk alerts */}
