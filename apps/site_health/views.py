@@ -36,6 +36,17 @@ class PhpErrorIngestView(APIView):
         except Website.DoesNotExist:
             return Response({"detail": "Unknown site_id."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Domain-binding: the request must originate from the registered domain,
+        # mirroring the main ingest endpoint. site_id is public (embedded in
+        # page HTML), so this stops a third party injecting PHP errors.
+        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
+        if origin and website.domain:
+            from urllib.parse import urlparse
+            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
+            site_host = website.domain.lower().removeprefix("www.").removeprefix("https://").removeprefix("http://").split("/")[0]
+            if origin_host and site_host and origin_host != site_host:
+                return Response(status=status.HTTP_403_FORBIDDEN)
+
         errors = ser.validated_data.get("errors", [])
         for err in errors:
             PhpError.objects.create(

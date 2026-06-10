@@ -164,6 +164,12 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         bust = _secrets.token_hex(8)
         fetch_url = f"{url}{'&' if '?' in url else '?'}_dvv={bust}"
 
+        from apps.common.ssrf import BlockedURLError, assert_public_url
+        try:
+            assert_public_url(url)
+        except BlockedURLError as e:
+            return Response({"detail": str(e)}, status=400)
+
         _BROWSER_HEADERS = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -252,6 +258,12 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         website = self.get_object()
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
         marker = f'data-site="{website.site_id}"'
+
+        from apps.common.ssrf import BlockedURLError, assert_public_url
+        try:
+            assert_public_url(url)
+        except BlockedURLError as e:
+            return Response({"verified": False, "error": str(e)})
 
         # Append a random cache-buster so CDNs/proxies return a fresh response.
         bust = _secrets.token_hex(8)
