@@ -31,7 +31,10 @@ services:
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      # Bind to loopback only — this is the DEV compose file and must never
+      # expose Django directly on a public interface (use
+      # docker-compose.production.cloudpanel.yml on servers).
+      - "127.0.0.1:8000:8000"
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.development
     env_file:
