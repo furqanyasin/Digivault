@@ -59,13 +59,41 @@ def _create_uptime_monitor_db_only(website):
 
 
 def _create_status_page(website, monitor) -> None:
-    """Create a public status page for the website and add its uptime monitor."""
+    """Create a public status page for the website and add its uptime monitor.
+
+    Idempotent per team + domain: if this team already has a status page for the
+    domain (the base slug or any of its ``-N`` collision variants), we skip
+    creating another one. This prevents duplicate pages when a site is re-added
+    or exists as multiple Website rows for the same domain.
+    """
     try:
+        from django.db.models import Q
+
         from apps.status_pages.models import StatusPage, StatusPageMonitor
 
-        slug = _slugify(website.domain.replace("https://", "").replace("http://", ""))
-        # Ensure slug is unique by appending a suffix if needed
-        base_slug = slug
+        base_slug = _slugify(
+            website.domain.replace("https://", "").replace("http://", "")
+        )
+
+        # Already have a page for this domain on this team? Don't duplicate.
+        existing = StatusPage.objects.filter(team=website.team).filter(
+            Q(slug=base_slug) | Q(slug__regex=rf"^{re.escape(base_slug)}-\d+$")
+        ).first()
+        if existing is not None:
+            if monitor:
+                StatusPageMonitor.objects.get_or_create(
+                    status_page=existing,
+                    monitor=monitor,
+                    defaults={"display_order": 0},
+                )
+            logger.info(
+                "Status page for %s already exists on team; skipping create",
+                website.domain,
+            )
+            return
+
+        # Suffix loop only guards the model's global slug-uniqueness across teams.
+        slug = base_slug
         counter = 1
         while StatusPage.objects.filter(slug=slug).exists():
             slug = f"{base_slug}-{counter}"
