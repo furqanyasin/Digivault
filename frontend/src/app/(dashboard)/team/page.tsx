@@ -49,8 +49,26 @@ export default async function TeamPage() {
   const { user, teams, members, resetRequests, activeTeam } = await getData(token ?? "");
 
   const myMembership = user ? members.find((m) => m.user.id === user.id) : null;
-  const myRole = myMembership?.role ?? "viewer";
+  const myRole = activeTeam?.my_role ?? myMembership?.role ?? "viewer";
   const myMembershipId = myMembership?.id ?? "";
+
+  // Team management is owner/manager-only — developers don't see this page.
+  if (myRole !== "owner" && myRole !== "manager") {
+    return (
+      <div className="p-8">
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+            <Users className="h-10 w-10 text-muted-foreground opacity-40" />
+            <p className="text-lg font-medium">Team management is restricted</p>
+            <p className="text-muted-foreground text-sm max-w-sm">
+              Only team owners and managers can view and manage team members.
+              Contact your team manager if you need access changed.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-6">

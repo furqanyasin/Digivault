@@ -40,14 +40,24 @@ class UserSerializer(BaseModelSerializer):
 
 class TeamSerializer(BaseModelSerializer):
     member_count = serializers.SerializerMethodField()
+    my_role = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ("id", "name", "slug", "plan", "member_count", "created_at")
+        fields = ("id", "name", "slug", "plan", "member_count", "my_role", "created_at")
         read_only_fields = ("id", "slug", "created_at")
 
     def get_member_count(self, obj) -> int:
         return obj.memberships.count()
+
+    def get_my_role(self, obj) -> str | None:
+        """The requesting user's role in this team — lets the UI gate
+        manager-only sections without an extra members fetch."""
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return None
+        membership = obj.memberships.filter(user=request.user).first()
+        return membership.role if membership else None
 
 
 class TeamMembershipSerializer(BaseModelSerializer):

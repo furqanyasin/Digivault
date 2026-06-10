@@ -19,7 +19,9 @@ const navItems = [
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/credentials", label: "Credentials", icon: Key },
-  { href: "/team", label: "Team", icon: Users },
+  // Team management is owner/manager-only; developers see their own activity
+  // in the log (the backend already scopes it per-user for them).
+  { href: "/team", label: "Team", icon: Users, managerOnly: true },
   { href: "/logs", label: "Activity Log", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -30,6 +32,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     token ? api.get<User>("/api/v1/auth/me/", token).catch(() => null) : null,
     token ? api.get<Team[]>("/api/v1/auth/teams/", token).catch(() => [] as Team[]) : [] as Team[],
   ]);
+
+  const activeTeam = teams.find((t) => t.id === user?.active_team) ?? teams[0] ?? null;
+  const isManager = activeTeam?.my_role === "owner" || activeTeam?.my_role === "manager";
+  const visibleNavItems = navItems.filter((item) => !item.managerOnly || isManager);
 
   return (
     <div className="flex min-h-screen">
@@ -52,7 +58,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {navItems.map(({ href, label, icon: Icon }) => (
+          {visibleNavItems.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}

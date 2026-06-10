@@ -136,6 +136,27 @@ class TestTeamAPI:
         assert "My Team" in names
         assert "Other Team" not in names
 
+    def test_teams_list_includes_my_role(self, auth_client, registered_user):
+        team = TeamService.create(name="Role Team", owner=registered_user)
+        dev = User.objects.create_user(email="roledev@example.com", password="Pass1234!")
+        TeamService.add_member(team=team, user=dev, role=TeamMembership.Role.DEVELOPER)
+
+        response = auth_client.get("/api/v1/auth/teams/")
+        row = next(t for t in response.data if t["name"] == "Role Team")
+        assert row["my_role"] == "owner"
+
+        from rest_framework.test import APIClient
+        dev_client = APIClient()
+        token = dev_client.post(
+            "/api/v1/auth/token/",
+            {"email": "roledev@example.com", "password": "Pass1234!"},
+            format="json",
+        ).data["access"]
+        dev_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = dev_client.get("/api/v1/auth/teams/")
+        row = next(t for t in response.data if t["name"] == "Role Team")
+        assert row["my_role"] == "developer"
+
     def test_list_team_members(self, auth_client, registered_user):
         team = TeamService.create(name="Member Team", owner=registered_user)
         dev = User.objects.create_user(email="dev@example.com", password="Pass1234!")

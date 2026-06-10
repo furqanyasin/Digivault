@@ -81,6 +81,7 @@ export interface Team {
   name: string;
   slug: string;
   plan: string;
+  my_role?: string | null;
 }
 
 export interface Website {
