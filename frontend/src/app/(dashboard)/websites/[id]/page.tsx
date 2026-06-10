@@ -118,6 +118,10 @@ export default async function WebsiteDetailPage({
     );
   }
 
+  // Plugins, PHP Errors and Site Events are WordPress-only concepts — hide them
+  // for other platforms (detected via the site scan).
+  const isWordPress = website.platform === "wordpress";
+
   const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
 
   function isInternalStr(s: string | undefined): boolean {
@@ -220,9 +224,11 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="scripts" asChild>
             <Link href={`/websites/${id}?tab=scripts`} prefetch>Scripts ({activeScripts.length})</Link>
           </TabsTrigger>
-          <TabsTrigger value="plugins" asChild>
-            <Link href={`/websites/${id}?tab=plugins`} prefetch>Plugins</Link>
-          </TabsTrigger>
+          {isWordPress && (
+            <TabsTrigger value="plugins" asChild>
+              <Link href={`/websites/${id}?tab=plugins`} prefetch>Plugins</Link>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="forms" asChild>
             <Link href={`/websites/${id}?tab=forms`} prefetch>Forms ({forms.length})</Link>
           </TabsTrigger>
@@ -235,12 +241,16 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="changelog" asChild>
             <Link href={`/websites/${id}?tab=changelog`} prefetch>Change Log ({visibleChanges.length})</Link>
           </TabsTrigger>
-          <TabsTrigger value="php-errors" asChild>
-            <Link href={`/websites/${id}?tab=php-errors`} prefetch>PHP Errors {phpErrors.length > 0 ? `(${phpErrors.length})` : ""}</Link>
-          </TabsTrigger>
-          <TabsTrigger value="site-events" asChild>
-            <Link href={`/websites/${id}?tab=site-events`} prefetch>Site Events {siteEvents.length > 0 ? `(${siteEvents.length})` : ""}</Link>
-          </TabsTrigger>
+          {isWordPress && (
+            <TabsTrigger value="php-errors" asChild>
+              <Link href={`/websites/${id}?tab=php-errors`} prefetch>PHP Errors {phpErrors.length > 0 ? `(${phpErrors.length})` : ""}</Link>
+            </TabsTrigger>
+          )}
+          {isWordPress && (
+            <TabsTrigger value="site-events" asChild>
+              <Link href={`/websites/${id}?tab=site-events`} prefetch>Site Events {siteEvents.length > 0 ? `(${siteEvents.length})` : ""}</Link>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="security" asChild>
             <Link href={`/websites/${id}?tab=security`} prefetch>Security {vulns.length > 0 ? `(${vulns.length})` : ""}</Link>
           </TabsTrigger>
@@ -318,16 +328,18 @@ export default async function WebsiteDetailPage({
         </TabsContent>
 
         {/* ── Plugins ── */}
-        <TabsContent value="plugins">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">WordPress Plugins</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <PluginsTab scripts={allActiveScripts} websiteId={id} />
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {isWordPress && (
+          <TabsContent value="plugins">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">WordPress Plugins</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <PluginsTab scripts={allActiveScripts} websiteId={id} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* ── Forms ── */}
         <TabsContent value="forms">
@@ -469,28 +481,32 @@ export default async function WebsiteDetailPage({
 
 
         {/* ── PHP Errors ── */}
-        <TabsContent value="php-errors">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">PHP Error Log</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0 px-4 pb-4">
-              <PhpErrorsTab errors={phpErrors} />
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {isWordPress && (
+          <TabsContent value="php-errors">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">PHP Error Log</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 px-4 pb-4">
+                <PhpErrorsTab errors={phpErrors} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* ── Site Events ── */}
-        <TabsContent value="site-events">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Site Events</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0 px-4 pb-4">
-              <SiteEventsTab events={siteEvents} />
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {isWordPress && (
+          <TabsContent value="site-events">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Site Events</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 px-4 pb-4">
+                <SiteEventsTab events={siteEvents} />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* ── Security ── */}
         <TabsContent value="security">

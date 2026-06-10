@@ -189,10 +189,24 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             logger.warning("Scan fetch failed for website %s: %s", website.pk, e)
             return Response({"detail": "Could not reach the site. Check the domain is correct and publicly accessible."}, status=400)
 
+        # Detect the CMS / site builder from the fetched page and persist it.
+        # Done before the script check so platform is set even for pages with
+        # no external scripts.
+        from apps.websites.platform_detect import detect_platform
+
+        detected = detect_platform(html, dict(resp.headers))
+        if detected and detected != website.platform:
+            website.platform = detected
+            website.save(update_fields=["platform"])
+
         script_urls = _extract_script_urls(html)
 
         if not script_urls:
-            return Response({"detail": "No external scripts found on the page.", "count": 0})
+            return Response({
+                "detail": "No external scripts found on the page.",
+                "count": 0,
+                "platform": website.platform,
+            })
 
         scripts = [
             {"src": src, "location": "unknown", "async": False, "defer": False, "inline": False}
@@ -223,7 +237,11 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             description=f"Triggered scan for '{website.domain}'",
             resource_type="website", resource_id=website.pk,
         )
-        return Response({"detail": f"Scan queued — found {len(scripts)} scripts.", "count": len(scripts)})
+        return Response({
+            "detail": f"Scan queued — found {len(scripts)} scripts.",
+            "count": len(scripts),
+            "platform": website.platform,
+        })
 
     @action(detail=True, methods=["post"], url_path="verify-snippet")
     def verify_snippet(self, request, pk=None):
