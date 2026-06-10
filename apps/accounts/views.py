@@ -78,7 +78,10 @@ class TeamListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         team = TeamService.create(name=serializer.validated_data["name"], owner=request.user)
-        return Response(TeamSerializer(team).data, status=status.HTTP_201_CREATED)
+        return Response(
+            TeamSerializer(team, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class TeamDetailView(generics.RetrieveUpdateAPIView):
