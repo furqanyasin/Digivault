@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, RefreshCw, Download, Loader2 } from "lucide-react";
+import { FileText, RefreshCw, Download, Loader2, Trash2 } from "lucide-react";
 
 interface Report {
   id: string;
@@ -61,6 +61,7 @@ export default function ReportsPage() {
   const [websites, setWebsites] = useState<WebsiteOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const period = defaultPeriod();
@@ -91,6 +92,19 @@ export default function ReportsPage() {
       await fetchReports();
     })();
   }, [fetchReports]);
+
+  async function handleDelete(id: string) {
+    if (!window.confirm("Delete this report? This cannot be undone.")) return;
+    setError(null);
+    setDeletingId(id);
+    const res = await fetch(`/api/reports/${id}`, { method: "DELETE" });
+    setDeletingId(null);
+    if (res.ok) {
+      setReports((prev) => prev.filter((r) => r.id !== id));
+    } else {
+      setError("Failed to delete report.");
+    }
+  }
 
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
@@ -223,7 +237,7 @@ export default function ReportsPage() {
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Format</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Generated</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Download</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -245,18 +259,33 @@ export default function ReportsPage() {
                     <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
                       {formatDate(r.generated_at)}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      {r.download_url ? (
-                        <a
-                          href={`/api/reports/${r.id}/download`}
-                          className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-3">
+                        {r.download_url ? (
+                          <a
+                            href={`/api/reports/${r.id}/download`}
+                            className="inline-flex items-center gap-1 text-primary hover:underline text-xs"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                        <button
+                          onClick={() => handleDelete(r.id)}
+                          disabled={deletingId === r.id}
+                          aria-label="Delete report"
+                          className="inline-flex items-center gap-1 text-muted-foreground hover:text-destructive text-xs disabled:opacity-50"
                         >
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
+                          {deletingId === r.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

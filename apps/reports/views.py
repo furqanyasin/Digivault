@@ -56,6 +56,24 @@ class ReportGenerateView(APIView):
         return Response(ReportSerializer(report).data, status=code)
 
 
+class ReportDeleteView(generics.DestroyAPIView):
+    """DELETE /api/v1/reports/<pk>/ — delete a report and its stored file."""
+
+    serializer_class = ReportSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return Report.objects.none()
+        return Report.objects.filter(team=team)
+
+    def perform_destroy(self, instance):
+        if instance.file:
+            instance.file.delete(save=False)
+        instance.delete()
+
+
 class ReportDownloadView(APIView):
     """GET /api/v1/reports/<pk>/download/ — stream the generated file."""
 

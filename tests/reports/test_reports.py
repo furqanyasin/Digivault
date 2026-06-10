@@ -98,6 +98,32 @@ class TestAPI:
         assert resp.status_code == 200
         assert resp["Content-Type"] == "application/pdf"
 
+    def test_delete_report_removes_record_and_file(self, auth_client, report_website, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        report = generate_report(report_website, PERIOD_START, PERIOD_END, "pdf")
+        file_path = report.file.path
+        import os
+        assert os.path.exists(file_path)
+
+        resp = auth_client.delete(f"/api/v1/reports/{report.id}/")
+        assert resp.status_code == 204
+        assert not Report.objects.filter(pk=report.id).exists()
+        assert not os.path.exists(file_path)
+
+    def test_delete_other_teams_report_404(self, auth_client, report_website, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        from apps.accounts.models import User
+        from apps.accounts.services import TeamService
+
+        other_owner = User.objects.create_user(email="other@test.com", password="Pass123!")
+        other_team = TeamService.create(name="Other Agency", owner=other_owner)
+        other_site = Website.objects.create(team=other_team, name="Other", domain="other.io")
+        other_report = generate_report(other_site, PERIOD_START, PERIOD_END, "pdf")
+
+        resp = auth_client.delete(f"/api/v1/reports/{other_report.id}/")
+        assert resp.status_code == 404
+        assert Report.objects.filter(pk=other_report.id).exists()
+
     def test_generate_unknown_website_404(self, auth_client, settings, tmp_path):
         settings.MEDIA_ROOT = str(tmp_path)
         import uuid
