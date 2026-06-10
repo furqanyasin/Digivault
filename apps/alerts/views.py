@@ -9,6 +9,8 @@ from apps.alerts.serializers import (
     AlertSuppressionSerializer,
     NotificationSerializer,
 )
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.common.permissions import IsTeamMember, RolePermission
 from apps.websites.models import Website
 
@@ -26,7 +28,12 @@ class AlertRuleListCreateView(generics.ListCreateAPIView):
         return AlertRule.objects.filter(team=team)
 
     def perform_create(self, serializer):
-        serializer.save(team=self.request.user.active_team)
+        rule = serializer.save(team=self.request.user.active_team)
+        AuditService.log_request(
+            self.request, ActivityLog.Action.ALERT_RULE_CREATED,
+            description=f"Created alert rule '{getattr(rule, 'name', rule.pk)}'",
+            resource_type="alert_rule", resource_id=rule.pk,
+        )
 
 
 class AlertRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -40,6 +47,22 @@ class AlertRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
         if team is None:
             return AlertRule.objects.none()
         return AlertRule.objects.filter(team=team)
+
+    def perform_update(self, serializer):
+        rule = serializer.save()
+        AuditService.log_request(
+            self.request, ActivityLog.Action.ALERT_RULE_UPDATED,
+            description=f"Updated alert rule '{getattr(rule, 'name', rule.pk)}'",
+            resource_type="alert_rule", resource_id=rule.pk,
+        )
+
+    def perform_destroy(self, instance):
+        AuditService.log_request(
+            self.request, ActivityLog.Action.ALERT_RULE_DELETED,
+            description=f"Deleted alert rule '{getattr(instance, 'name', instance.pk)}'",
+            resource_type="alert_rule", resource_id=instance.pk,
+        )
+        instance.delete()
 
 
 class NotificationListView(generics.ListAPIView):

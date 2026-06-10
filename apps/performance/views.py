@@ -2,6 +2,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.common.permissions import IsTeamMember
 from apps.performance.models import CruxReport, PerformanceReport
 from apps.performance.serializers import CruxReportSerializer, PerformanceReportSerializer
@@ -86,6 +88,12 @@ class WebsitePerformanceRunView(APIView):
         from apps.performance.trends import alert_on_regression
         alert_on_regression(website, strategy)
 
+        AuditService.log_request(
+            request, ActivityLog.Action.PERFORMANCE_CHECK_RUN,
+            description=f"Ran {strategy} performance check for '{website.domain}' (score {result.performance_score})",
+            resource_type="website", resource_id=website.pk,
+            metadata={"strategy": strategy, "score": result.performance_score},
+        )
         return Response(PerformanceReportSerializer(report).data, status=status.HTTP_201_CREATED)
 
 
@@ -179,4 +187,9 @@ class WebsiteCruxRunView(APIView):
                 status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
+        AuditService.log_request(
+            request, ActivityLog.Action.CRUX_FETCHED,
+            description=f"Fetched CrUX field data for '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+        )
         return Response(CruxReportSerializer(report).data, status=status.HTTP_201_CREATED)

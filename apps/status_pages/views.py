@@ -26,6 +26,10 @@ class _PageScopedChildMixin:
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
     child_model = None
     child_related = None  # related_name on StatusPage
+    # Audit action codes set per subclass.
+    audit_create_action = None
+    audit_update_action = None
+    audit_delete_action = None
 
     def _get_page(self):
         team = self.request.user.active_team
@@ -37,12 +41,31 @@ class _PageScopedChildMixin:
             return self.child_model.objects.none()
         return getattr(page, self.child_related).all()
 
+    def _audit(self, action, instance):
+        if not action:
+            return
+        from apps.audit.services import AuditService
+        AuditService.log_request(
+            self.request, action,
+            description=f"{action.label} on status page",
+            resource_type="status_page", resource_id=getattr(instance, "status_page_id", instance.pk),
+        )
+
     def perform_create(self, serializer):
         page = self._get_page()
         if page is None:
             from rest_framework.exceptions import NotFound
             raise NotFound("Status page not found.")
-        serializer.save(status_page=page)
+        instance = serializer.save(status_page=page)
+        self._audit(self.audit_create_action, instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        self._audit(self.audit_update_action, instance)
+
+    def perform_destroy(self, instance):
+        self._audit(self.audit_delete_action, instance)
+        instance.delete()
 
 
 class StatusPageIncidentListCreateView(_PageScopedChildMixin, generics.ListCreateAPIView):
@@ -52,6 +75,11 @@ class StatusPageIncidentListCreateView(_PageScopedChildMixin, generics.ListCreat
     child_model = StatusPageIncident
     child_related = "incidents"
 
+    @property
+    def audit_create_action(self):
+        from apps.audit.models import ActivityLog
+        return ActivityLog.Action.INCIDENT_POSTED
+
 
 class StatusPageIncidentDetailView(_PageScopedChildMixin, generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v1/status-pages/<page_pk>/incidents/<pk>/"""
@@ -59,6 +87,16 @@ class StatusPageIncidentDetailView(_PageScopedChildMixin, generics.RetrieveUpdat
     serializer_class = StatusPageIncidentSerializer
     child_model = StatusPageIncident
     child_related = "incidents"
+
+    @property
+    def audit_update_action(self):
+        from apps.audit.models import ActivityLog
+        return ActivityLog.Action.INCIDENT_UPDATED
+
+    @property
+    def audit_delete_action(self):
+        from apps.audit.models import ActivityLog
+        return ActivityLog.Action.INCIDENT_DELETED
 
 
 class MaintenanceWindowListCreateView(_PageScopedChildMixin, generics.ListCreateAPIView):
@@ -68,6 +106,11 @@ class MaintenanceWindowListCreateView(_PageScopedChildMixin, generics.ListCreate
     child_model = MaintenanceWindow
     child_related = "maintenance_windows"
 
+    @property
+    def audit_create_action(self):
+        from apps.audit.models import ActivityLog
+        return ActivityLog.Action.MAINTENANCE_SCHEDULED
+
 
 class MaintenanceWindowDetailView(_PageScopedChildMixin, generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v1/status-pages/<page_pk>/maintenance/<pk>/"""
@@ -75,6 +118,11 @@ class MaintenanceWindowDetailView(_PageScopedChildMixin, generics.RetrieveUpdate
     serializer_class = MaintenanceWindowSerializer
     child_model = MaintenanceWindow
     child_related = "maintenance_windows"
+
+    @property
+    def audit_delete_action(self):
+        from apps.audit.models import ActivityLog
+        return ActivityLog.Action.MAINTENANCE_DELETED
 
 
 class StatusPageListCreateView(TeamScopedMixin, generics.ListCreateAPIView):

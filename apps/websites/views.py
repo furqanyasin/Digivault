@@ -129,6 +129,14 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         )
         return website
 
+    def perform_update(self, serializer):
+        website = serializer.save()
+        AuditService.log_request(
+            self.request, ActivityLog.Action.WEBSITE_UPDATED,
+            description=f"Updated website '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+        )
+
     def perform_destroy(self, instance):
         AuditService.log_request(
             self.request, ActivityLog.Action.WEBSITE_DELETED,
@@ -157,6 +165,11 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         """Issue a new site_id, invalidating the old snippet immediately."""
         website = self.get_object()
         new_id = website.regenerate_site_id()
+        AuditService.log_request(
+            request, ActivityLog.Action.WEBSITE_SNIPPET_REGENERATED,
+            description=f"Regenerated tracking snippet for '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+        )
         return Response(
             {"site_id": new_id, "snippet_html": website.snippet_html},
             status=status.HTTP_200_OK,
