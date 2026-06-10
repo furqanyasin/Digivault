@@ -312,6 +312,12 @@ class ScriptReviewView(APIView):
 
         script.review_status = review_status
         script.save(update_fields=["review_status"])
+        AuditService.log_request(
+            request, ActivityLog.Action.SCRIPT_REVIEWED,
+            description=f"Marked script '{script.src_url}' as {review_status}",
+            resource_type="script", resource_id=script.pk,
+            metadata={"review_status": review_status},
+        )
         return Response(ScriptSerializer(script).data)
 
 
@@ -349,6 +355,13 @@ class BulkScriptReviewView(APIView):
             website__team=team,
         ).update(review_status=review_status)
 
+        if updated:
+            AuditService.log_request(
+                request, ActivityLog.Action.SCRIPT_REVIEWED,
+                description=f"Marked {updated} script(s) as {review_status}",
+                resource_type="website", resource_id=website_pk,
+                metadata={"review_status": review_status, "count": updated},
+            )
         return Response({"updated": updated})
 
 
