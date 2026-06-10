@@ -129,6 +129,10 @@ class TeamMembership(BaseModel):
         OWNER = "owner", "Owner"
         MANAGER = "manager", "Manager"
         DEVELOPER = "developer", "Developer"
+        # Member-level roles (same privilege tier as Developer) for departments
+        # like SEO — limited access, no team/settings management.
+        EDITOR = "editor", "Editor"
+        SEO = "seo", "SEO"
         VIEWER = "viewer", "Viewer"
 
     user = models.ForeignKey(

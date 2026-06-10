@@ -15,11 +15,15 @@ from apps.credentials.models import Credential, CredentialAccessLog
 
 class CredentialService:
 
-    # Roles that may reveal (decrypt) credentials
+    # Roles that may reveal (decrypt) credentials. Member-level roles (developer,
+    # editor, seo) can reveal only the credentials shared with them — visibility
+    # is enforced separately by Credential.objects.visible_to().
     _REVEAL_ROLES = {
         TeamMembership.Role.OWNER,
         TeamMembership.Role.MANAGER,
         TeamMembership.Role.DEVELOPER,
+        TeamMembership.Role.EDITOR,
+        TeamMembership.Role.SEO,
     }
 
     @staticmethod

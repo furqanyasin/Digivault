@@ -31,7 +31,10 @@ class RolePermission(BasePermission):
 
     ROLE_LEVELS = {
         "viewer": 1,
+        # Member-level roles share the developer tier.
         "developer": 2,
+        "editor": 2,
+        "seo": 2,
         "manager": 3,
         "owner": 4,
     }
