@@ -320,6 +320,15 @@ export interface DetectedForm {
   last_seen_at: string;
 }
 
+export interface FormSubmissionError {
+  id: string;
+  source: string;
+  form_id: string;
+  page_url: string;
+  message: string;
+  created_at: string;
+}
+
 export interface PhpError {
   id: string;
   level: "fatal" | "error" | "warning" | "notice" | "deprecated" | "info";

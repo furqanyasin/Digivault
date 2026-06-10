@@ -27,9 +27,16 @@ from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
-from apps.scripts.models import DetectedForm, Script, ScriptChange
+from apps.scripts.form_errors import (
+    is_important_form_error,
+    sanitize_error_message,
+    sanitize_page_url,
+)
+from apps.scripts.models import DetectedForm, FormSubmissionError, Script, ScriptChange
 from apps.scripts.serializers import (
     DetectedFormSerializer,
+    FormErrorIngestSerializer,
+    FormSubmissionErrorSerializer,
     IngestPayloadSerializer,
     ScriptChangeSerializer,
     ScriptSerializer,
@@ -135,6 +142,48 @@ class IngestView(APIView):
                 "snippet_version": data["snippet_version"],
             },
         )
+        return Response(status=status.HTTP_202_ACCEPTED)
+
+
+class FormErrorIngestView(APIView):
+    """POST /api/ingest/form-errors/ — failed form submissions from the snippet.
+
+    Same trust model as ingest: site_id identifies the website, origin must
+    match the registered domain. Validation noise is acknowledged (202) but
+    never stored, so probing reveals nothing; important failures are sanitised
+    before save (no PII at rest).
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [IngestThrottle]
+
+    def post(self, request):
+        serializer = FormErrorIngestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            website = Website.objects.get(site_id=data["site_id"])
+        except Website.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
+        if origin and website.domain:
+            from urllib.parse import urlparse
+            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
+            site_host = website.domain.lower().removeprefix("www.").removeprefix("https://").removeprefix("http://").split("/")[0]
+            if origin_host and site_host and origin_host != site_host:
+                return Response(status=status.HTTP_403_FORBIDDEN)
+
+        if is_important_form_error(data["message"]):
+            FormSubmissionError.objects.create(
+                website=website,
+                source=data["source"][:100],
+                form_id=data["form_id"][:200],
+                page_url=sanitize_page_url(data["page_url"]),
+                message=sanitize_error_message(data["message"]),
+            )
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
@@ -321,6 +370,22 @@ class ScriptTimelineView(generics.ListAPIView):
             website_id=self.kwargs["website_pk"],
             script_id=self.kwargs["pk"],
         ).select_related("script", "acknowledged_by")
+
+
+class WebsiteFormErrorListView(generics.ListAPIView):
+    """GET /api/v1/websites/<website_pk>/form-errors/ — failed submissions."""
+
+    serializer_class = FormSubmissionErrorSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return FormSubmissionError.objects.none()
+        return FormSubmissionError.objects.filter(
+            website__team=team,
+            website_id=self.kwargs["website_pk"],
+        )
 
 
 class WebsiteFormListView(generics.ListAPIView):

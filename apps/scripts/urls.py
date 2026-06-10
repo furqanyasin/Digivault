@@ -4,18 +4,23 @@ from apps.scripts.views import (
     AcknowledgeChangeView,
     BulkScriptReviewView,
     ExtensionLookupView,
+    FormErrorIngestView,
     IngestView,
     ScriptReviewView,
     ScriptTimelineView,
     SnippetJsView,
     WebsiteChangeListView,
+    WebsiteFormErrorListView,
     WebsiteFormListView,
     WebsiteScriptListView,
 )
 
-# Ingest lives outside /api/v1/ so the URL never changes even if the API version bumps
+# Ingest lives outside /api/v1/ so the URL never changes even if the API version bumps.
+# NOTE: production nginx only proxies /api/ingest|api/v1|api/php-errors|api/extension —
+# new public endpoints must live under one of those prefixes.
 ingest_urlpatterns = [
     path("ingest/", IngestView.as_view(), name="ingest"),
+    path("ingest/form-errors/", FormErrorIngestView.as_view(), name="ingest-form-errors"),
     path("extension/lookup/", ExtensionLookupView.as_view(), name="extension-lookup"),
     path("s.js", SnippetJsView.as_view(), name="snippet-js"),
 ]
@@ -56,5 +61,10 @@ script_urlpatterns = [
         "websites/<uuid:website_pk>/forms/",
         WebsiteFormListView.as_view(),
         name="website-forms",
+    ),
+    path(
+        "websites/<uuid:website_pk>/form-errors/",
+        WebsiteFormErrorListView.as_view(),
+        name="website-form-errors",
     ),
 ]

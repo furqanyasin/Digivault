@@ -1,7 +1,13 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
-from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
+from apps.scripts.models import (
+    DetectedForm,
+    FormSubmissionError,
+    Script,
+    ScriptChange,
+    ScriptSnapshot,
+)
 
 # Hard caps on ingest payload list lengths — a single page should never
 # legitimately exceed these, and they bound the work queued into Celery.
@@ -45,6 +51,23 @@ class IngestFormSerializer(serializers.Serializer):
     fields = IngestFormFieldSerializer(
         many=True, default=list, max_length=MAX_FIELDS_PER_FORM
     )
+
+
+class FormErrorIngestSerializer(serializers.Serializer):
+    """Posted by the snippet when a form submission visibly fails."""
+
+    site_id = serializers.CharField(max_length=64)
+    page_url = serializers.URLField(max_length=2048)
+    source = serializers.CharField(max_length=100, allow_blank=True, default="")
+    form_id = serializers.CharField(max_length=200, allow_blank=True, default="")
+    message = serializers.CharField(max_length=2000)
+
+
+class FormSubmissionErrorSerializer(BaseModelSerializer):
+    class Meta:
+        model = FormSubmissionError
+        fields = ("id", "source", "form_id", "page_url", "message", "created_at")
+        read_only_fields = fields
 
 
 class IngestPayloadSerializer(serializers.Serializer):
