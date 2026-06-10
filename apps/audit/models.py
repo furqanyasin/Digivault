@@ -48,9 +48,40 @@ class ActivityLog(BaseModel):
         TEAM_MEMBER_JOINED = "team.member_joined", "Member joined"
         TEAM_MEMBER_ROLE_CHANGED = "team.member_role_changed", "Member role changed"
         TEAM_MEMBER_REMOVED = "team.member_removed", "Member removed"
+        TEAM_CREATED = "team.created", "Team/department created"
         # Settings
         SETTINGS_TEAM_NAME_CHANGED = "settings.team_name_changed", "Team name changed"
         SETTINGS_INTEGRATION_UPDATED = "settings.integration_updated", "Integration updated"
+        # Clients
+        CLIENT_CREATED = "client.created", "Client created"
+        CLIENT_UPDATED = "client.updated", "Client updated"
+        CLIENT_STATUS_CHANGED = "client.status_changed", "Client status changed"
+        CLIENT_SYNCED = "client.synced", "Client synced from ClickUp"
+        CLIENT_IMPORTED = "client.imported", "Clients imported"
+        # Alerts
+        ALERT_RULE_CREATED = "alert.rule_created", "Alert rule created"
+        ALERT_RULE_UPDATED = "alert.rule_updated", "Alert rule updated"
+        ALERT_RULE_DELETED = "alert.rule_deleted", "Alert rule deleted"
+        NOTIFICATION_CHANNEL_CREATED = "alert.channel_created", "Notification channel created"
+        NOTIFICATION_CHANNEL_DELETED = "alert.channel_deleted", "Notification channel deleted"
+        # Monitors (extended)
+        MONITOR_UPDATED = "monitor.updated", "Monitor updated"
+        MONITOR_DELETED = "monitor.deleted", "Monitor deleted"
+        MONITOR_RULE_CREATED = "monitor.rule_created", "Monitor rule created"
+        MONITOR_RULE_DELETED = "monitor.rule_deleted", "Monitor rule deleted"
+        # Status page incidents / maintenance
+        INCIDENT_POSTED = "status_page.incident_posted", "Incident posted"
+        INCIDENT_UPDATED = "status_page.incident_updated", "Incident updated"
+        INCIDENT_DELETED = "status_page.incident_deleted", "Incident deleted"
+        MAINTENANCE_SCHEDULED = "status_page.maintenance_scheduled", "Maintenance scheduled"
+        MAINTENANCE_DELETED = "status_page.maintenance_deleted", "Maintenance deleted"
+        # Websites (extended)
+        WEBSITE_UPDATED = "website.updated", "Website updated"
+        WEBSITE_SNIPPET_REGENERATED = "website.snippet_regenerated", "Snippet regenerated"
+        # Domains / performance
+        DOMAIN_REFRESHED = "domain.refreshed", "Domain info refreshed"
+        PERFORMANCE_CHECK_RUN = "performance.check_run", "Performance check run"
+        CRUX_FETCHED = "performance.crux_fetched", "CrUX data fetched"
 
     team = models.ForeignKey(
         "accounts.Team",

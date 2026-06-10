@@ -81,3 +81,30 @@ class TestActionCoverage:
 
         assert auth_client.delete(f"/api/v1/status-pages/{page_id}/").status_code == 204
         assert ActivityLog.objects.filter(action=ActivityLog.Action.STATUS_PAGE_DELETED).exists()
+
+    def test_client_create_and_update_logged(self, auth_client):
+        resp = auth_client.post(
+            "/api/v1/clients/", {"name": "Acme Co"}, format="json",
+        )
+        assert resp.status_code == 201
+        client_id = resp.data["id"]
+        assert ActivityLog.objects.filter(action=ActivityLog.Action.CLIENT_CREATED).exists()
+
+        resp = auth_client.patch(
+            f"/api/v1/clients/{client_id}/", {"name": "Acme Corp"}, format="json",
+        )
+        assert resp.status_code == 200
+        assert ActivityLog.objects.filter(action=ActivityLog.Action.CLIENT_UPDATED).exists()
+
+    def test_alert_rule_create_delete_logged(self, auth_client):
+        resp = auth_client.post(
+            "/api/v1/alert-rules/",
+            {"name": "High sev", "channel": "in_app", "delivery_mode": "immediate"},
+            format="json",
+        )
+        assert resp.status_code == 201, resp.data
+        rule_id = resp.data["id"]
+        assert ActivityLog.objects.filter(action=ActivityLog.Action.ALERT_RULE_CREATED).exists()
+
+        assert auth_client.delete(f"/api/v1/alert-rules/{rule_id}/").status_code == 204
+        assert ActivityLog.objects.filter(action=ActivityLog.Action.ALERT_RULE_DELETED).exists()

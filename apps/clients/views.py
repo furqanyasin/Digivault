@@ -8,6 +8,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.clients.models import Client
 from apps.clients.serializers import ClientLookupSerializer, ClientSerializer
 from apps.clients.services import push_status_to_clickup, sync_client_from_clickup
@@ -73,7 +75,12 @@ class ClientListCreateView(generics.ListCreateAPIView):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(team=_team(self.request))
+        client = serializer.save(team=_team(self.request))
+        AuditService.log_request(
+            self.request, ActivityLog.Action.CLIENT_CREATED,
+            description=f"Created client '{client.name}'",
+            resource_type="client", resource_id=client.pk,
+        )
 
 
 class ClientDetailView(generics.RetrieveUpdateAPIView):
@@ -84,6 +91,14 @@ class ClientDetailView(generics.RetrieveUpdateAPIView):
 
     def get_queryset(self):
         return Client.objects.for_team(_team(self.request))
+
+    def perform_update(self, serializer):
+        client = serializer.save()
+        AuditService.log_request(
+            self.request, ActivityLog.Action.CLIENT_UPDATED,
+            description=f"Updated client '{client.name}'",
+            resource_type="client", resource_id=client.pk,
+        )
 
 
 class ClientActivateView(APIView):
@@ -99,6 +114,12 @@ class ClientActivateView(APIView):
         Client.objects.filter(pk=pk).update(status=Client.Status.ACTIVE)
         client.status = Client.Status.ACTIVE
         push_status_to_clickup(client)
+        AuditService.log_request(
+            request, ActivityLog.Action.CLIENT_STATUS_CHANGED,
+            description=f"Activated client '{client.name}'",
+            resource_type="client", resource_id=client.pk,
+            metadata={"status": "active"},
+        )
         return Response({"detail": "Client activated."})
 
 
@@ -115,6 +136,12 @@ class ClientDeactivateView(APIView):
         Client.objects.filter(pk=pk).update(status=Client.Status.INACTIVE)
         client.status = Client.Status.INACTIVE
         push_status_to_clickup(client)
+        AuditService.log_request(
+            request, ActivityLog.Action.CLIENT_STATUS_CHANGED,
+            description=f"Deactivated client '{client.name}'",
+            resource_type="client", resource_id=client.pk,
+            metadata={"status": "inactive"},
+        )
         return Response({"detail": "Client deactivated (not deleted)."})
 
 
@@ -132,6 +159,11 @@ class ClientSyncClickUpView(APIView):
         if not ok:
             return Response({"detail": "Sync failed. Check CLICKUP_API_TOKEN and task ID."}, status=status.HTTP_502_BAD_GATEWAY)
         client.refresh_from_db()
+        AuditService.log_request(
+            request, ActivityLog.Action.CLIENT_SYNCED,
+            description=f"Synced client '{client.name}' from ClickUp",
+            resource_type="client", resource_id=client.pk,
+        )
         return Response(ClientSerializer(client).data)
 
 
@@ -148,6 +180,12 @@ class ClientSyncAllView(APIView):
                 synced += 1
             else:
                 failed += 1
+        if synced:
+            AuditService.log_request(
+                request, ActivityLog.Action.CLIENT_SYNCED,
+                description=f"Synced {synced} client(s) from ClickUp",
+                resource_type="client", metadata={"synced": synced, "failed": failed},
+            )
         return Response({"synced": synced, "failed": failed})
 
 
@@ -259,6 +297,13 @@ class ClientImportView(APIView):
             else:
                 updated += 1
 
+        if created or updated:
+            AuditService.log_request(
+                request, ActivityLog.Action.CLIENT_IMPORTED,
+                description=f"Imported clients from CSV — {created} created, {updated} updated",
+                resource_type="client",
+                metadata={"created": created, "updated": updated, "skipped": skipped},
+            )
         return Response({
             "created": created,
             "updated": updated,

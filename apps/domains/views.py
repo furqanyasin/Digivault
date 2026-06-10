@@ -3,6 +3,8 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.common.permissions import IsTeamMember
 from apps.domains.models import DomainAlert, DomainInfo
 from apps.domains.serializers import DomainInfoSerializer
@@ -95,4 +97,9 @@ class DomainInfoView(APIView):
             info = _persist_domain_check(website)
         except Exception as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        AuditService.log_request(
+            request, ActivityLog.Action.DOMAIN_REFRESHED,
+            description=f"Refreshed domain & SSL info for '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+        )
         return Response(DomainInfoSerializer(info).data, status=status.HTTP_200_OK)

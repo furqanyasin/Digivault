@@ -44,6 +44,22 @@ class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = MonitorSerializer
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
 
+    def perform_update(self, serializer):
+        monitor = serializer.save()
+        AuditService.log_request(
+            self.request, ActivityLog.Action.MONITOR_UPDATED,
+            description=f"Updated monitor '{monitor.name}'",
+            resource_type="monitor", resource_id=monitor.pk,
+        )
+
+    def perform_destroy(self, instance):
+        AuditService.log_request(
+            self.request, ActivityLog.Action.MONITOR_DELETED,
+            description=f"Deleted monitor '{instance.name}'",
+            resource_type="monitor", resource_id=instance.pk,
+        )
+        instance.delete()
+
 
 class MonitorCheckListView(generics.ListAPIView):
     """GET /api/v1/monitors/<monitor_pk>/checks/"""
@@ -171,7 +187,12 @@ class NotificationChannelListCreateView(TeamScopedMixin, generics.ListCreateAPIV
         return NotificationChannel.objects.filter(team=team)
 
     def perform_create(self, serializer):
-        serializer.save(team=self.request.user.active_team)
+        channel = serializer.save(team=self.request.user.active_team)
+        AuditService.log_request(
+            self.request, ActivityLog.Action.NOTIFICATION_CHANNEL_CREATED,
+            description=f"Created {channel.channel_type} notification channel",
+            resource_type="notification_channel", resource_id=channel.pk,
+        )
 
 
 class NotificationChannelDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -185,6 +206,14 @@ class NotificationChannelDetailView(generics.RetrieveUpdateDestroyAPIView):
         if team is None:
             return NotificationChannel.objects.none()
         return NotificationChannel.objects.filter(team=team)
+
+    def perform_destroy(self, instance):
+        AuditService.log_request(
+            self.request, ActivityLog.Action.NOTIFICATION_CHANNEL_DELETED,
+            description=f"Deleted {instance.channel_type} notification channel",
+            resource_type="notification_channel", resource_id=instance.pk,
+        )
+        instance.delete()
 
 
 class NotificationChannelTestView(APIView):
@@ -294,7 +323,12 @@ class MonitorNotificationRuleListCreateView(generics.ListCreateAPIView):
         channel = NotificationChannel.objects.get(
             pk=serializer.validated_data.pop("channel_id"), team=team
         )
-        serializer.save(monitor=monitor, channel=channel)
+        rule = serializer.save(monitor=monitor, channel=channel)
+        AuditService.log_request(
+            self.request, ActivityLog.Action.MONITOR_RULE_CREATED,
+            description=f"Added notification rule to monitor '{monitor.name}'",
+            resource_type="monitor", resource_id=monitor.pk,
+        )
 
 
 class MonitorNotificationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -311,3 +345,11 @@ class MonitorNotificationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
             monitor__team=team,
             monitor_id=self.kwargs["monitor_pk"],
         ).select_related("channel")
+
+    def perform_destroy(self, instance):
+        AuditService.log_request(
+            self.request, ActivityLog.Action.MONITOR_RULE_DELETED,
+            description=f"Removed notification rule from monitor '{instance.monitor.name}'",
+            resource_type="monitor", resource_id=instance.monitor_id,
+        )
+        instance.delete()
