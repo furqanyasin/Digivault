@@ -32,6 +32,17 @@ class ActivityLog(BaseModel):
         WEBSITE_SCAN_TRIGGERED = "website.scan_triggered", "Scan triggered"
         WEBSITE_SNIPPET_VERIFIED = "website.snippet_verified", "Snippet verified"
         WEBSITE_CHANGE_ACKNOWLEDGED = "website.change_acknowledged", "Change acknowledged"
+        SCRIPT_REVIEWED = "script.reviewed", "Script reviewed"
+        # Monitors
+        MONITOR_CREATED = "monitor.created", "Monitor created"
+        MONITOR_PAUSED = "monitor.paused", "Monitor paused"
+        MONITOR_RESUMED = "monitor.resumed", "Monitor resumed"
+        # Reports
+        REPORT_GENERATED = "report.generated", "Report generated"
+        REPORT_DELETED = "report.deleted", "Report deleted"
+        # Status pages
+        STATUS_PAGE_CREATED = "status_page.created", "Status page created"
+        STATUS_PAGE_DELETED = "status_page.deleted", "Status page deleted"
         # Team
         TEAM_MEMBER_INVITED = "team.member_invited", "Member invited"
         TEAM_MEMBER_JOINED = "team.member_joined", "Member joined"

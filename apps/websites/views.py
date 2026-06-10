@@ -129,6 +129,14 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         )
         return website
 
+    def perform_destroy(self, instance):
+        AuditService.log_request(
+            self.request, ActivityLog.Action.WEBSITE_DELETED,
+            description=f"Deleted website '{instance.domain}'",
+            resource_type="website", resource_id=instance.pk,
+        )
+        instance.delete()
+
     @action(detail=True, methods=["get"], url_path="health")
     def health(self, request, pk=None):
         """Aggregated Health Center snapshot for one website (Phase 2.1)."""

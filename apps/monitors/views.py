@@ -7,6 +7,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
 from apps.monitors.models import Monitor, MonitorCheck, MonitorNotificationRule, NotificationChannel
@@ -27,7 +29,12 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
 
     def perform_create(self, serializer):
-        serializer.save(team=self.request.user.active_team)
+        monitor = serializer.save(team=self.request.user.active_team)
+        AuditService.log_request(
+            self.request, ActivityLog.Action.MONITOR_CREATED,
+            description=f"Created {monitor.monitor_type} monitor '{monitor.name}'",
+            resource_type="monitor", resource_id=monitor.pk,
+        )
 
 
 class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
@@ -67,6 +74,11 @@ class MonitorPauseView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         Monitor.objects.filter(pk=pk).update(status=Monitor.Status.PAUSED, is_active=False)
         monitor.refresh_from_db()
+        AuditService.log_request(
+            request, ActivityLog.Action.MONITOR_PAUSED,
+            description=f"Paused monitor '{monitor.name}'",
+            resource_type="monitor", resource_id=monitor.pk,
+        )
         return Response(MonitorSerializer(monitor).data)
 
 
@@ -83,6 +95,11 @@ class MonitorResumeView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         Monitor.objects.filter(pk=pk).update(status=Monitor.Status.PENDING, is_active=True)
         monitor.refresh_from_db()
+        AuditService.log_request(
+            request, ActivityLog.Action.MONITOR_RESUMED,
+            description=f"Resumed monitor '{monitor.name}'",
+            resource_type="monitor", resource_id=monitor.pk,
+        )
         return Response(MonitorSerializer(monitor).data)
 
 

@@ -3,6 +3,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
 from apps.common.permissions import IsTeamMember
 from apps.reports.models import Report
 from apps.reports.serializers import ReportGenerateSerializer, ReportSerializer
@@ -53,6 +55,12 @@ class ReportGenerateView(APIView):
             if report.status == Report.Status.DONE
             else status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+        if report.status == Report.Status.DONE:
+            AuditService.log_request(
+                request, ActivityLog.Action.REPORT_GENERATED,
+                description=f"Generated {report.report_format.upper()} report for '{website.name or website.domain}'",
+                resource_type="report", resource_id=report.pk,
+            )
         return Response(ReportSerializer(report).data, status=code)
 
 
@@ -69,6 +77,12 @@ class ReportDeleteView(generics.DestroyAPIView):
         return Report.objects.filter(team=team)
 
     def perform_destroy(self, instance):
+        label = instance.website.name or instance.website.domain
+        AuditService.log_request(
+            self.request, ActivityLog.Action.REPORT_DELETED,
+            description=f"Deleted {instance.report_format.upper()} report for '{label}'",
+            resource_type="report", resource_id=instance.pk,
+        )
         if instance.file:
             instance.file.delete(save=False)
         instance.delete()

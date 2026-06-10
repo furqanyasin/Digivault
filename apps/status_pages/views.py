@@ -85,7 +85,14 @@ class StatusPageListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
 
     def perform_create(self, serializer):
-        serializer.save(team=self.request.user.active_team)
+        from apps.audit.models import ActivityLog
+        from apps.audit.services import AuditService
+        page = serializer.save(team=self.request.user.active_team)
+        AuditService.log_request(
+            self.request, ActivityLog.Action.STATUS_PAGE_CREATED,
+            description=f"Created status page '{page.name}'",
+            resource_type="status_page", resource_id=page.pk,
+        )
 
 
 class StatusPageDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
@@ -94,6 +101,16 @@ class StatusPageDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIVie
     queryset = StatusPage.objects.all()
     serializer_class = StatusPageSerializer
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def perform_destroy(self, instance):
+        from apps.audit.models import ActivityLog
+        from apps.audit.services import AuditService
+        AuditService.log_request(
+            self.request, ActivityLog.Action.STATUS_PAGE_DELETED,
+            description=f"Deleted status page '{instance.name}'",
+            resource_type="status_page", resource_id=instance.pk,
+        )
+        instance.delete()
 
 
 class StatusPageMonitorListCreateView(generics.ListCreateAPIView):
