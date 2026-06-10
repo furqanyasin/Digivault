@@ -169,6 +169,18 @@ export interface RevealedCredential {
   username: string;
   password: string;
   notes: string;
+  password_hidden: boolean;
+}
+
+export interface CredentialShare {
+  id: string;
+  user_id: string;
+  email: string;
+  name: string;
+  role: string;
+  shared_by_email: string | null;
+  can_view_password: boolean;
+  created_at: string;
 }
 
 export interface DomainInfo {

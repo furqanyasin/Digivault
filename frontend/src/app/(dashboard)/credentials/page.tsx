@@ -26,6 +26,7 @@ export default async function CredentialsPage() {
       initialCredentials={credentials}
       websites={websites}
       myRole={myRole}
+      teamId={me?.active_team ?? null}
     />
   );
 }

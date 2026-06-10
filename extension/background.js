@@ -241,8 +241,10 @@ async function handleWebAuthSync({ access, refresh, email }) {
 async function handleRevealCredential(credentialId) {
   if (!credentialId) return { error: "missing_id" };
   const apiBase = await getApiBase();
+  // for_autofill: shares with can_view_password=false still need the real
+  // password to fill the login form — the dashboard hides it, autofill doesn't.
   const result = await authedFetch(
-    `${apiBase}/api/v1/credentials/${credentialId}/reveal/`,
+    `${apiBase}/api/v1/credentials/${credentialId}/reveal/?for_autofill=1`,
     { method: "POST" }
   );
   if (result.error) return result;

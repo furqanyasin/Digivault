@@ -225,6 +225,9 @@ class CredentialShare(BaseModel):
         blank=True,
         related_name="credential_shares_granted",
     )
+    # When False, the recipient can use the credential (e.g. extension autofill)
+    # but the dashboard never shows them the plaintext password.
+    can_view_password = models.BooleanField(default=True)
 
     class Meta:
         constraints = [

@@ -262,3 +262,101 @@ def test_share_list_returns_current_shares(owner_user, dev2, cred):
 
     shared_by_emails = [r.get("shared_by_email") for r in rows if r["email"] == dev2.email]
     assert owner_user.email in shared_by_emails
+
+
+# ---------------------------------------------------------------------------
+# can_view_password flag + reveal enforcement
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_share_without_password_hides_it_on_reveal(owner_user, dev2, cred):
+    """A share with can_view_password=False blanks the password on dashboard reveal."""
+    client = _client_for(owner_user)
+    resp = client.post(
+        f"/api/v1/credentials/{cred.pk}/shares/",
+        {"user_ids": [str(dev2.pk)], "can_view_password": False},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert CredentialShare.objects.get(credential=cred, user=dev2).can_view_password is False
+
+    dev2_client = _client_for(dev2)
+    reveal = dev2_client.post(f"/api/v1/credentials/{cred.pk}/reveal/")
+    assert reveal.status_code == 200
+    assert reveal.data["password"] == ""
+    assert reveal.data["password_hidden"] is True
+    # Username/notes still come through.
+    assert reveal.data["username"] == "dbuser"
+
+
+@pytest.mark.django_db
+def test_autofill_still_returns_password_when_hidden(owner_user, dev2, cred):
+    """for_autofill bypasses the hide so the extension can fill the form."""
+    CredentialShare.objects.create(
+        credential=cred, user=dev2, shared_by=owner_user, can_view_password=False
+    )
+    dev2_client = _client_for(dev2)
+    reveal = dev2_client.post(f"/api/v1/credentials/{cred.pk}/reveal/?for_autofill=1")
+    assert reveal.status_code == 200
+    assert reveal.data["password"] == "dbpass"
+    assert reveal.data["password_hidden"] is False
+
+
+@pytest.mark.django_db
+def test_owner_always_sees_password(owner_user, cred):
+    """Owners are never subject to can_view_password restrictions."""
+    client = _client_for(owner_user)
+    reveal = client.post(f"/api/v1/credentials/{cred.pk}/reveal/")
+    assert reveal.data["password"] == "dbpass"
+    assert reveal.data["password_hidden"] is False
+
+
+@pytest.mark.django_db
+def test_resharing_updates_flag_without_duplicate(owner_user, dev2, cred):
+    """Re-sharing the same credential updates the flag in place."""
+    client = _client_for(owner_user)
+    client.post(
+        f"/api/v1/credentials/{cred.pk}/shares/",
+        {"user_ids": [str(dev2.pk)], "can_view_password": True},
+        format="json",
+    )
+    client.post(
+        f"/api/v1/credentials/{cred.pk}/shares/",
+        {"user_ids": [str(dev2.pk)], "can_view_password": False},
+        format="json",
+    )
+    shares = CredentialShare.objects.filter(credential=cred, user=dev2)
+    assert shares.count() == 1
+    assert shares.first().can_view_password is False
+
+
+# ---------------------------------------------------------------------------
+# Site-level sharing
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_site_level_share_covers_all_credentials(owner_user, dev2, team):
+    """Sharing a website shares every one of its credentials at once."""
+    from apps.websites.models import Website
+
+    site = Website.objects.create(team=team, name="Site", domain="site.io")
+    c1 = CredentialService.create(
+        team=team, website=site, label="A", credential_type="custom",
+        login_url="", username="a", password="p", notes="", created_by=owner_user,
+    )
+    c2 = CredentialService.create(
+        team=team, website=site, label="B", credential_type="custom",
+        login_url="", username="b", password="p", notes="", created_by=owner_user,
+    )
+
+    client = _client_for(owner_user)
+    resp = client.post(
+        f"/api/v1/websites/{site.pk}/credentials/share/",
+        {"user_ids": [str(dev2.pk)], "can_view_password": False},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["shared_credentials"] == 2
+    for c in (c1, c2):
+        share = CredentialShare.objects.get(credential=c, user=dev2)
+        assert share.can_view_password is False

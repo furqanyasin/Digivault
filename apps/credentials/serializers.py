@@ -60,8 +60,10 @@ class RevealedCredentialSerializer(serializers.Serializer):
     """Returned by the reveal endpoint — plaintext, short-lived."""
 
     username = serializers.CharField()
-    password = serializers.CharField()
-    notes = serializers.CharField()
+    password = serializers.CharField(allow_blank=True)
+    notes = serializers.CharField(allow_blank=True)
+    # True when the requester may not view the password (it is blanked above).
+    password_hidden = serializers.BooleanField(default=False)
 
 
 class CredentialAccessLogSerializer(BaseModelSerializer):
@@ -86,7 +88,7 @@ class CredentialShareSerializer(BaseModelSerializer):
     class Meta:
         model = CredentialShare
         fields = ("id", "user_id", "email", "name", "role",
-                  "shared_by_email", "created_at")
+                  "shared_by_email", "can_view_password", "created_at")
         read_only_fields = fields
 
     def get_user_id(self, obj) -> str:
@@ -115,3 +117,4 @@ class CredentialShareWriteSerializer(serializers.Serializer):
     user_ids = serializers.ListField(
         child=serializers.UUIDField(), allow_empty=False
     )
+    can_view_password = serializers.BooleanField(default=True)

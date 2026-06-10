@@ -49,7 +49,7 @@ const TYPE_COLORS: Record<string, string> = {
   shopify:    "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
-interface RevealData { username: string; password: string; notes: string }
+interface RevealData { username: string; password: string; notes: string; password_hidden?: boolean }
 
 function CredentialRow({ cred, typeLabel, onDeleted }: {
   cred: Credential;
@@ -166,11 +166,19 @@ function CredentialRow({ cred, typeLabel, onDeleted }: {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground w-16">Password</span>
-            <span className="text-xs font-mono select-all flex-1 truncate">{revealed.password || "—"}</span>
-            {revealed.password && (
-              <Button size="sm" variant="ghost" className="h-5 w-5 p-0 shrink-0" onClick={() => copy(revealed.password, "Password")}>
-                <Copy className="h-3 w-3" />
-              </Button>
+            {revealed.password_hidden ? (
+              <span className="text-xs text-muted-foreground flex-1 truncate italic">
+                Hidden by share settings
+              </span>
+            ) : (
+              <>
+                <span className="text-xs font-mono select-all flex-1 truncate">{revealed.password || "—"}</span>
+                {revealed.password && (
+                  <Button size="sm" variant="ghost" className="h-5 w-5 p-0 shrink-0" onClick={() => copy(revealed.password, "Password")}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                )}
+              </>
             )}
           </div>
           {revealed.notes && (
