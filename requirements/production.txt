@@ -1,2 +1,3 @@
 -r base.txt
-sentry-sdk[django]==2.18.0
+# sentry-sdk is pinned in base.txt (2.20.0); the [django] extra adds no extra
+# packages we don't already have, so no separate pin here.
