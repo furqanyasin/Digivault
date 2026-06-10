@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import { RefreshCw, Zap, Monitor, Smartphone, Users } from "lucide-react";
+import { RefreshCw, Zap, Monitor, Smartphone, Users, AlertTriangle, CheckCircle2, Wrench } from "lucide-react";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,187 @@ const METRICS: Array<{ key: string; label: string; desc: string; ratingKey: stri
   { key: "si_ms", label: "SI", desc: "Speed Index", ratingKey: "" },
   { key: "inp_ms", label: "INP", desc: "Interaction to Next Paint", ratingKey: "" },
 ];
+
+// ── optimization recommendations ─────────────────────────────────────────────
+// Computed from the latest lab report against Google's official thresholds.
+// Fixes are WordPress/Elementor-flavoured — that's what agency client sites run.
+
+type Severity = "high" | "medium";
+
+interface RecDef {
+  key: keyof PerformanceReport;
+  label: string;
+  name: string;
+  // [good, poor] thresholds — ≤good is fine, >poor is high priority.
+  good: number;
+  poor: number;
+  target: string;
+  isCls?: boolean;
+  // Lighthouse score weight — orders recommendations by real impact.
+  weight: number;
+  impact: string;
+  fixes: string[];
+}
+
+const REC_DEFS: RecDef[] = [
+  {
+    key: "lcp_ms", label: "LCP", name: "Largest Contentful Paint",
+    good: 2500, poor: 4000, target: "< 2.5 s", weight: 25,
+    impact: "The main content takes too long to appear — the biggest driver of a low score and visitor drop-off.",
+    fixes: [
+      "Convert hero/banner images to WebP or AVIF and resize them to their display dimensions",
+      "Preload the hero image (<link rel=\"preload\" as=\"image\">) and avoid CSS background-image for above-the-fold content",
+      "Remove or simplify sliders above the fold — a static image is dramatically faster",
+      "Enable lazy loading for below-the-fold images only (never the LCP image itself)",
+      "Eliminate render-blocking CSS/JS before the hero renders",
+    ],
+  },
+  {
+    key: "tbt_ms", label: "TBT", name: "Total Blocking Time",
+    good: 200, poor: 600, target: "< 300 ms", weight: 30,
+    impact: "Heavy JavaScript keeps the page frozen — taps and clicks feel unresponsive.",
+    fixes: [
+      "Defer non-critical JavaScript (cache plugin: \"Defer JavaScript\" + \"Delay JavaScript Execution\" ON)",
+      "Delay third-party scripts (analytics, chat, pixels) until first user interaction",
+      "Deactivate unused plugins and Elementor widgets — each one ships JS",
+      "Enable Elementor's \"Improved Asset Loading\" + \"Optimized DOM Output\" experiments",
+      "Minify and split large JavaScript bundles",
+    ],
+  },
+  {
+    key: "cls_score", label: "CLS", name: "Cumulative Layout Shift",
+    good: 0.1, poor: 0.25, target: "≤ 0.1", isCls: true, weight: 25,
+    impact: "Content jumps around while loading — visitors misclick and lose their place.",
+    fixes: [
+      "Set explicit width/height (or aspect-ratio) on all images and embeds",
+      "Reserve space for ads, banners and dynamically injected content",
+      "Use font-display: swap and preload critical fonts to avoid text reflow",
+      "Avoid inserting content above existing content after load",
+    ],
+  },
+  {
+    key: "fcp_ms", label: "FCP", name: "First Contentful Paint",
+    good: 1800, poor: 3000, target: "< 1.8 s", weight: 10,
+    impact: "The page stays blank too long before anything renders.",
+    fixes: [
+      "Inline critical CSS and load the rest asynchronously",
+      "Remove unused CSS (cache plugin: \"Remove Unused CSS\" ON)",
+      "Host fonts locally, reduce families/weights, preload the critical ones",
+      "Enable Brotli/GZIP compression and HTML/CSS/JS minification",
+    ],
+  },
+  {
+    key: "si_ms", label: "SI", name: "Speed Index",
+    good: 3400, poor: 5800, target: "< 3.4 s", weight: 10,
+    impact: "The page fills in visually slower than it should.",
+    fixes: [
+      "Apply the LCP and FCP fixes first — Speed Index usually follows",
+      "Lazy load YouTube/iframe embeds, or replace them with click-to-play thumbnails",
+      "Serve responsive image sizes (srcset) so mobiles don't download desktop images",
+      "Put the site behind a CDN (e.g. Cloudflare)",
+    ],
+  },
+  {
+    key: "ttfb_ms", label: "TTFB", name: "Time to First Byte",
+    good: 800, poor: 1800, target: "< 0.8 s", weight: 0,
+    impact: "The server itself responds slowly — everything else waits on it.",
+    fixes: [
+      "Enable full-page caching on the host or cache plugin",
+      "Upgrade hosting or move to a server closer to your visitors",
+      "Put the site behind a CDN with edge caching",
+      "Audit slow plugins/queries (Query Monitor) — database bloat slows responses",
+    ],
+  },
+];
+
+interface Recommendation extends RecDef {
+  value: number;
+  severity: Severity;
+}
+
+function buildRecommendations(latest: PerformanceReport): Recommendation[] {
+  const recs: Recommendation[] = [];
+  for (const def of REC_DEFS) {
+    const raw = latest[def.key];
+    if (raw === null || raw === undefined || typeof raw !== "number") continue;
+    if (raw <= def.good) continue;
+    recs.push({ ...def, value: raw, severity: raw > def.poor ? "high" : "medium" });
+  }
+  // High severity first, then by Lighthouse weight (real score impact).
+  return recs.sort((a, b) =>
+    a.severity !== b.severity ? (a.severity === "high" ? -1 : 1) : b.weight - a.weight
+  );
+}
+
+function RecommendationCard({ rec }: { rec: Recommendation }) {
+  const isHigh = rec.severity === "high";
+  return (
+    <div className={`border rounded-lg overflow-hidden ${isHigh ? "border-red-200 dark:border-red-900" : "border-amber-200 dark:border-amber-900"}`}>
+      <div className={`flex items-center gap-3 px-4 py-2.5 ${isHigh ? "bg-red-50/60 dark:bg-red-950/20" : "bg-amber-50/60 dark:bg-amber-950/20"}`}>
+        <Badge className={`text-xs border-0 ${isHigh ? "bg-red-600 text-white" : "bg-amber-500 text-white"}`}>
+          {isHigh ? "High priority" : "Medium"}
+        </Badge>
+        <span className="font-semibold text-sm">{rec.name}</span>
+        <span className="ml-auto font-mono text-sm">
+          <span className={isHigh ? "text-red-600 font-bold" : "text-amber-600 font-bold"}>
+            {rec.isCls ? rec.value : fmtMs(rec.value)}
+          </span>
+          <span className="text-muted-foreground text-xs"> → target {rec.target}</span>
+        </span>
+      </div>
+      <div className="px-4 py-3 space-y-2">
+        <p className="text-xs text-muted-foreground">{rec.impact}</p>
+        <ul className="space-y-1">
+          {rec.fixes.map((fix, i) => (
+            <li key={i} className="flex items-start gap-2 text-xs">
+              <Wrench className="h-3 w-3 mt-0.5 shrink-0 text-muted-foreground" />
+              <span>{fix}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function RecommendationsSection({ latest }: { latest: PerformanceReport }) {
+  const recs = buildRecommendations(latest);
+
+  if (recs.length === 0) {
+    return (
+      <Card className="border-emerald-200 dark:border-emerald-900">
+        <CardContent className="flex items-center gap-3 py-4">
+          <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
+          <div>
+            <p className="text-sm font-medium">All Core Web Vitals are within targets</p>
+            <p className="text-xs text-muted-foreground">No optimization action needed right now — keep monitoring.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const highCount = recs.filter((r) => r.severity === "high").length;
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <AlertTriangle className={`h-4 w-4 ${highCount > 0 ? "text-red-500" : "text-amber-500"}`} />
+          Optimization Plan
+          <span className="text-xs font-normal text-muted-foreground">
+            {highCount > 0 ? `${highCount} high priority` : "no critical issues"} · {recs.length} total
+          </span>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Generated from the latest check. Fix high-priority items first — they carry the most score weight.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {recs.map((rec) => <RecommendationCard key={rec.label} rec={rec} />)}
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── chart ─────────────────────────────────────────────────────────────────────
 
@@ -374,6 +555,9 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
               </div>
             </CardContent>
           </Card>
+
+          {/* Optimization plan — generated from the latest check */}
+          <RecommendationsSection latest={latest} />
 
           {/* Check history */}
           {reports.length > 1 && (
