@@ -152,7 +152,12 @@ export default async function WebsiteDetailPage({
 
   const visibleChanges = changes.filter((c) => !isInternalChange(c));
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
-  const unknownScripts = activeScripts.filter((s) => s.provider === "unknown");
+  // "Unknown" = the classifier didn't recognise the script AND it hasn't been
+  // reviewed yet. Approving / ignoring a script clears it from this count, so
+  // the KPI reflects "scripts still needing your attention".
+  const unknownScripts = activeScripts.filter(
+    (s) => s.provider === "unknown" && s.review_status === "pending"
+  );
 
   return (
     <div className="p-8 space-y-6">
@@ -226,7 +231,9 @@ export default async function WebsiteDetailPage({
         </Link>
       </div>
 
-      <Tabs defaultValue={tab}>
+      {/* `value` (not defaultValue) so the panel follows the ?tab= URL when the
+          KPI cards / trigger links navigate — defaultValue only applies on mount. */}
+      <Tabs value={tab}>
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview" asChild>
             <Link href={`/websites/${id}?tab=overview`} prefetch>Overview</Link>
