@@ -12,6 +12,7 @@ import re
 from urllib.parse import urlparse
 
 from celery import shared_task
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -69,14 +70,38 @@ _UTILITY_FILENAME_RE: tuple[re.Pattern, ...] = tuple(
 )
 
 
+def _internal_hosts() -> frozenset[str]:
+    """Digivault's own infra hosts — the tracking snippet and dashboard.
+
+    These must never be tracked as third-party scripts on a client site: the
+    snippet (`/api/s.js`) is served from here, so the page reports it like any
+    other script and it would otherwise log a high-severity "added" change that
+    the UI hides (internal domain) yet which pins the site to 'critical'.
+    """
+    hosts = {
+        "digivault.digilatics.co",
+        "cdn.digivault.digilatics.co",
+        "digilaticsvps.digilatics.co",
+    }
+    cdn = getattr(settings, "SNIPPET_CDN_URL", "") or ""
+    host = urlparse(cdn).netloc.lower().removeprefix("www.")
+    if host:
+        hosts.add(host)
+    return frozenset(hosts)
+
+
 def _should_track_script(src: str, website_domain: str) -> bool:
-    """Return False for self-hosted scripts and known utility noise."""
+    """Return False for self-hosted scripts, Digivault infra, and utility noise."""
     # Relative URLs are always self-hosted.
     if not src.startswith(("http://", "https://", "//")):
         return False
 
     parsed = urlparse(src if not src.startswith("//") else "https:" + src)
     script_host = parsed.netloc.lower().removeprefix("www.")
+
+    # Digivault's own snippet / dashboard — never a client's third-party script.
+    if script_host in _internal_hosts():
+        return False
 
     # Normalise the site domain to bare hostname.
     site = website_domain
