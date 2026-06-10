@@ -268,3 +268,32 @@ class DetectedForm(BaseModel):
 
     def __str__(self) -> str:
         return f"Form {self.form_action or '(no action)'} on {self.page_url}"
+
+
+class FormSubmissionError(BaseModel):
+    """A failed form submission observed by the tracking snippet.
+
+    Only server-side failures pass the importance filter (mail/SMTP/5xx —
+    see apps.scripts.form_errors); user-validation noise is never stored.
+    page_url and message are sanitised before save — no PII at rest.
+    """
+
+    website = models.ForeignKey(
+        "websites.Website",
+        on_delete=models.CASCADE,
+        related_name="form_errors",
+    )
+    # Inferred form plugin/source, e.g. "Contact Form 7", "WPForms".
+    source = models.CharField(max_length=100, blank=True)
+    form_id = models.CharField(max_length=200, blank=True)
+    page_url = models.TextField()
+    message = models.TextField()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["website", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Form error on {self.page_url}: {self.message[:60]}"

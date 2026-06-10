@@ -185,7 +185,7 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.4'
+      snippet_version: '1.5'
     });
     if (navigator.sendBeacon) {
       var blob = new Blob([payload], { type: 'application/json' });
@@ -260,4 +260,91 @@
     // Stop observing after 30s to avoid overhead on long-lived pages
     setTimeout(function () { observer.disconnect(); }, 30000);
   }
+
+  // ── Form submission error detection ─────────────────────────────────────
+  // Watches for failure messages rendered by form plugins after a submit.
+  // Never reads field values — only the plugin's own status text. The server
+  // filters again (only mail/SMTP/5xx-style failures are stored) and redacts
+  // any PII that leaks into status text.
+  var formErrorsUrl = ingestUrl.replace(/\/ingest\/?$/, '/ingest/form-errors/');
+  var reportedErrors = {};
+
+  function sendFormError(source, formId, message) {
+    var key = (source + '|' + formId + '|' + message).slice(0, 200);
+    if (reportedErrors[key]) return;
+    reportedErrors[key] = true;
+    var payload = JSON.stringify({
+      site_id: siteId,
+      page_url: window.location.href,
+      source: source || '',
+      form_id: formId || '',
+      message: (message || '').slice(0, 500)
+    });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(formErrorsUrl, new Blob([payload], { type: 'application/json' }));
+    } else {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', formErrorsUrl, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(payload);
+    }
+  }
+
+  function formSource(form) {
+    var c = form && form.className ? String(form.className) : '';
+    if (c.indexOf('wpcf7') !== -1) return 'Contact Form 7';
+    if (c.indexOf('wpforms') !== -1) return 'WPForms';
+    if (c.indexOf('elementor-form') !== -1) return 'Elementor Forms';
+    if (c.indexOf('gform') !== -1) return 'Gravity Forms';
+    if (c.indexOf('nf-form') !== -1 || c.indexOf('ninja') !== -1) return 'Ninja Forms';
+    if (c.indexOf('forminator') !== -1) return 'Forminator';
+    if (c.indexOf('hs-form') !== -1) return 'HubSpot';
+    return 'unknown';
+  }
+
+  var FAILURE_RE = /(submission failed|failed to send|could not be sent|could not send|server error|internal error|error occurred|try again later|mail .{0,30}fail|smtp|\b50[0-4]\b)/i;
+
+  // Contact Form 7 fires explicit DOM events — the highest-quality signal.
+  document.addEventListener('wpcf7mailfailed', function (e) {
+    var msg = (e.detail && e.detail.apiResponse && e.detail.apiResponse.message) || 'Mail send failed';
+    var fid = e.detail && e.detail.contactFormId ? String(e.detail.contactFormId) : '';
+    sendFormError('Contact Form 7', fid, msg);
+  });
+
+  // Generic path: after any submit, watch newly rendered text for ~20s.
+  var watchForm = null;
+  var watchUntil = 0;
+  var errObserver = null;
+
+  function checkErrorText(text) {
+    if (!text || Date.now() > watchUntil) return;
+    var t = String(text).trim();
+    // Skip empty fragments and whole-page containers — status messages are short.
+    if (t.length < 6 || t.length > 600) return;
+    if (FAILURE_RE.test(t)) {
+      var form = watchForm;
+      var fid = form ? (form.id || form.getAttribute('name') || '') : '';
+      sendFormError(formSource(form), fid, t.slice(0, 500));
+    }
+  }
+
+  function scanNode(node) {
+    if (node.nodeType === 3) { checkErrorText(node.nodeValue); return; }
+    if (node.nodeType === 1) checkErrorText(node.textContent);
+  }
+
+  document.addEventListener('submit', function (e) {
+    watchForm = e.target && e.target.tagName === 'FORM' ? e.target : null;
+    watchUntil = Date.now() + 20000;
+    if (errObserver || typeof MutationObserver === 'undefined') return;
+    errObserver = new MutationObserver(function (mutations) {
+      if (Date.now() > watchUntil) return;
+      for (var i = 0; i < mutations.length; i++) {
+        var m = mutations[i];
+        if (m.type === 'characterData') { checkErrorText(m.target.nodeValue); continue; }
+        for (var j = 0; j < m.addedNodes.length; j++) scanNode(m.addedNodes[j]);
+      }
+    });
+    errObserver.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+  }, true);
 })();

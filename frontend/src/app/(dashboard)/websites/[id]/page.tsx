@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
+import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -22,7 +22,7 @@ import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string, id: string) {
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, phpErrors, siteEvents, vulns, scanState] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -31,6 +31,7 @@ async function getData(token: string, id: string) {
     api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token),
     api.get<CruxReport[]>(`/api/v1/websites/${id}/crux/`, token),
     api.get<DetectedForm[]>(`/api/v1/websites/${id}/forms/`, token),
+    api.get<FormSubmissionError[]>(`/api/v1/websites/${id}/form-errors/`, token),
     api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
@@ -45,6 +46,7 @@ async function getData(token: string, id: string) {
     desktopReports: perfDesktop.status === "fulfilled" ? perfDesktop.value : [],
     cruxReports: crux.status === "fulfilled" ? crux.value : [],
     forms: forms.status === "fulfilled" ? forms.value : [],
+    formErrors: formErrors.status === "fulfilled" ? formErrors.value : [],
     phpErrors: phpErrors.status === "fulfilled" ? phpErrors.value : [],
     siteEvents: siteEvents.status === "fulfilled" ? siteEvents.value : [],
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
@@ -108,7 +110,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, phpErrors, siteEvents, vulns, scanState } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -139,6 +141,14 @@ export default async function WebsiteDetailPage({
   const activeScripts = scripts.filter((s) => s.is_active && !isInternalStr(s.src_url));
   // Plugins tab: needs digilaticsvps scripts to detect WP plugins
   const allActiveScripts = scripts.filter((s) => s.is_active);
+
+  // WP-only tabs appear only when they actually have something to show —
+  // an empty PHP Errors / Site Events / Plugins tab is noise.
+  const showPlugins = isWordPress && allActiveScripts.some(
+    (s) => s.wp_plugin || /\/wp-content\/plugins\//.test(s.src_url)
+  );
+  const showPhpErrors = isWordPress && phpErrors.length > 0;
+  const showSiteEvents = isWordPress && siteEvents.length > 0;
 
   const visibleChanges = changes.filter((c) => !isInternalChange(c));
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
@@ -224,7 +234,7 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="scripts" asChild>
             <Link href={`/websites/${id}?tab=scripts`} prefetch>Scripts ({activeScripts.length})</Link>
           </TabsTrigger>
-          {isWordPress && (
+          {showPlugins && (
             <TabsTrigger value="plugins" asChild>
               <Link href={`/websites/${id}?tab=plugins`} prefetch>Plugins</Link>
             </TabsTrigger>
@@ -241,14 +251,14 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="changelog" asChild>
             <Link href={`/websites/${id}?tab=changelog`} prefetch>Change Log ({visibleChanges.length})</Link>
           </TabsTrigger>
-          {isWordPress && (
+          {showPhpErrors && (
             <TabsTrigger value="php-errors" asChild>
-              <Link href={`/websites/${id}?tab=php-errors`} prefetch>PHP Errors {phpErrors.length > 0 ? `(${phpErrors.length})` : ""}</Link>
+              <Link href={`/websites/${id}?tab=php-errors`} prefetch>PHP Errors ({phpErrors.length})</Link>
             </TabsTrigger>
           )}
-          {isWordPress && (
+          {showSiteEvents && (
             <TabsTrigger value="site-events" asChild>
-              <Link href={`/websites/${id}?tab=site-events`} prefetch>Site Events {siteEvents.length > 0 ? `(${siteEvents.length})` : ""}</Link>
+              <Link href={`/websites/${id}?tab=site-events`} prefetch>Site Events ({siteEvents.length})</Link>
             </TabsTrigger>
           )}
           <TabsTrigger value="security" asChild>
@@ -328,7 +338,7 @@ export default async function WebsiteDetailPage({
         </TabsContent>
 
         {/* ── Plugins ── */}
-        {isWordPress && (
+        {showPlugins && (
           <TabsContent value="plugins">
             <Card>
               <CardHeader>
@@ -342,7 +352,7 @@ export default async function WebsiteDetailPage({
         )}
 
         {/* ── Forms ── */}
-        <TabsContent value="forms">
+        <TabsContent value="forms" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Detected Forms ({forms.length})</CardTitle>
@@ -351,6 +361,44 @@ export default async function WebsiteDetailPage({
               <FormsTab forms={forms} />
             </CardContent>
           </Card>
+
+          {formErrors.length > 0 && (
+            <Card className="border-red-200 dark:border-red-900">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
+                  Form Errors ({formErrors.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Message</TableHead>
+                      <TableHead>Page</TableHead>
+                      <TableHead>When</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {formErrors.slice(0, 25).map((err) => (
+                      <TableRow key={err.id}>
+                        <TableCell className="whitespace-nowrap">
+                          <Badge variant="destructive" className="text-xs">{err.source || "unknown"}</Badge>
+                          {err.form_id && <span className="block text-[10px] font-mono text-muted-foreground mt-0.5">#{err.form_id}</span>}
+                        </TableCell>
+                        <TableCell className="text-sm max-w-md">{err.message}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={err.page_url}>
+                          {err.page_url.replace(/^https?:\/\/[^/]+/, "") || "/"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmtDate(err.created_at)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* ── Access & Domain ── */}
@@ -481,7 +529,7 @@ export default async function WebsiteDetailPage({
 
 
         {/* ── PHP Errors ── */}
-        {isWordPress && (
+        {showPhpErrors && (
           <TabsContent value="php-errors">
             <Card>
               <CardHeader>
@@ -495,7 +543,7 @@ export default async function WebsiteDetailPage({
         )}
 
         {/* ── Site Events ── */}
-        {isWordPress && (
+        {showSiteEvents && (
           <TabsContent value="site-events">
             <Card>
               <CardHeader>
