@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { Shield, Globe, Bell, Key, Users, LayoutDashboard, Activity, MonitorCheck, Building2, Settings, ClipboardList, FileText, CalendarClock } from "lucide-react";
+import { Shield, Globe, Bell, Key, Users, LayoutDashboard, Activity, MonitorCheck, Building2, Settings, ClipboardList, FileText, CalendarClock, UserCircle } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TeamSwitcher } from "@/components/team-switcher";
@@ -14,16 +14,18 @@ const navItems = [
   { href: "/clients", label: "Clients", icon: Building2 },
   { href: "/websites", label: "Websites", icon: Globe },
   { href: "/monitors", label: "Monitors", icon: Activity },
-  { href: "/renewals", label: "Renewal Center", icon: CalendarClock },
+  { href: "/renewals", label: "Renewal Center", icon: CalendarClock, managerOnly: true },
   { href: "/status-pages", label: "Status Pages", icon: MonitorCheck },
   { href: "/alerts", label: "Alerts", icon: Bell },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/credentials", label: "Credentials", icon: Key },
-  // Team management is owner/manager-only; developers see their own activity
-  // in the log (the backend already scopes it per-user for them).
+  // Team, Renewal Center and Settings are owner/manager-only. Developers manage
+  // their own security in Account and see their own actions in the Activity Log
+  // (the backend scopes the log per-user for non-managers).
   { href: "/team", label: "Team", icon: Users, managerOnly: true },
   { href: "/logs", label: "Activity Log", icon: ClipboardList },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/account", label: "My Account", icon: UserCircle },
+  { href: "/settings", label: "Settings", icon: Settings, managerOnly: true },
 ];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {

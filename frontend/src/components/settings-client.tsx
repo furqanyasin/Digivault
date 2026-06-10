@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, XCircle, Loader2, Eye, EyeOff, ExternalLink, Shield, ShieldOff } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, Eye, EyeOff, ExternalLink } from "lucide-react";
 
 interface TeamSettings {
   id: string;
@@ -24,70 +23,9 @@ interface Props {
 }
 
 export function SettingsClient({ settings, activeTeamId }: Props) {
-  const router = useRouter();
   const { toast } = useToast();
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
-
-  // 2FA state
-  const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
-  const [backupCount, setBackupCount] = useState(0);
-  const [disabling2fa, setDisabling2fa] = useState(false);
-  const [regenLoading, setRegenLoading] = useState(false);
-  const [newBackupCodes, setNewBackupCodes] = useState<string[]>([]);
-
-  useEffect(() => {
-    fetch("/api/auth/2fa/status")
-      .then((r) => r.json())
-      .then((d) => {
-        const payload = d?.data ?? d;
-        setTotpEnabled(payload?.totp_enabled ?? false);
-        setBackupCount(payload?.backup_codes_count ?? 0);
-      })
-      .catch(() => {});
-  }, []);
-
-  async function handleDisable2fa() {
-    setDisabling2fa(true);
-    try {
-      const res = await fetch("/api/auth/2fa/disable", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast({ variant: "destructive", title: "Error", description: data?.detail || "Failed to disable 2FA." });
-        return;
-      }
-      setTotpEnabled(false);
-      toast({ title: "2FA disabled", description: "Two-factor authentication has been disabled." });
-    } catch {
-      toast({ variant: "destructive", title: "Network error" });
-    } finally {
-      setDisabling2fa(false);
-    }
-  }
-
-  async function handleRegenBackup() {
-    setRegenLoading(true);
-    try {
-      const res = await fetch("/api/auth/2fa/regenerate-backup", { method: "POST" });
-      const data = await res.json();
-      const payload = data?.data ?? data;
-      if (!res.ok) {
-        toast({ variant: "destructive", title: "Error", description: payload?.detail || "Failed." });
-        return;
-      }
-      setNewBackupCodes(payload.backup_codes ?? []);
-      setBackupCount((payload.backup_codes ?? []).length);
-      toast({ title: "New backup codes generated", description: "Save them in a safe place." });
-    } catch {
-      toast({ variant: "destructive", title: "Network error" });
-    } finally {
-      setRegenLoading(false);
-    }
-  }
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connected, setConnected] = useState<boolean | null>(settings?.clickup_connected ?? null);
@@ -264,73 +202,11 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
           </div>
         </CardContent>
       </Card>
-      {/* 2FA */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Two-Factor Authentication
-              </CardTitle>
-              <CardDescription className="mt-1">
-                Protect your account with Google Authenticator or any TOTP app.
-              </CardDescription>
-            </div>
-            {totpEnabled === true && (
-              <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Enabled
-              </Badge>
-            )}
-            {totpEnabled === false && (
-              <Badge variant="secondary" className="gap-1">
-                <ShieldOff className="h-3 w-3" /> Not set up
-              </Badge>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {totpEnabled === false && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                2FA is mandatory. Set it up now to secure your account.
-              </p>
-              <Button onClick={() => router.push("/2fa/setup")}>
-                Set up 2FA
-              </Button>
-            </div>
-          )}
-          {totpEnabled === true && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                You have <strong>{backupCount}</strong> backup code{backupCount !== 1 ? "s" : ""} remaining.
-              </p>
 
-              {newBackupCodes.length > 0 && (
-                <div className="bg-muted rounded-md p-4 font-mono text-sm grid grid-cols-2 gap-1">
-                  {newBackupCodes.map((c) => (
-                    <span key={c}>{c}</span>
-                  ))}
-                </div>
-              )}
-
-              <div className="flex gap-3 flex-wrap">
-                <Button variant="outline" onClick={handleRegenBackup} disabled={regenLoading}>
-                  {regenLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating…</> : "Regenerate backup codes"}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                  onClick={handleDisable2fa}
-                  disabled={disabling2fa}
-                >
-                  {disabling2fa ? "Disabling…" : "Disable 2FA"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <p className="text-xs text-muted-foreground">
+        Looking for two-factor authentication? It moved to{" "}
+        <a href="/account" className="text-primary hover:underline">My Account</a>.
+      </p>
     </div>
   );
 }

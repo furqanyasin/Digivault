@@ -17,17 +17,19 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TeamMember } from "@/lib/api";
 
-const ROLES = ["viewer", "developer", "manager", "owner"] as const;
+const ROLES = ["viewer", "developer", "editor", "seo", "manager", "owner"] as const;
 type Role = typeof ROLES[number];
 
 const ROLE_LEVELS: Record<Role, number> = {
-  viewer: 1, developer: 2, manager: 3, owner: 4,
+  viewer: 1, developer: 2, editor: 2, seo: 2, manager: 3, owner: 4,
 };
 
 const ROLE_BADGE: Record<string, string> = {
   owner: "bg-amber-100 text-amber-800 border border-amber-200",
   manager: "bg-blue-100 text-blue-800 border border-blue-200",
   developer: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+  editor: "bg-purple-100 text-purple-800 border border-purple-200",
+  seo: "bg-teal-100 text-teal-800 border border-teal-200",
   viewer: "bg-gray-100 text-gray-700 border border-gray-200",
 };
 

@@ -28,7 +28,7 @@ from apps.common.permissions import IsTeamMember
 
 logger = logging.getLogger(__name__)
 
-ROLE_LEVELS = {"viewer": 1, "developer": 2, "manager": 3, "owner": 4}
+ROLE_LEVELS = {"viewer": 1, "developer": 2, "editor": 2, "seo": 2, "manager": 3, "owner": 4}
 
 
 def _my_level(user, team):

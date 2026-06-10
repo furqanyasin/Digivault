@@ -68,7 +68,7 @@ class TestTeamMembership:
 
     def test_role_choices(self):
         roles = [r.value for r in TeamMembership.Role]
-        assert set(roles) == {"owner", "manager", "developer", "viewer"}
+        assert set(roles) == {"owner", "manager", "developer", "editor", "seo", "viewer"}
 
 
 @pytest.mark.django_db

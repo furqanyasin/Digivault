@@ -492,7 +492,7 @@ class CredentialShareListCreateView(APIView):
         # Only developers need shares; owners/managers already have access.
         target_user_ids = [
             m.user_id for m in memberships
-            if m.role == TeamMembership.Role.DEVELOPER
+            if m.role in (TeamMembership.Role.DEVELOPER, TeamMembership.Role.EDITOR, TeamMembership.Role.SEO)
         ]
         can_view = ser.validated_data["can_view_password"]
         affected_ids = []
@@ -551,7 +551,7 @@ class WebsiteCredentialShareView(APIView):
             )
         target_user_ids = [
             m.user_id for m in memberships
-            if m.role == TeamMembership.Role.DEVELOPER
+            if m.role in (TeamMembership.Role.DEVELOPER, TeamMembership.Role.EDITOR, TeamMembership.Role.SEO)
         ]
 
         creds = Credential.objects.filter(team=team, website_id=website_pk)

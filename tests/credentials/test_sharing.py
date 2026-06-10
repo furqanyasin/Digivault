@@ -100,6 +100,43 @@ def _client_for(user):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
+def test_editor_role_can_be_shared_and_reveal(owner_user, make_user, team, cred):
+    """An 'editor' (member-level) gets a share row and can reveal it."""
+    editor = make_user("editor@x.io", team, TeamMembership.Role.EDITOR)
+
+    client = _client_for(owner_user)
+    resp = client.post(
+        f"/api/v1/credentials/{cred.pk}/shares/",
+        {"user_ids": [str(editor.pk)]},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert CredentialShare.objects.filter(credential=cred, user=editor).exists()
+
+    editor_client = _client_for(editor)
+    # Sees only the shared credential, and can reveal it.
+    assert editor_client.get(f"/api/v1/credentials/{cred.pk}/").status_code == 200
+    assert editor_client.post(f"/api/v1/credentials/{cred.pk}/reveal/").status_code == 200
+
+
+@pytest.mark.django_db
+def test_seo_role_cannot_manage_or_see_unshared(owner_user, make_user, team, cred):
+    """An 'seo' member can't see unshared credentials nor share to others."""
+    seo = make_user("seo@x.io", team, TeamMembership.Role.SEO)
+    seo_client = _client_for(seo)
+    # No share yet → cannot see the credential.
+    assert seo_client.get(f"/api/v1/credentials/{cred.pk}/").status_code == 404
+    # Cannot grant shares (not owner/manager/creator).
+    CredentialShare.objects.create(credential=cred, user=seo, shared_by=owner_user)
+    resp = seo_client.post(
+        f"/api/v1/credentials/{cred.pk}/shares/",
+        {"user_ids": [str(owner_user.pk)]},
+        format="json",
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.django_db
 def test_owner_can_share(owner_user, dev2, cred):
     client = _client_for(owner_user)
     resp = client.post(

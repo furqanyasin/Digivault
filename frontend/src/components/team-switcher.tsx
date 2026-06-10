@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Check, Users } from "lucide-react";
+import { ChevronDown, Check, Users, Plus, Loader2 } from "lucide-react";
 import type { Team } from "@/lib/api";
 
 interface Props {
@@ -14,23 +14,41 @@ export function TeamSwitcher({ teams, activeTeamId }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [switching, startTransition] = useTransition();
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const activeTeam = teams.find((t) => t.id === activeTeamId) ?? teams[0];
-
-  if (teams.length <= 1) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-2 text-sm font-medium">
-        <Users className="h-4 w-4 text-muted-foreground shrink-0" />
-        <span className="truncate">{activeTeam?.name ?? "No team"}</span>
-      </div>
-    );
-  }
 
   async function switchTeam(teamId: string) {
     if (teamId === activeTeamId) { setOpen(false); return; }
     setOpen(false);
     await fetch(`/api/teams/${teamId}/switch`, { method: "POST" });
     startTransition(() => router.refresh());
+  }
+
+  async function createDepartment() {
+    const name = newName.trim();
+    if (!name) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        const team = await res.json();
+        const id = team?.id;
+        setNewName("");
+        setCreating(false);
+        setOpen(false);
+        if (id) await fetch(`/api/teams/${id}/switch`, { method: "POST" });
+        startTransition(() => router.refresh());
+      }
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -47,7 +65,7 @@ export function TeamSwitcher({ teams, activeTeamId }: Props) {
 
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); setCreating(false); }} />
           <div className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-popover border rounded-md shadow-md py-1">
             {teams.map((team) => (
               <button
@@ -59,6 +77,36 @@ export function TeamSwitcher({ teams, activeTeamId }: Props) {
                 {team.id === activeTeamId && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
               </button>
             ))}
+
+            <div className="border-t my-1" />
+            {creating ? (
+              <div className="px-2 py-1.5 flex items-center gap-1.5">
+                <input
+                  autoFocus
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") createDepartment(); }}
+                  placeholder="Department name"
+                  className="flex-1 min-w-0 border rounded px-2 py-1 text-sm bg-background"
+                />
+                <button
+                  onClick={createDepartment}
+                  disabled={saving || !newName.trim()}
+                  className="p-1 rounded text-primary hover:bg-accent disabled:opacity-50"
+                  aria-label="Create department"
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setCreating(true)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors text-left"
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                New department
+              </button>
+            )}
           </div>
         </>
       )}
