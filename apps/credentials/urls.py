@@ -8,6 +8,7 @@ from apps.credentials.views import (
     CredentialShareDeleteView,
     CredentialShareListCreateView,
     TeamCredentialListCreateView,
+    WebsiteCredentialShareView,
 )
 
 urlpatterns = [
@@ -35,6 +36,11 @@ urlpatterns = [
         "websites/<uuid:website_pk>/credential-audit/",
         CredentialAccessLogView.as_view(),
         name="credential-audit",
+    ),
+    path(
+        "websites/<uuid:website_pk>/credentials/share/",
+        WebsiteCredentialShareView.as_view(),
+        name="website-credential-share",
     ),
     path(
         "credentials/<uuid:pk>/shares/",

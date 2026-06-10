@@ -15,8 +15,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import type { Credential, Website } from "@/lib/api";
+import type { Credential, CredentialShare, Website } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ const TYPE_BADGE: Record<string, string> = {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface RevealData { username: string; password: string; notes: string }
+interface RevealData { username: string; password: string; notes: string; password_hidden?: boolean }
 
 function typeLabel(t: string) {
   return ALL_TYPES.find((x) => x.value === t)?.label ?? t;
@@ -98,6 +99,35 @@ function gradient(t: string) { return TYPE_GRADIENTS[t] ?? "from-slate-400 to-sl
 function badge(t: string) { return TYPE_BADGE[t] ?? "bg-slate-50 text-slate-600 border-slate-200"; }
 
 // ─── Credential card ──────────────────────────────────────────────────────────
+
+function hostFromUrl(url: string): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+/** Site favicon on the card header, falling back to the lock when unavailable. */
+function CardArt({ cred }: { cred: Credential }) {
+  const host = hostFromUrl(cred.login_url);
+  const [failed, setFailed] = useState(false);
+  if (host && !failed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`https://www.google.com/s2/favicons?domain=${host}&sz=128`}
+        alt=""
+        width={40}
+        height={40}
+        className="h-10 w-10 rounded-md bg-white/95 p-1.5 shadow-sm object-contain"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+  return <Lock className="h-8 w-8 text-white/75" />;
+}
 
 function CredCard({ cred, subtitle, canWrite, onView, onDelete, onShare }: {
   cred: Credential;
@@ -113,7 +143,7 @@ function CredCard({ cred, subtitle, canWrite, onView, onDelete, onShare }: {
       onClick={onView}
     >
       <div className={`relative h-[72px] bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center`}>
-        <Lock className="h-8 w-8 text-white/75" />
+        <CardArt cred={cred} />
         {cred.login_url && (
           <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
             <a
@@ -366,6 +396,13 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Password</Label>
                 {editMode ? (
                   <Input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} className="mt-1" />
+                ) : revealed?.password_hidden ? (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground">
+                      Hidden by share settings — you can autofill but not view this password.
+                    </span>
+                  </div>
                 ) : (
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-sm font-mono flex-1 truncate">
@@ -590,121 +627,203 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
   );
 }
 
-// ─── Share credential modal ───────────────────────────────────────────────────
+// ─── Share credential modal (LastPass-style) ──────────────────────────────────
 
-function ShareCredentialModal({ cred, onClose }: {
+interface DevOption { id: string; email: string; name: string }
+
+function ShareCredentialModal({ cred, teamId, onClose }: {
   cred: Credential;
+  teamId: string | null;
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [revealed, setRevealed] = useState<RevealData | null>(null);
-  const [showPw, setShowPw] = useState(false);
+  const [developers, setDevelopers] = useState<DevOption[]>([]);
+  const [shares, setShares] = useState<CredentialShare[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [canViewPw, setCanViewPw] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/credentials/${cred.id}/reveal`, { method: "POST" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (active && data) setRevealed(data as RevealData); })
-      .catch(() => {})
-      .finally(() => { if (active) setLoading(false); });
+    async function load() {
+      const [membersRes, sharesRes] = await Promise.all([
+        teamId ? fetch(`/api/teams/${teamId}/members`) : Promise.resolve(null),
+        fetch(`/api/credentials/${cred.id}/shares`),
+      ]);
+      if (!active) return;
+      if (membersRes?.ok) {
+        const members = await membersRes.json();
+        const list = Array.isArray(members) ? members : members?.data ?? [];
+        setDevelopers(
+          list
+            .filter((m: { role: string }) => m.role === "developer")
+            .map((m: { user: { id: string; email: string; first_name: string; last_name: string } }) => ({
+              id: m.user.id,
+              email: m.user.email,
+              name: `${m.user.first_name ?? ""} ${m.user.last_name ?? ""}`.trim(),
+            }))
+        );
+      }
+      if (sharesRes.ok) {
+        const data = await sharesRes.json();
+        setShares(Array.isArray(data) ? data : data?.data ?? []);
+      }
+      setLoading(false);
+    }
+    load().catch(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [cred.id]);
+  }, [cred.id, teamId]);
 
-  function copy(text: string, label: string) {
-    navigator.clipboard.writeText(text);
-    toast({ title: `${label} copied` });
+  const sharedUserIds = useMemo(() => new Set(shares.map((s) => s.user_id)), [shares]);
+  const candidates = developers.filter((d) => !sharedUserIds.has(d.id));
+
+  function toggle(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
-  function copyAll() {
-    if (!revealed) return;
-    const lines = [
-      `Label: ${cred.label}`,
-      cred.login_url ? `URL: ${cred.login_url}` : null,
-      revealed.username ? `Username: ${revealed.username}` : null,
-      revealed.password ? `Password: ${revealed.password}` : null,
-      revealed.notes ? `Notes: ${revealed.notes}` : null,
-    ].filter(Boolean).join("\n");
-    navigator.clipboard.writeText(lines);
-    toast({ title: "All credentials copied to clipboard" });
+  async function handleShare() {
+    if (selectedIds.size === 0) return;
+    setSharing(true);
+    try {
+      const res = await fetch(`/api/credentials/${cred.id}/shares`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_ids: Array.from(selectedIds),
+          can_view_password: canViewPw,
+        }),
+      });
+      if (!res.ok) {
+        toast({ variant: "destructive", title: "Failed to share credential" });
+        return;
+      }
+      const data = await res.json();
+      setShares(Array.isArray(data) ? data : data?.data ?? []);
+      setSelectedIds(new Set());
+      toast({ title: "Credential shared" });
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function revoke(userId: string) {
+    const res = await fetch(`/api/credentials/${cred.id}/shares/${userId}`, { method: "DELETE" });
+    if (res.ok || res.status === 204) {
+      setShares((prev) => prev.filter((s) => s.user_id !== userId));
+      toast({ title: "Share revoked" });
+    } else {
+      toast({ variant: "destructive", title: "Failed to revoke share" });
+    }
   }
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
-        <div className={`h-20 bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center`}>
-          <Share2 className="h-8 w-8 text-white/80" />
+      <DialogContent className="sm:max-w-2xl p-0 overflow-hidden gap-0">
+        <div className={`h-16 bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center px-5 gap-3`}>
+          <Share2 className="h-6 w-6 text-white/80 shrink-0" />
+          <h2 className="font-bold text-lg text-white truncate">Share: {cred.label}</h2>
         </div>
 
-        <div className="p-5 space-y-4">
-          <div>
-            <h2 className="font-bold text-lg leading-tight">{cred.label}</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Share these credentials securely</p>
-          </div>
-
-          {loading ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">Revealing credentials…</div>
-          ) : !revealed ? (
-            <div className="py-6 text-center text-sm text-destructive">Could not reveal credentials</div>
-          ) : (
-            <div className="space-y-3">
-              {cred.login_url && (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Login URL</p>
-                    <p className="text-sm font-mono truncate">{cred.login_url}</p>
+        {loading ? (
+          <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
+        ) : (
+          <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
+            {/* Left — grant access */}
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-sm font-semibold mb-2">Share with developers</p>
+                {candidates.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {developers.length === 0
+                      ? "No developers on this team yet. Owners and managers already see every credential."
+                      : "All developers already have access."}
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                    {candidates.map((d) => (
+                      <label key={d.id} className="flex items-center gap-2.5 rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(d.id)}
+                          onChange={() => toggle(d.id)}
+                          className="h-4 w-4 accent-primary"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm truncate">{d.name || d.email}</span>
+                          {d.name && <span className="block text-xs text-muted-foreground truncate">{d.email}</span>}
+                        </span>
+                      </label>
+                    ))}
                   </div>
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copy(cred.login_url!, "URL")}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+                )}
+              </div>
+
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={canViewPw}
+                  onChange={(e) => setCanViewPw(e.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="text-sm">Allow Recipient to View Password</span>
+              </label>
+              {!canViewPw && (
+                <p className="text-xs text-muted-foreground -mt-2">
+                  Recipient can use the credential (autofill) but the password stays hidden in the dashboard.
+                </p>
               )}
 
-              {revealed.username && (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Username</p>
-                    <p className="text-sm font-mono truncate">{revealed.username}</p>
-                  </div>
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copy(revealed.username, "Username")}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
-
-              {revealed.password && (
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Password</p>
-                    <p className="text-sm font-mono truncate">{showPw ? revealed.password : "••••••••••••"}</p>
-                  </div>
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => setShowPw((v) => !v)}>
-                    {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={() => copy(revealed.password, "Password")}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
-
-              {revealed.notes && (
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Notes</p>
-                  <p className="text-sm text-muted-foreground whitespace-pre-line">{revealed.notes}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {revealed && (
-            <div className="pt-1 border-t flex gap-2">
-              <Button size="sm" variant="outline" className="flex-1" onClick={copyAll}>
-                <Copy className="h-3.5 w-3.5 mr-1.5" />Copy all
+              <Button
+                size="sm"
+                className="w-full"
+                disabled={sharing || selectedIds.size === 0}
+                onClick={handleShare}
+              >
+                {sharing ? "Sharing…" : `Share${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
               </Button>
-              <Button size="sm" variant="ghost" className="flex-1" onClick={onClose}>Done</Button>
             </div>
-          )}
-        </div>
+
+            {/* Right — existing shares */}
+            <div className="p-5">
+              <p className="text-sm font-semibold mb-2">Existing shares</p>
+              {shares.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Not shared with anyone yet.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                  {shares.map((s) => (
+                    <div key={s.user_id} className="flex items-center gap-2 rounded-md border px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm truncate">{s.name || s.email}</p>
+                        <p className="text-xs text-muted-foreground truncate">{s.email}</p>
+                      </div>
+                      {!s.can_view_password && (
+                        <Badge variant="secondary" className="text-[10px] shrink-0">password hidden</Badge>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => revoke(s.user_id)}
+                        className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                        title="Revoke access"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground mt-3">
+                Owners and managers always have access and are not listed here.
+              </p>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -761,10 +880,12 @@ export function CredentialsVaultClient({
   initialCredentials,
   websites,
   myRole,
+  teamId = null,
 }: {
   initialCredentials: Credential[];
   websites: Website[];
   myRole: string;
+  teamId?: string | null;
 }) {
   const canWrite = myRole === "manager" || myRole === "owner";
 
@@ -936,6 +1057,7 @@ export function CredentialsVaultClient({
       {shareTarget && !selected && (
         <ShareCredentialModal
           cred={shareTarget}
+          teamId={teamId}
           onClose={() => setShareTarget(null)}
         />
       )}

@@ -88,8 +88,45 @@ class CredentialService:
         return credential
 
     @classmethod
-    def reveal(cls, credential: Credential, requesting_user, ip_address: str | None = None) -> dict:
-        """Decrypt and return credential plaintext after role and audit checks."""
+    def can_view_password(cls, credential: Credential, user) -> bool:
+        """Whether `user` may see this credential's plaintext password.
+
+        Always True for owners, managers, and the creator. For a developer with
+        a share, it follows the share's `can_view_password` flag (defaults True
+        if, somehow, no share row exists but they reached reveal).
+        """
+        from apps.credentials.models import CredentialShare
+
+        if credential.created_by_id == getattr(user, "id", None):
+            return True
+        membership = TeamMembership.objects.filter(
+            user=user, team=credential.team
+        ).first()
+        if membership and membership.role in (
+            TeamMembership.Role.OWNER, TeamMembership.Role.MANAGER
+        ):
+            return True
+        share = CredentialShare.objects.filter(
+            credential=credential, user=user
+        ).first()
+        return share.can_view_password if share else True
+
+    @classmethod
+    def reveal(
+        cls,
+        credential: Credential,
+        requesting_user,
+        ip_address: str | None = None,
+        for_autofill: bool = False,
+    ) -> dict:
+        """Decrypt and return credential plaintext after role and audit checks.
+
+        When the requester may not view the password (a share with
+        `can_view_password=False`) and this is not an autofill request, the
+        password is blanked and `password_hidden` is set so the dashboard never
+        displays it. Autofill (`for_autofill=True`) still receives it so the
+        extension can fill the login form.
+        """
         cls._assert_can_reveal(credential, requesting_user)
 
         CredentialAccessLog.objects.create(
@@ -98,10 +135,16 @@ class CredentialService:
             action=CredentialAccessLog.Action.VIEWED,
             ip_address=ip_address,
         )
+        password = credential.get_password()
+        hidden = False
+        if not for_autofill and not cls.can_view_password(credential, requesting_user):
+            password = ""
+            hidden = True
         return {
             "username": credential.get_username(),
-            "password": credential.get_password(),
+            "password": password,
             "notes": credential.get_notes(),
+            "password_hidden": hidden,
         }
 
     @classmethod

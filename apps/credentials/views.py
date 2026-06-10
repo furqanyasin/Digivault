@@ -237,10 +237,15 @@ class CredentialRevealView(APIView):
         except Credential.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        for_autofill = (
+            str(request.query_params.get("for_autofill", "")).lower() in ("1", "true")
+            or bool(request.data.get("for_autofill"))
+        )
         revealed = CredentialService.reveal(
             credential=credential,
             requesting_user=request.user,
             ip_address=_get_client_ip(request),
+            for_autofill=for_autofill,
         )
         AuditService.log_request(
             request, ActivityLog.Action.CREDENTIAL_REVEALED,
@@ -489,27 +494,92 @@ class CredentialShareListCreateView(APIView):
             m.user_id for m in memberships
             if m.role == TeamMembership.Role.DEVELOPER
         ]
-        created_ids = []
+        can_view = ser.validated_data["can_view_password"]
+        affected_ids = []
         for uid in target_user_ids:
-            _, created = CredentialShare.objects.get_or_create(
+            CredentialShare.objects.update_or_create(
                 credential=cred, user_id=uid,
-                defaults={"shared_by": request.user},
+                defaults={"shared_by": request.user, "can_view_password": can_view},
             )
-            if created:
-                created_ids.append(str(uid))
+            affected_ids.append(str(uid))
 
-        if created_ids:
+        if affected_ids:
             AuditService.log_request(
                 request, ActivityLog.Action.CREDENTIAL_SHARED,
-                description=f"Shared credential '{cred.label}' with {len(created_ids)} user(s)",
+                description=f"Shared credential '{cred.label}' with {len(affected_ids)} user(s)",
                 resource_type="credential", resource_id=cred.pk,
-                metadata={"shared_with_user_ids": created_ids},
+                metadata={"shared_with_user_ids": affected_ids, "can_view_password": can_view},
             )
+        created_ids = affected_ids
 
         shares = cred.shares.select_related("user", "shared_by")
         return Response(
             CredentialShareSerializer(shares, many=True).data,
             status=status.HTTP_201_CREATED if created_ids else status.HTTP_200_OK,
+        )
+
+
+class WebsiteCredentialShareView(APIView):
+    """POST /api/v1/websites/<website_pk>/credentials/share/
+
+    Share every credential of a website with the given developers at once.
+    Applies the same `can_view_password` flag across all of them.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def post(self, request, website_pk):
+        team = request.user.active_team
+        if team is None:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        from apps.accounts.models import TeamMembership
+
+        ser = CredentialShareWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        can_view = ser.validated_data["can_view_password"]
+
+        memberships = TeamMembership.objects.filter(
+            team=team, user_id__in=ser.validated_data["user_ids"]
+        )
+        valid_user_ids = {m.user_id for m in memberships}
+        invalid = set(ser.validated_data["user_ids"]) - valid_user_ids
+        if invalid:
+            return Response(
+                {"detail": f"Users not in team: {sorted(str(u) for u in invalid)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        target_user_ids = [
+            m.user_id for m in memberships
+            if m.role == TeamMembership.Role.DEVELOPER
+        ]
+
+        creds = Credential.objects.filter(team=team, website_id=website_pk)
+        shared_cred_count = 0
+        for cred in creds:
+            if not can_modify_credential(request.user, cred):
+                continue
+            for uid in target_user_ids:
+                CredentialShare.objects.update_or_create(
+                    credential=cred, user_id=uid,
+                    defaults={"shared_by": request.user, "can_view_password": can_view},
+                )
+            shared_cred_count += 1
+
+        if shared_cred_count and target_user_ids:
+            AuditService.log_request(
+                request, ActivityLog.Action.CREDENTIAL_SHARED,
+                description=f"Shared {shared_cred_count} site credential(s)",
+                resource_type="website", resource_id=website_pk,
+                metadata={
+                    "shared_with_user_ids": [str(u) for u in target_user_ids],
+                    "credential_count": shared_cred_count,
+                    "can_view_password": can_view,
+                },
+            )
+        return Response(
+            {"shared_credentials": shared_cred_count, "developers": len(target_user_ids)},
+            status=status.HTTP_200_OK,
         )
 
 
