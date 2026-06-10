@@ -103,9 +103,15 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         qs = super().get_queryset()
         return qs.annotate(
             script_count=Count("scripts", filter=Q(scripts__is_active=True)),
+            # Only unreviewed unknowns count — approving/ignoring clears them,
+            # matching the website detail page's "Unknown scripts" KPI.
             unknown_script_count=Count(
                 "scripts",
-                filter=Q(scripts__is_active=True, scripts__provider="unknown"),
+                filter=Q(
+                    scripts__is_active=True,
+                    scripts__provider="unknown",
+                    scripts__review_status="pending",
+                ),
             ),
         ).select_related("team")
 

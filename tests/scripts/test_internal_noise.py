@@ -7,7 +7,7 @@ import pytest
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
 from apps.scripts.models import Script, ScriptChange
-from apps.scripts.tasks import _should_track_script, process_ingest_payload
+from apps.scripts.tasks import _should_track_script, _update_website_status, process_ingest_payload
 from apps.websites.models import Website
 
 
@@ -64,3 +64,23 @@ def test_existing_internal_change_clears_critical_on_ingest(website):
     assert change.acknowledged_at is not None  # auto-acknowledged
     assert snippet.is_active is False           # deactivated as noise
     assert website.status != Website.Status.CRITICAL
+
+
+@pytest.mark.django_db
+def test_status_recalc_ignores_internal_change(website):
+    """An unacknowledged HIGH change on an internal host must not make a site
+    critical when status is recalculated."""
+    snippet = Script.objects.create(
+        website=website,
+        src_url="https://digivault.digilatics.co/api/s.js",
+        src_domain="digivault.digilatics.co",
+        provider="unknown",
+        is_active=True,
+    )
+    ScriptChange.objects.create(
+        website=website, script=snippet, change_type="added",
+        severity=ScriptChange.Severity.HIGH, description="Added tracking snippet",
+    )
+    _update_website_status(website)
+    website.refresh_from_db()
+    assert website.status == Website.Status.ACTIVE

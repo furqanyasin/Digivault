@@ -378,21 +378,27 @@ def _update_script_scopes(website: Website) -> None:
 
 
 def _update_website_status(website: Website) -> None:
-    """Set website status based on open high-severity changes."""
-    has_high = ScriptChange.objects.filter(
-        website=website,
-        severity=ScriptChange.Severity.HIGH,
-        acknowledged_at__isnull=True,
-    ).exists()
-    has_medium = ScriptChange.objects.filter(
-        website=website,
-        severity=ScriptChange.Severity.MEDIUM,
-        acknowledged_at__isnull=True,
-    ).exists()
+    """Set website status from open changes the user can actually see and clear.
 
-    if has_high:
+    Changes on Digivault's own infra domains (e.g. the tracking snippet) are
+    hidden from the Change Log, so they must not drive the status — otherwise a
+    site shows 'critical' with nothing the user can acknowledge.
+    """
+    internal = _internal_hosts()
+
+    def _is_internal(change) -> bool:
+        blob = f"{change.script.src_url if change.script_id else ''} {change.description or ''}".lower()
+        return any(host in blob for host in internal)
+
+    open_changes = (
+        ScriptChange.objects.filter(website=website, acknowledged_at__isnull=True)
+        .select_related("script")
+    )
+    severities = {c.severity for c in open_changes if not _is_internal(c)}
+
+    if ScriptChange.Severity.HIGH in severities:
         new_status = Website.Status.CRITICAL
-    elif has_medium:
+    elif ScriptChange.Severity.MEDIUM in severities:
         new_status = Website.Status.WARNING
     else:
         new_status = Website.Status.ACTIVE
