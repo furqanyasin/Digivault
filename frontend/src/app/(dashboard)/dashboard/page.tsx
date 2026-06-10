@@ -29,58 +29,6 @@ async function getData(token: string) {
   return { websites, allChanges, monitors };
 }
 
-function extractDomain(url: string): string {
-  try { return new URL(url).hostname; } catch { return url; }
-}
-
-function smartUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    const parts = u.pathname.split("/").filter(Boolean);
-    const filename = parts[parts.length - 1] ?? "";
-    return `${u.hostname}${filename ? `/${filename}` : ""}`;
-  } catch {
-    return url.length > 55 ? url.slice(0, 52) + "…" : url;
-  }
-}
-
-// Simple SVG donut chart for risk split
-function RiskDonut({ high, medium, low }: { high: number; medium: number; low: number }) {
-  const total = high + medium + low;
-  if (total === 0) return null;
-  const r = 18;
-  const circ = 2 * Math.PI * r;
-  const segs = [
-    { pct: high / total, color: "#ef4444" },
-    { pct: medium / total, color: "#f59e0b" },
-    { pct: low / total, color: "#3b82f6" },
-  ];
-  let offset = 0;
-  return (
-    <svg width="44" height="44" viewBox="0 0 44 44" className="shrink-0">
-      {segs.map((s, i) => {
-        const dash = s.pct * circ;
-        const gap = circ - dash;
-        const el = (
-          <circle
-            key={i}
-            cx="22" cy="22" r={r}
-            fill="none"
-            stroke={s.color}
-            strokeWidth="6"
-            strokeDasharray={`${dash} ${gap}`}
-            strokeDashoffset={-(offset * circ)}
-            transform="rotate(-90 22 22)"
-          />
-        );
-        offset += s.pct;
-        return el;
-      })}
-      <text x="22" y="26" textAnchor="middle" fontSize="10" fontWeight="bold" fill="currentColor">{total}</text>
-    </svg>
-  );
-}
-
 const STATUS_DOT: Record<string, string> = {
   active: "bg-emerald-500",
   warning: "bg-amber-500",
@@ -110,17 +58,8 @@ export default async function DashboardPage() {
   const highRisk = visibleChanges.filter(
     (c) => (c.severity === "critical" || c.severity === "high") && !c.is_acknowledged
   );
-  const mediumRisk = visibleChanges.filter((c) => c.severity === "medium" && !c.is_acknowledged);
-  const lowRisk = visibleChanges.filter((c) => c.severity === "low" && !c.is_acknowledged);
   const withIssues = websites.filter((w) => w.status === "critical" || w.status === "warning").length;
   const monitorsDown = monitors.filter((m) => m.status === "down" || m.status === "degraded").length;
-
-  // Group high-risk changes by domain
-  const byDomain = highRisk.reduce<Record<string, ScriptChange[]>>((acc, c) => {
-    const domain = c.script?.src_url ? extractDomain(c.script.src_url) : "unknown";
-    (acc[domain] ??= []).push(c);
-    return acc;
-  }, {});
 
   const stats = [
     {
@@ -195,69 +134,6 @@ export default async function DashboardPage() {
           return href ? <Link key={label} href={href}>{card}</Link> : <div key={label}>{card}</div>;
         })}
       </div>
-
-      {/* High-risk alerts */}
-      {highRisk.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold">High-Risk Changes</h2>
-              <RiskDonut high={highRisk.length} medium={mediumRisk.length} low={lowRisk.length} />
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" />{highRisk.length} high</span>
-                {mediumRisk.length > 0 && <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400 inline-block" />{mediumRisk.length} medium</span>}
-                {lowRisk.length > 0 && <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-400 inline-block" />{lowRisk.length} low</span>}
-              </div>
-            </div>
-            <Link href="/alerts">
-              <Button variant="outline" size="sm">View all alerts</Button>
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {Object.entries(byDomain).slice(0, 6).map(([domain, changes]) => (
-              <Card key={domain} className="border-red-200 dark:border-red-900">
-                <CardContent className="p-0">
-                  {/* Domain header */}
-                  <div className="flex items-center gap-2 px-4 py-2 border-b bg-red-50/50 dark:bg-red-950/20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`https://www.google.com/s2/favicons?domain=${domain}&sz=16`}
-                      alt=""
-                      width={16} height={16}
-                      className="rounded-sm opacity-80"
-                    />
-                    <span className="text-xs font-mono font-semibold">{domain}</span>
-                    <Badge variant="destructive" className="ml-auto text-xs">{changes.length}</Badge>
-                  </div>
-                  {/* Changes list */}
-                  <div className="divide-y">
-                    {changes.slice(0, 3).map((change) => (
-                      <div key={change.id} className="flex items-center justify-between px-4 py-2.5 gap-3">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Badge
-                            variant={change.severity === "critical" ? "destructive" : "destructive"}
-                            className="capitalize text-xs shrink-0"
-                          >
-                            {change.severity}
-                          </Badge>
-                          <span className="text-xs capitalize text-muted-foreground shrink-0">{change.change_type}</span>
-                          <span className="font-mono text-xs truncate text-muted-foreground" title={change.script?.src_url}>
-                            {change.script?.src_url ? smartUrl(change.script.src_url) : "—"}
-                          </span>
-                        </div>
-                        <span className="text-xs text-muted-foreground shrink-0 whitespace-nowrap">{fmtDate(change.created_at)}</span>
-                      </div>
-                    ))}
-                    {changes.length > 3 && (
-                      <div className="px-4 py-2 text-xs text-muted-foreground">+{changes.length - 3} more from this domain</div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Website cards grid */}
       <div>
