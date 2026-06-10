@@ -38,7 +38,9 @@ class SiteScanStateSerializer(BaseModelSerializer):
 
 class PhpErrorIngestSerializer(serializers.Serializer):
     site_id = serializers.CharField(max_length=64)
-    errors = serializers.ListField(child=serializers.DictField(), default=list)
+    errors = serializers.ListField(
+        child=serializers.DictField(), default=list, max_length=50
+    )
 
 
 class SiteEventCreateSerializer(serializers.Serializer):
