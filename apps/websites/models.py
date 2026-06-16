@@ -108,13 +108,24 @@ class Website(BaseModel):
         from django.utils import timezone
         from apps.scripts.models import ScriptChange
 
+        from apps.scripts.tasks import _internal_hosts
+
         deductions = 0
 
-        pending_sevs = list(
-            ScriptChange.objects.filter(
-                website=self, acknowledged_at__isnull=True
-            ).values_list("severity", flat=True)
-        )
+        # Exclude Digivault's own infra (the tracking snippet): its changes are
+        # hidden from the UI and can never be acknowledged, so they must not
+        # permanently drag the health score down.
+        internal = _internal_hosts()
+        open_changes = ScriptChange.objects.filter(
+            website=self, acknowledged_at__isnull=True
+        ).select_related("script")
+        pending_sevs = []
+        for c in open_changes:
+            blob = f"{c.script.src_url if c.script_id else ''} {c.description or ''}".lower()
+            if any(h in blob for h in internal):
+                continue
+            pending_sevs.append(c.severity)
+
         sev_count: dict[str, int] = {}
         for s in pending_sevs:
             sev_count[s] = sev_count.get(s, 0) + 1

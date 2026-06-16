@@ -118,9 +118,10 @@ export function RenewalsClient() {
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
-    const [domRes, sslRes, clientsRes] = await Promise.all([
+    const [domRes, sslRes, hostRes, clientsRes] = await Promise.all([
       fetch("/api/websites/expiring-domains"),
       fetch("/api/websites/expiring-ssl"),
+      fetch("/api/websites/expiring-hosting"),
       fetch("/api/clients"),
     ]);
 
@@ -146,13 +147,26 @@ export function RenewalsClient() {
         }))
       );
     }
+    // Hosting comes from both website-level expiry dates and client records.
+    const hostingRows: RenewalRow[] = [];
+    if (hostRes.ok) {
+      const items = asList<ExpiringItem>(unwrap(await hostRes.json()));
+      hostingRows.push(
+        ...items.map((i) => ({
+          key: `host-w-${i.id}`,
+          label: i.name || i.domain,
+          sub: i.domain,
+          days: i.days_until_expiry,
+        }))
+      );
+    }
     if (clientsRes.ok) {
       const clients = asList<ClientRow>(unwrap(await clientsRes.json()));
-      setHosting(
-        clients
+      hostingRows.push(
+        ...clients
           .filter((c) => c.hosting_renewal_date)
           .map((c) => ({
-            key: `host-${c.id}`,
+            key: `host-c-${c.id}`,
             label: c.name,
             sub: c.website_url,
             days: daysUntil(c.hosting_renewal_date),
@@ -169,6 +183,8 @@ export function RenewalsClient() {
           }))
       );
     }
+    hostingRows.sort((a, b) => (a.days ?? 9999) - (b.days ?? 9999));
+    setHosting(hostingRows);
     setLoading(false);
   }, []);
 

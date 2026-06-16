@@ -401,3 +401,29 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             for w in qs
         ]
         return Response(data)
+
+    @action(detail=False, methods=["get"], url_path="expiring-hosting")
+    def expiring_hosting(self, request):
+        from datetime import timedelta
+        from django.utils import timezone
+        days = int(request.query_params.get("days", 30))
+        threshold = timezone.now() + timedelta(days=days)
+        qs = (
+            self.get_queryset()
+            .select_related("domain_info")
+            .filter(
+                domain_info__hosting_expires_at__isnull=False,
+                domain_info__hosting_expires_at__lte=threshold,
+            )
+            .order_by("domain_info__hosting_expires_at")
+        )
+        data = [
+            {
+                "id": str(w.id),
+                "name": w.name,
+                "domain": w.domain,
+                "days_until_expiry": w.domain_info.hosting_days_until_expiry,
+            }
+            for w in qs
+        ]
+        return Response(data)
