@@ -281,10 +281,13 @@ def run_seo_check(website_id: str) -> None:
             if status_code == 200 and body.strip():
                 robots = seo_checker.parse_robots(body)
                 report.robots_status = "found"
+                report.robots_content = body[:20000]
             else:
                 report.robots_status = "missing"
+                report.robots_content = ""
         except Exception:
             report.robots_status = "missing"
+            report.robots_content = ""
         report.robots_blocks_all = robots["blocks_all"]
 
         # --- sitemap ---
@@ -302,11 +305,25 @@ def run_seo_check(website_id: str) -> None:
         except Exception:
             report.sitemap_status = "missing"
 
-        # --- indexability: homepage + up to MAX_PAGES sitemap pages ---
+        # --- indexability: homepage + snippet-seen pages + sitemap pages ---
+        # noindex pages are normally EXCLUDED from the sitemap, so we check the
+        # pages the snippet has actually observed FIRST — that's where a hidden
+        # noindex turns up — then fill any remaining slots from the sitemap.
+        from apps.scripts.models import Script
+
+        seen_pages: list[str] = []
+        for lst in Script.objects.filter(website=website, is_active=True).values_list("seen_on_pages", flat=True):
+            for u in (lst or []):
+                if u not in seen_pages:
+                    seen_pages.append(u)
+
         candidates = [base + "/"]
-        for u in sitemap_urls:
-            if seo_checker.same_origin(base, u) and u not in candidates:
-                candidates.append(u)
+        for source in (seen_pages, sitemap_urls):
+            for u in source:
+                if u and seo_checker.same_origin(base, u) and u not in candidates:
+                    candidates.append(u)
+                if len(candidates) >= seo_checker.MAX_PAGES:
+                    break
             if len(candidates) >= seo_checker.MAX_PAGES:
                 break
 

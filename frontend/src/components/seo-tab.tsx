@@ -10,6 +10,7 @@ export interface SeoReport {
   check_status: string;
   robots_status: string;
   robots_blocks_all: boolean;
+  robots_content: string;
   sitemap_status: string;
   sitemap_url: string;
   sitemap_url_count: number;
@@ -128,16 +129,35 @@ export function SeoTab({ websiteId, report }: { websiteId: string; report: SeoRe
         </div>
       </div>
 
+      {data.robots_content && (
+        <details className="border rounded-lg">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+            robots.txt {data.sitemap_url && <span className="text-xs text-muted-foreground font-normal">· sitemap: {data.sitemap_url}</span>}
+          </summary>
+          <pre className="px-3 pb-3 text-xs font-mono whitespace-pre-wrap break-all text-muted-foreground max-h-96 overflow-auto">
+            {data.robots_content}
+          </pre>
+        </details>
+      )}
+
       {data.pages_checked.length > 0 && (
-        <div className="border rounded-lg divide-y">
-          {data.pages_checked.map((p) => (
-            <div key={p.url} className="flex items-center justify-between px-3 py-2 text-xs">
-              <span className="font-mono truncate max-w-[60%]" title={p.url}>{p.url}</span>
-              <span className={p.indexable ? "text-emerald-600" : "text-red-600"}>
-                {p.indexable ? "indexable" : (p.reason || "noindex")}
-              </span>
-            </div>
-          ))}
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">
+            Indexability checked on {data.pages_checked.length} page{data.pages_checked.length !== 1 ? "s" : ""} —
+            the homepage plus pages the tracking snippet has actually seen and entries from the sitemap.
+            (A page set to <span className="font-medium">noindex</span> is usually kept out of the sitemap,
+            so the snippet-seen pages are where a hidden noindex turns up.)
+          </p>
+          <div className="border rounded-lg divide-y">
+            {data.pages_checked.map((p) => (
+              <div key={p.url} className="flex items-center justify-between px-3 py-2 text-xs">
+                <span className="font-mono truncate max-w-[60%]" title={p.url}>{p.url}</span>
+                <span className={p.indexable ? "text-emerald-600" : "text-red-600"}>
+                  {p.indexable ? "indexable" : (p.reason || "noindex")}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

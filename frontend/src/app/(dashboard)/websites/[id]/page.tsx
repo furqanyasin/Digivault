@@ -24,37 +24,25 @@ import { TrackingTab } from "@/components/tracking-tab";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
-async function getData(token: string, id: string, tab: string) {
-  // Tab-local, heavier data (Performance / Access / SEO) is fetched only when
-  // its tab is active. None of these drive a tab-count badge, so deferring them
-  // keeps the common loads (overview/scripts/forms/…) from waiting on calls
-  // they don't render — 9 fetches instead of 14.
-  const wantPerf = tab === "performance";
+async function getData(token: string, id: string) {
+  // All tab data is fetched up front so the tabs can switch instantly on the
+  // client (no per-tab server navigation). Runs in parallel; the instant
+  // loading skeleton (loading.tsx) covers the initial wait.
   const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
-    tab === "access"
-      ? api.get<DomainInfo | null>(`/api/v1/websites/${id}/domain/`, token)
-      : Promise.resolve(null),
-    wantPerf
-      ? api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token)
-      : Promise.resolve([] as PerformanceReport[]),
-    wantPerf
-      ? api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token)
-      : Promise.resolve([] as PerformanceReport[]),
-    wantPerf
-      ? api.get<CruxReport[]>(`/api/v1/websites/${id}/crux/`, token)
-      : Promise.resolve([] as CruxReport[]),
+    api.get<DomainInfo | null>(`/api/v1/websites/${id}/domain/`, token),
+    api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token),
+    api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token),
+    api.get<CruxReport[]>(`/api/v1/websites/${id}/crux/`, token),
     api.get<DetectedForm[]>(`/api/v1/websites/${id}/forms/`, token),
     api.get<FormSubmissionError[]>(`/api/v1/websites/${id}/form-errors/`, token),
     api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
     api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
-    tab === "seo"
-      ? api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token)
-      : Promise.resolve(null),
+    api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -130,7 +118,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport } = await getData(token ?? "", id, tab);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -251,56 +239,24 @@ export default async function WebsiteDetailPage({
         </Link>
       </div>
 
-      {/* `value` (not defaultValue) so the panel follows the ?tab= URL when the
-          KPI cards / trigger links navigate — defaultValue only applies on mount. */}
-      <Tabs value={tab}>
+      {/* defaultValue (from ?tab=) sets the initial tab for deep-links; switching
+          is handled client-side by Radix so it's instant — no server navigation. */}
+      <Tabs key={tab} defaultValue={tab}>
         <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="overview" asChild>
-            <Link href={`/websites/${id}?tab=overview`} prefetch>Overview</Link>
-          </TabsTrigger>
-          <TabsTrigger value="scripts" asChild>
-            <Link href={`/websites/${id}?tab=scripts`} prefetch>Scripts ({activeScripts.length})</Link>
-          </TabsTrigger>
-          {showPlugins && (
-            <TabsTrigger value="plugins" asChild>
-              <Link href={`/websites/${id}?tab=plugins`} prefetch>Plugins</Link>
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="forms" asChild>
-            <Link href={`/websites/${id}?tab=forms`} prefetch>Forms ({forms.length})</Link>
-          </TabsTrigger>
-          <TabsTrigger value="tracking" asChild>
-            <Link href={`/websites/${id}?tab=tracking`} prefetch>Tracking</Link>
-          </TabsTrigger>
-          <TabsTrigger value="access" asChild>
-            <Link href={`/websites/${id}?tab=access`} prefetch>Access & Domain</Link>
-          </TabsTrigger>
-          <TabsTrigger value="performance" asChild>
-            <Link href={`/websites/${id}?tab=performance`} prefetch>Performance</Link>
-          </TabsTrigger>
-          <TabsTrigger value="changelog" asChild>
-            <Link href={`/websites/${id}?tab=changelog`} prefetch>Change Log ({visibleChanges.length})</Link>
-          </TabsTrigger>
-          {showPhpErrors && (
-            <TabsTrigger value="php-errors" asChild>
-              <Link href={`/websites/${id}?tab=php-errors`} prefetch>PHP Errors ({phpErrors.length})</Link>
-            </TabsTrigger>
-          )}
-          {showSiteEvents && (
-            <TabsTrigger value="site-events" asChild>
-              <Link href={`/websites/${id}?tab=site-events`} prefetch>Site Events ({siteEvents.length})</Link>
-            </TabsTrigger>
-          )}
-          <TabsTrigger value="security" asChild>
-            <Link href={`/websites/${id}?tab=security`} prefetch>Security {vulns.length > 0 ? `(${vulns.length})` : ""}</Link>
-          </TabsTrigger>
-          <TabsTrigger value="seo" asChild>
-            <Link href={`/websites/${id}?tab=seo`} prefetch>SEO</Link>
-          </TabsTrigger>
-          <TabsTrigger value="setup" asChild>
-            <Link href={`/websites/${id}?tab=setup`} prefetch>
-              <Settings className="h-3.5 w-3.5 mr-1" />Setup
-            </Link>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="scripts">Scripts ({activeScripts.length})</TabsTrigger>
+          {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
+          <TabsTrigger value="forms">Forms ({forms.length})</TabsTrigger>
+          <TabsTrigger value="tracking">Tracking</TabsTrigger>
+          <TabsTrigger value="access">Access & Domain</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="changelog">Change Log ({visibleChanges.length})</TabsTrigger>
+          {showPhpErrors && <TabsTrigger value="php-errors">PHP Errors ({phpErrors.length})</TabsTrigger>}
+          {showSiteEvents && <TabsTrigger value="site-events">Site Events ({siteEvents.length})</TabsTrigger>}
+          <TabsTrigger value="security">Security {vulns.length > 0 ? `(${vulns.length})` : ""}</TabsTrigger>
+          <TabsTrigger value="seo">SEO</TabsTrigger>
+          <TabsTrigger value="setup">
+            <Settings className="h-3.5 w-3.5 mr-1" />Setup
           </TabsTrigger>
         </TabsList>
 

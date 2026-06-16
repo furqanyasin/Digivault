@@ -134,6 +134,7 @@ class SeoReport(BaseModel):
 
     robots_status = models.CharField(max_length=20, default="unknown")  # found/missing/error
     robots_blocks_all = models.BooleanField(default=False)
+    robots_content = models.TextField(blank=True)  # raw robots.txt (truncated)
 
     sitemap_status = models.CharField(max_length=20, default="unknown")  # found/missing/error
     sitemap_url = models.CharField(max_length=2048, blank=True)

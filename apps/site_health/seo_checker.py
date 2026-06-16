@@ -11,7 +11,7 @@ from apps.common.ssrf import assert_public_url
 
 logger = logging.getLogger(__name__)
 
-MAX_PAGES = 10
+MAX_PAGES = 15
 _SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 
 _BROWSER_HEADERS = {

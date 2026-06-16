@@ -16,7 +16,7 @@ class SeoReportSerializer(serializers.ModelSerializer):
         model = SeoReport
         fields = (
             "last_checked_at", "check_status", "error",
-            "robots_status", "robots_blocks_all",
+            "robots_status", "robots_blocks_all", "robots_content",
             "sitemap_status", "sitemap_url", "sitemap_url_count",
             "homepage_indexable", "pages_checked", "noindex_count",
         )
