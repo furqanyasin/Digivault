@@ -85,7 +85,7 @@ export function StatusPageManagerClient({ page, initialEntries, availableMonitor
         <CardContent className="space-y-4">
           {/* Add monitor row */}
           <div className="flex items-center gap-3">
-            <Select value={selectedMonitorId} onValueChange={setSelectedMonitorId}>
+            <Select value={selectedMonitorId} onValueChange={setSelectedMonitorId} disabled={candidates.length === 0}>
               <SelectTrigger className="flex-1">
                 <SelectValue placeholder={candidates.length ? "Select a monitor to add…" : "All monitors already added"} />
               </SelectTrigger>

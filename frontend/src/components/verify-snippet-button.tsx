@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, Loader2, ShieldCheck, ScanSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Stage = "idle" | "verifying" | "scanning" | "done" | "fail";
 
 export function VerifySnippetButton({ websiteId }: { websiteId: string }) {
+  const router = useRouter();
   const [stage, setStage] = useState<Stage>("idle");
   const [message, setMessage] = useState("");
 
@@ -40,7 +42,15 @@ export function VerifySnippetButton({ websiteId }: { websiteId: string }) {
         return;
       }
       setStage("done");
-      setMessage(data?.detail ?? "Scan queued — scripts will appear shortly.");
+      const count = typeof data?.count === "number" ? data.count : 0;
+      if (count > 0) {
+        // Scripts were found. The ingest runs async, so give it a moment to
+        // process, then refresh the page so the freshly-detected data loads.
+        setMessage(`${data?.detail ?? "Scan complete."} Loading results…`);
+        setTimeout(() => router.refresh(), 2500);
+      } else {
+        setMessage(data?.detail ?? "Scan queued — scripts will appear shortly.");
+      }
     } catch {
       setStage("fail");
       setMessage("Scan request failed. Try again.");
