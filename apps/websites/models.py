@@ -60,6 +60,7 @@ class Website(BaseModel):
 
     SEO_INTERVAL_CHOICES = [
         (0, "Off"),
+        (1, "Daily"),
         (3, "Every 3 days"),
         (7, "Every 7 days"),
         (14, "Every 14 days"),

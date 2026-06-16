@@ -139,10 +139,15 @@ class SeoReport(BaseModel):
     sitemap_status = models.CharField(max_length=20, default="unknown")  # found/missing/error
     sitemap_url = models.CharField(max_length=2048, blank=True)
     sitemap_url_count = models.PositiveIntegerField(default=0)
+    sitemap_pages = models.JSONField(default=list)  # the sitemap's URLs (capped) for display
 
     homepage_indexable = models.BooleanField(null=True, blank=True)
-    pages_checked = models.JSONField(default=list)  # [{"url","indexable","reason"}]
+    # Cumulative across scans: [{"url","indexable","reason","checked_at"}]. Each
+    # run checks a rotating window of pages and merges the results in, so the
+    # full set fills out over a few daily runs without one heavy scan.
+    pages_checked = models.JSONField(default=list)
     noindex_count = models.PositiveIntegerField(default=0)
+    scan_cursor = models.PositiveIntegerField(default=0)  # rotation offset into the page list
 
     def __str__(self):
         return f"SeoReport({self.website})"

@@ -100,9 +100,21 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
 
     def get_queryset(self):
+        from apps.scripts.tasks import _internal_hosts
+
         qs = super().get_queryset()
+        # Exclude Digivault's own infra scripts (the tracking snippet etc.) so the
+        # dashboard counts match the website detail page, which hides them.
+        internal_q = Q()
+        for host in _internal_hosts():
+            internal_q |= Q(scripts__src_url__icontains=host)
+        not_internal = ~internal_q
+
         return qs.annotate(
-            script_count=Count("scripts", filter=Q(scripts__is_active=True)),
+            script_count=Count(
+                "scripts",
+                filter=Q(scripts__is_active=True) & not_internal,
+            ),
             # Only unreviewed unknowns count — approving/ignoring clears them,
             # matching the website detail page's "Unknown scripts" KPI.
             unknown_script_count=Count(
@@ -111,7 +123,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                     scripts__is_active=True,
                     scripts__provider="unknown",
                     scripts__review_status="pending",
-                ),
+                ) & not_internal,
             ),
         ).select_related("team")
 

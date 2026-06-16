@@ -300,15 +300,18 @@ def run_seo_check(website_id: str) -> None:
                 report.sitemap_status = "found"
                 report.sitemap_url = sitemap_url
                 report.sitemap_url_count = count
+                report.sitemap_pages = [u for u in sitemap_urls if seo_checker.same_origin(base, u)][:1000]
             else:
                 report.sitemap_status = "missing"
         except Exception:
             report.sitemap_status = "missing"
 
-        # --- indexability: homepage + snippet-seen pages + sitemap pages ---
-        # noindex pages are normally EXCLUDED from the sitemap, so we check the
-        # pages the snippet has actually observed FIRST — that's where a hidden
-        # noindex turns up — then fill any remaining slots from the sitemap.
+        # --- indexability: rotating window of the page universe ---
+        # The universe is the homepage + pages the snippet has actually observed
+        # (where a hidden noindex turns up — noindex pages are kept out of the
+        # sitemap) + sitemap pages. Each run checks the homepage plus a rotating
+        # window of ~15 pages and MERGES results into the cumulative record, so
+        # over a few daily runs every page is covered without one heavy scan.
         from apps.scripts.models import Script
 
         seen_pages: list[str] = []
@@ -317,29 +320,53 @@ def run_seo_check(website_id: str) -> None:
                 if u not in seen_pages:
                     seen_pages.append(u)
 
-        candidates = [base + "/"]
+        home = base + "/"
+        universe = [home]
         for source in (seen_pages, sitemap_urls):
             for u in source:
-                if u and seo_checker.same_origin(base, u) and u not in candidates:
-                    candidates.append(u)
-                if len(candidates) >= seo_checker.MAX_PAGES:
-                    break
-            if len(candidates) >= seo_checker.MAX_PAGES:
-                break
+                if u and seo_checker.same_origin(base, u) and u not in universe:
+                    universe.append(u)
 
-        pages_checked = []
-        for url in candidates:
+        rest = universe[1:]
+        batch = [home]
+        if rest:
+            window = seo_checker.MAX_PAGES - 1  # others per scan (homepage always checked)
+            start = report.scan_cursor % len(rest)
+            picked = rest[start:start + window]
+            if len(picked) < window:
+                picked += rest[: window - len(picked)]  # wrap around
+            batch += picked
+            report.scan_cursor = (start + window) % len(rest)
+        else:
+            report.scan_cursor = 0
+
+        now_iso = timezone.now().isoformat()
+        fresh: dict[str, dict] = {}
+        home_indexable = None
+        for url in batch:
             try:
                 _sc, html, headers = seo_checker.fetch(url)
                 indexable, reason = seo_checker.page_indexability(html, headers.get("x-robots-tag", ""))
             except Exception:
                 continue
-            pages_checked.append({"url": url, "indexable": indexable, "reason": reason})
+            fresh[url] = {"url": url, "indexable": indexable, "reason": reason, "checked_at": now_iso}
+            if url == home:
+                home_indexable = indexable
+
+        # Merge fresh results over the cumulative record; keep only pages still
+        # in the universe (drops pages removed from the site over time).
+        merged = {p["url"]: p for p in (report.pages_checked or [])}
+        merged.update(fresh)
+        universe_set = set(universe)
+        pages_checked = [p for p in merged.values() if p["url"] in universe_set][:1000]
 
         report.pages_checked = pages_checked
         report.noindex_count = sum(1 for p in pages_checked if not p["indexable"])
-        home = next((p for p in pages_checked if p["url"] == base + "/"), None)
-        report.homepage_indexable = home["indexable"] if home else None
+        if home_indexable is not None:
+            report.homepage_indexable = home_indexable
+        else:
+            home_entry = next((p for p in pages_checked if p["url"] == home), None)
+            report.homepage_indexable = home_entry["indexable"] if home_entry else None
 
         report.check_status = "done"
         report.last_checked_at = timezone.now()

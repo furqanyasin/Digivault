@@ -72,6 +72,30 @@ def test_run_seo_check_detects_noindex_and_alerts(monkeypatch, team):
 
 
 @pytest.mark.django_db
+def test_run_seo_check_rotates_and_accumulates(monkeypatch, team):
+    w = Website.objects.create(team=team, name="S", domain="seo.example")
+    locs = "".join(f"<url><loc>https://seo.example/p{i}</loc></url>" for i in range(20))
+    sitemap = f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{locs}</urlset>'
+    pages = {
+        "https://seo.example/robots.txt": (200, ROBOTS_OK, {}),
+        "https://seo.example/sitemap.xml": (200, sitemap, {}),
+    }
+    monkeypatch.setattr(seo_checker, "fetch", _fake_fetch(pages))
+
+    run_seo_check(str(w.pk))
+    r = SeoReport.objects.get(website=w)
+    first = len(r.pages_checked)
+    assert first <= seo_checker.MAX_PAGES       # one rotating batch (home + window)
+    assert r.scan_cursor > 0                    # cursor advanced
+    assert r.sitemap_url_count == 20
+    assert len(r.sitemap_pages) == 20           # sitemap URLs stored for display
+
+    run_seo_check(str(w.pk))
+    r.refresh_from_db()
+    assert len(r.pages_checked) > first         # second run accumulated more pages
+
+
+@pytest.mark.django_db
 def test_run_seo_check_handles_unreachable_robots(monkeypatch, team):
     w = Website.objects.create(team=team, name="S", domain="seo.example")
 

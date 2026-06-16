@@ -185,11 +185,10 @@ export default async function DashboardPage() {
                         <span>Health</span>
                         <div className="flex items-center gap-2">
                           <span className={`font-bold text-sm ${
-                            (site.health_score ?? 100) >= 80
-                              ? "text-emerald-600"
-                              : (site.health_score ?? 100) >= 50
-                              ? "text-amber-500"
-                              : "text-red-500"
+                            site.status === "critical" ? "text-red-500" :
+                            site.status === "warning" ? "text-amber-500" :
+                            site.status === "active" ? "text-emerald-600" :
+                            "text-muted-foreground"
                           }`}>
                             {site.health_score ?? 100}
                           </span>
@@ -207,13 +206,7 @@ export default async function DashboardPage() {
                       </div>
                       <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all ${
-                            (site.health_score ?? 100) >= 80
-                              ? "bg-emerald-500"
-                              : (site.health_score ?? 100) >= 50
-                              ? "bg-amber-400"
-                              : "bg-red-500"
-                          }`}
+                          className={`h-full rounded-full transition-all ${STATUS_BAR[site.status ?? "inactive"] ?? "bg-slate-300"}`}
                           style={{ width: `${site.health_score ?? 100}%` }}
                         />
                       </div>

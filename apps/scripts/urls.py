@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.scripts.views import (
     AcknowledgeChangeView,
+    BulkAcknowledgeChangesView,
     BulkScriptReviewView,
     ExtensionLookupView,
     FormErrorIngestView,
@@ -41,6 +42,11 @@ script_urlpatterns = [
         "changes/<uuid:pk>/acknowledge/",
         AcknowledgeChangeView.as_view(),
         name="change-acknowledge",
+    ),
+    path(
+        "changes/bulk-acknowledge/",
+        BulkAcknowledgeChangesView.as_view(),
+        name="change-bulk-acknowledge",
     ),
     path(
         "websites/<uuid:website_pk>/scripts/bulk-review/",

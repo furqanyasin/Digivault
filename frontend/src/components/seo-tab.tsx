@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Loader2, RefreshCw, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-interface PageRow { url: string; indexable: boolean; reason: string }
+interface PageRow { url: string; indexable: boolean; reason: string; checked_at?: string }
 export interface SeoReport {
   last_checked_at: string | null;
   check_status: string;
@@ -14,6 +14,7 @@ export interface SeoReport {
   sitemap_status: string;
   sitemap_url: string;
   sitemap_url_count: number;
+  sitemap_pages: string[];
   homepage_indexable: boolean | null;
   pages_checked: PageRow[];
   noindex_count: number;
@@ -22,6 +23,7 @@ export interface SeoReport {
 
 const INTERVALS = [
   { v: 0, label: "Off" },
+  { v: 1, label: "Daily" },
   { v: 3, label: "Every 3 days" },
   { v: 7, label: "Every 7 days" },
   { v: 14, label: "Every 14 days" },
@@ -124,36 +126,53 @@ export function SeoTab({ websiteId, report }: { websiteId: string; report: SeoRe
           <p className="text-xs text-muted-foreground">
             {data.homepage_indexable === false
               ? "Homepage is noindex"
-              : `${data.noindex_count} noindex of ${data.pages_checked.length} checked`}
+              : `${data.noindex_count} noindex of ${data.pages_checked.length} pages tracked`}
           </p>
         </div>
       </div>
 
       {data.robots_content && (
         <details className="border rounded-lg">
-          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
-            robots.txt {data.sitemap_url && <span className="text-xs text-muted-foreground font-normal">· sitemap: {data.sitemap_url}</span>}
-          </summary>
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">robots.txt</summary>
           <pre className="px-3 pb-3 text-xs font-mono whitespace-pre-wrap break-all text-muted-foreground max-h-96 overflow-auto">
             {data.robots_content}
           </pre>
         </details>
       )}
 
+      {data.sitemap_pages?.length > 0 && (
+        <details className="border rounded-lg">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+            Sitemap <span className="text-xs text-muted-foreground font-normal">· {data.sitemap_url_count} URLs{data.sitemap_url ? ` · ${data.sitemap_url}` : ""}</span>
+          </summary>
+          <div className="px-3 pb-3 max-h-96 overflow-auto space-y-0.5">
+            {data.sitemap_pages.map((u) => (
+              <div key={u} className="text-xs font-mono text-muted-foreground break-all">{u}</div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {data.pages_checked.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-xs text-muted-foreground">
-            Indexability checked on {data.pages_checked.length} page{data.pages_checked.length !== 1 ? "s" : ""} —
-            the homepage plus pages the tracking snippet has actually seen and entries from the sitemap.
-            (A page set to <span className="font-medium">noindex</span> is usually kept out of the sitemap,
-            so the snippet-seen pages are where a hidden noindex turns up.)
+            Indexability is checked on a rotating batch of ~15 pages per run and accumulates here, so
+            every page is covered over a few runs (set the cadence to <span className="font-medium">Daily</span> above
+            for fastest coverage) — no heavy one-shot crawl. The set is the homepage, pages the tracking
+            snippet has actually seen (where a hidden <span className="font-medium">noindex</span> turns up,
+            since those are kept out of the sitemap), and sitemap entries.
           </p>
           <div className="border rounded-lg divide-y">
             {data.pages_checked.map((p) => (
-              <div key={p.url} className="flex items-center justify-between px-3 py-2 text-xs">
-                <span className="font-mono truncate max-w-[60%]" title={p.url}>{p.url}</span>
-                <span className={p.indexable ? "text-emerald-600" : "text-red-600"}>
-                  {p.indexable ? "indexable" : (p.reason || "noindex")}
+              <div key={p.url} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                <span className="font-mono truncate max-w-[55%]" title={p.url}>{p.url}</span>
+                <span className="flex items-center gap-3 shrink-0">
+                  {p.checked_at && (
+                    <span className="text-muted-foreground/60">{new Date(p.checked_at).toLocaleDateString()}</span>
+                  )}
+                  <span className={p.indexable ? "text-emerald-600" : "text-red-600"}>
+                    {p.indexable ? "indexable" : (p.reason || "noindex")}
+                  </span>
                 </span>
               </div>
             ))}
