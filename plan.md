@@ -83,6 +83,7 @@ status: **Built**, **Partial**, or **Not built**.
 - [x] Hosting provider / IP / Cloudflare detection (DomainInfo)
 - [x] Hosting renewal date (Client)
 - [ ] Server resource monitoring (CPU / RAM / disk / inode / bandwidth)
+- [ ] Server resource monitoring (CPU / RAM / disk / inode / bandwidth)
 - [ ] Hosting risk score
 
 ### Security Operations (SOC Lite) — Partial
