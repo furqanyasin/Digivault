@@ -270,6 +270,7 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
             # Always recalculate — noise cleanup may have shifted the status
             # even when no new trackable changes occurred.
             _update_website_status(website)
+            website.recalculate_health_score()
 
     except Exception as exc:
         logger.exception("process_ingest_payload failed for site_id=%s", site_id)

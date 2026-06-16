@@ -132,6 +132,17 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             return WebsiteCreateSerializer
         return WebsiteSerializer
 
+    def list(self, request, *args, **kwargs):
+        # Self-heal status/health for the listed sites so the dashboard reflects
+        # reality without the user opening each site. (Cheap at typical team
+        # sizes; revisit with a cached/periodic recalc if a team has very many.)
+        from apps.scripts.tasks import _update_website_status
+
+        for w in self.filter_queryset(self.get_queryset()):
+            _update_website_status(w)
+            w.recalculate_health_score()
+        return super().list(request, *args, **kwargs)
+
     def retrieve(self, request, *args, **kwargs):
         # Self-heal a stale status/health on view — e.g. a site left 'critical'
         # after its changes were cleared but the status wasn't recomputed.
