@@ -290,6 +290,44 @@ class AcknowledgeChangeView(APIView):
         return Response(ScriptChangeSerializer(change).data)
 
 
+class BulkAcknowledgeChangesView(APIView):
+    """POST /api/v1/changes/bulk-acknowledge/ — body {"change_ids": [...]}.
+
+    Acknowledges every listed change, then recalculates each affected website's
+    status + health score ONCE. Doing it per-website-once avoids the race that
+    happens when the UI fires many single-acknowledge requests in parallel — none
+    of which sees the others' uncommitted acks, so the site stays 'critical'.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def post(self, request):
+        team = request.user.active_team
+        change_ids = request.data.get("change_ids") or []
+        if not isinstance(change_ids, list) or not change_ids:
+            return Response({"detail": "change_ids must be a non-empty list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = ScriptChange.objects.filter(
+            pk__in=change_ids, website__team=team, acknowledged_at__isnull=True
+        )
+        website_ids = list(qs.values_list("website_id", flat=True).distinct())
+        updated = qs.update(acknowledged_at=timezone.now(), acknowledged_by=request.user)
+
+        from apps.scripts.tasks import _update_website_status
+        from apps.websites.models import Website
+        for website in Website.objects.filter(pk__in=website_ids):
+            _update_website_status(website)
+            website.recalculate_health_score()
+
+        if updated:
+            AuditService.log_request(
+                request, ActivityLog.Action.WEBSITE_CHANGE_ACKNOWLEDGED,
+                description=f"Acknowledged {updated} script change(s)",
+                resource_type="script_change",
+            )
+        return Response({"updated": updated})
+
+
 class ScriptReviewView(APIView):
     """PATCH /api/v1/websites/<website_pk>/scripts/<pk>/review/ — update review_status."""
 

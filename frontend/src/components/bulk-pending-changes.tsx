@@ -59,11 +59,13 @@ export function BulkPendingChanges({ changes, websiteId }: { changes: ScriptChan
     if (selected.size === 0) return;
     setAcking(true);
     try {
-      await Promise.all(
-        [...selected].map((id) =>
-          fetch(`/api/changes/${id}/acknowledge`, { method: "POST" })
-        )
-      );
+      // One bulk call so the website status/health is recalculated once, after
+      // all acks commit — parallel single-acks race and leave status stale.
+      await fetch(`/api/changes/bulk-acknowledge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ change_ids: [...selected] }),
+      });
       toast({ title: `${selected.size} change${selected.size > 1 ? "s" : ""} acknowledged` });
       setSelected(new Set());
       startTransition(() => router.refresh());
