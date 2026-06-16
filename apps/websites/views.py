@@ -132,6 +132,17 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             return WebsiteCreateSerializer
         return WebsiteSerializer
 
+    def retrieve(self, request, *args, **kwargs):
+        # Self-heal a stale status/health on view — e.g. a site left 'critical'
+        # after its changes were cleared but the status wasn't recomputed.
+        from apps.scripts.tasks import _update_website_status
+
+        obj = self.get_object()
+        _update_website_status(obj)
+        obj.recalculate_health_score()
+        obj = self.get_queryset().get(pk=obj.pk)  # re-read with annotations + fresh status
+        return Response(self.get_serializer(obj).data)
+
     def perform_create(self, serializer):
         website = serializer.save(team=self.request.user.active_team)
         AuditService.log_request(
