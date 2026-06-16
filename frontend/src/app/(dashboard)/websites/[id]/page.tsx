@@ -20,6 +20,7 @@ import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { DomainExtras } from "@/components/domain-extras";
+import { TrackingTab } from "@/components/tracking-tab";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
@@ -252,6 +253,9 @@ export default async function WebsiteDetailPage({
           )}
           <TabsTrigger value="forms" asChild>
             <Link href={`/websites/${id}?tab=forms`} prefetch>Forms ({forms.length})</Link>
+          </TabsTrigger>
+          <TabsTrigger value="tracking" asChild>
+            <Link href={`/websites/${id}?tab=tracking`} prefetch>Tracking</Link>
           </TabsTrigger>
           <TabsTrigger value="access" asChild>
             <Link href={`/websites/${id}?tab=access`} prefetch>Access & Domain</Link>
@@ -595,6 +599,18 @@ export default async function WebsiteDetailPage({
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tracking ── */}
+        <TabsContent value="tracking">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Tracking Codes</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <TrackingTab scripts={scripts.filter((s) => !isInternalStr(s.src_url))} />
             </CardContent>
           </Card>
         </TabsContent>
