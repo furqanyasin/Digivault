@@ -265,6 +265,9 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
 
         run_security_scan.apply_async(args=[str(website.pk)], countdown=5)
 
+        from apps.site_health.tasks import run_seo_check
+        run_seo_check.apply_async(args=[str(website.pk)], countdown=5)
+
         AuditService.log_request(
             request, ActivityLog.Action.WEBSITE_SCAN_TRIGGERED,
             description=f"Triggered scan for '{website.domain}'",

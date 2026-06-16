@@ -11,7 +11,8 @@ def no_network_in_tests():
     """Block all real network calls that fire during website creation fixtures."""
     with patch("apps.websites.tasks._run_uptime_check", return_value=None), \
          patch("apps.websites.tasks._run_domain_check", return_value=None), \
-         patch("apps.websites.tasks._run_performance_check", return_value=None):
+         patch("apps.websites.tasks._run_performance_check", return_value=None), \
+         patch("apps.site_health.seo_checker.fetch", side_effect=OSError("no network in tests")):
         yield
 
 

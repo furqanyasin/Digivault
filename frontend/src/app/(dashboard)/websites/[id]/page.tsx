@@ -18,11 +18,12 @@ import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
 import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
+import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string, id: string) {
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -36,6 +37,7 @@ async function getData(token: string, id: string) {
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
     api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
+    api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -51,6 +53,7 @@ async function getData(token: string, id: string) {
     siteEvents: siteEvents.status === "fulfilled" ? siteEvents.value : [],
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
     scanState: scanState.status === "fulfilled" ? scanState.value : null,
+    seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
   };
 }
 
@@ -110,7 +113,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -270,6 +273,9 @@ export default async function WebsiteDetailPage({
           )}
           <TabsTrigger value="security" asChild>
             <Link href={`/websites/${id}?tab=security`} prefetch>Security {vulns.length > 0 ? `(${vulns.length})` : ""}</Link>
+          </TabsTrigger>
+          <TabsTrigger value="seo" asChild>
+            <Link href={`/websites/${id}?tab=seo`} prefetch>SEO</Link>
           </TabsTrigger>
           <TabsTrigger value="setup" asChild>
             <Link href={`/websites/${id}?tab=setup`} prefetch>
@@ -571,6 +577,18 @@ export default async function WebsiteDetailPage({
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── SEO ── */}
+        <TabsContent value="seo">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">SEO Health</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <SeoTab websiteId={id} report={seoReport} />
             </CardContent>
           </Card>
         </TabsContent>

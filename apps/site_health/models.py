@@ -41,6 +41,9 @@ class SiteEvent(BaseModel):
         CORE_UPDATED = "core_updated", "Core Updated"
         DEPLOYMENT = "deployment", "Deployment"
         MANUAL = "manual", "Manual Entry"
+        SEO_NOINDEX_DETECTED = "seo_noindex_detected", "SEO: noindex detected"
+        SEO_ROBOTS_BLOCK = "seo_robots_block", "SEO: robots.txt blocks all"
+        SEO_SITEMAP_MISSING = "seo_sitemap_missing", "SEO: sitemap missing"
 
     class Severity(models.TextChoices):
         INFO = "info", "Info"
@@ -115,3 +118,28 @@ class SiteScanState(BaseModel):
 
     def __str__(self):
         return f"ScanState({self.website})"
+
+
+class SeoReport(BaseModel):
+    """One-per-website snapshot of robots/sitemap/indexability health."""
+
+    website = models.OneToOneField(
+        "websites.Website", on_delete=models.CASCADE, related_name="seo_report"
+    )
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    check_status = models.CharField(max_length=20, default="never")  # never/running/done/failed
+    error = models.TextField(blank=True)
+
+    robots_status = models.CharField(max_length=20, default="unknown")  # found/missing/error
+    robots_blocks_all = models.BooleanField(default=False)
+
+    sitemap_status = models.CharField(max_length=20, default="unknown")  # found/missing/error
+    sitemap_url = models.CharField(max_length=2048, blank=True)
+    sitemap_url_count = models.PositiveIntegerField(default=0)
+
+    homepage_indexable = models.BooleanField(null=True, blank=True)
+    pages_checked = models.JSONField(default=list)  # [{"url","indexable","reason"}]
+    noindex_count = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"SeoReport({self.website})"

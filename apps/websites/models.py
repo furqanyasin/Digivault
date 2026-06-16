@@ -58,6 +58,18 @@ class Website(BaseModel):
     last_seen_at = models.DateTimeField(null=True, blank=True)
     health_score = models.IntegerField(default=100)
 
+    SEO_INTERVAL_CHOICES = [
+        (0, "Off"),
+        (3, "Every 3 days"),
+        (7, "Every 7 days"),
+        (14, "Every 14 days"),
+        (30, "Every 30 days"),
+    ]
+    seo_scan_interval_days = models.PositiveSmallIntegerField(
+        choices=SEO_INTERVAL_CHOICES, default=0,
+        help_text="How often to auto-run the SEO health check. 0 = off.",
+    )
+
     objects = TeamScopedQuerySet.as_manager()
 
     class Meta:
