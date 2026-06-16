@@ -150,11 +150,11 @@ export interface Notification {
 
 export interface AlertRule {
   id: string;
-  team: string;
-  name: string;
+  website: string | null;
   channel: string;
-  min_risk_score: number;
-  classifications: string[];
+  min_severity: "high" | "medium" | "low";
+  change_types: string[];
+  delivery_mode: "immediate" | "hourly_digest" | "daily_digest";
   is_active: boolean;
 }
 
