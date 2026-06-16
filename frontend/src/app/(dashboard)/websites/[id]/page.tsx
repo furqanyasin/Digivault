@@ -24,22 +24,37 @@ import { TrackingTab } from "@/components/tracking-tab";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
-async function getData(token: string, id: string) {
+async function getData(token: string, id: string, tab: string) {
+  // Tab-local, heavier data (Performance / Access / SEO) is fetched only when
+  // its tab is active. None of these drive a tab-count badge, so deferring them
+  // keeps the common loads (overview/scripts/forms/…) from waiting on calls
+  // they don't render — 9 fetches instead of 14.
+  const wantPerf = tab === "performance";
   const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
-    api.get<DomainInfo | null>(`/api/v1/websites/${id}/domain/`, token),
-    api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token),
-    api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token),
-    api.get<CruxReport[]>(`/api/v1/websites/${id}/crux/`, token),
+    tab === "access"
+      ? api.get<DomainInfo | null>(`/api/v1/websites/${id}/domain/`, token)
+      : Promise.resolve(null),
+    wantPerf
+      ? api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token)
+      : Promise.resolve([] as PerformanceReport[]),
+    wantPerf
+      ? api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token)
+      : Promise.resolve([] as PerformanceReport[]),
+    wantPerf
+      ? api.get<CruxReport[]>(`/api/v1/websites/${id}/crux/`, token)
+      : Promise.resolve([] as CruxReport[]),
     api.get<DetectedForm[]>(`/api/v1/websites/${id}/forms/`, token),
     api.get<FormSubmissionError[]>(`/api/v1/websites/${id}/form-errors/`, token),
     api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
     api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
-    api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
+    tab === "seo"
+      ? api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token)
+      : Promise.resolve(null),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -115,7 +130,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport } = await getData(token ?? "", id, tab);
 
   if (!website) {
     return (
