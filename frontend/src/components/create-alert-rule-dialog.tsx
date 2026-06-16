@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -29,9 +28,9 @@ export function CreateAlertRuleDialog() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    name: "",
     channel: "in_app",
-    min_risk_score: "0",
+    min_severity: "medium",
+    delivery_mode: "immediate",
   });
 
   function update(key: string, value: string) {
@@ -46,9 +45,9 @@ export function CreateAlertRuleDialog() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: form.name,
           channel: form.channel,
-          min_risk_score: Number(form.min_risk_score),
+          min_severity: form.min_severity,
+          delivery_mode: form.delivery_mode,
           is_active: true,
         }),
       });
@@ -60,7 +59,7 @@ export function CreateAlertRuleDialog() {
       }
       toast({ title: "Alert rule created" });
       setOpen(false);
-      setForm({ name: "", channel: "in_app", min_risk_score: "0" });
+      setForm({ channel: "in_app", min_severity: "medium", delivery_mode: "immediate" });
       router.refresh();
     } catch {
       toast({ variant: "destructive", title: "Network error" });
@@ -83,34 +82,38 @@ export function CreateAlertRuleDialog() {
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Rule name</Label>
-            <Input
-              placeholder="e.g. High severity Slack alerts"
-              value={form.name}
-              onChange={(e) => update("name", e.target.value)}
-              required
-            />
-          </div>
-          <div className="space-y-1.5">
             <Label>Channel</Label>
             <Select value={form.channel} onValueChange={(v) => update("channel", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="in_app">In-app</SelectItem>
                 <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="slack">Slack</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Minimum risk score (0–100)</Label>
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              value={form.min_risk_score}
-              onChange={(e) => update("min_risk_score", e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">Only trigger for changes above this risk score. 0 = all changes.</p>
+            <Label>Trigger on</Label>
+            <Select value={form.min_severity} onValueChange={(v) => update("min_severity", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="high">High severity only</SelectItem>
+                <SelectItem value="medium">Medium &amp; above</SelectItem>
+                <SelectItem value="low">All changes</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Only notify for changes at or above this severity.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Delivery</Label>
+            <Select value={form.delivery_mode} onValueChange={(v) => update("delivery_mode", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="immediate">Immediate</SelectItem>
+                <SelectItem value="hourly_digest">Hourly digest</SelectItem>
+                <SelectItem value="daily_digest">Daily digest</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>Cancel</Button>

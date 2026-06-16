@@ -9,6 +9,18 @@ import { AcknowledgeButton } from "@/components/acknowledge-button";
 import { CreateAlertRuleDialog } from "@/components/create-alert-rule-dialog";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
+const CHANNEL_LABEL: Record<string, string> = {
+  in_app: "In-app",
+  email: "Email",
+  slack: "Slack",
+};
+
+const SEVERITY_LABEL: Record<string, string> = {
+  high: "High severity only",
+  medium: "Medium & above",
+  low: "All changes",
+};
+
 async function getData(token: string) {
   const [notificationsResult, rulesResult, websitesResult] = await Promise.allSettled([
     api.get<Notification[]>("/api/v1/notifications/", token),
@@ -160,18 +172,20 @@ export default async function AlertsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
                   <TableHead>Channel</TableHead>
-                  <TableHead>Min risk score</TableHead>
+                  <TableHead>Triggers on</TableHead>
+                  <TableHead>Scope</TableHead>
+                  <TableHead>Delivery</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rules.map((rule) => (
                   <TableRow key={rule.id}>
-                    <TableCell className="font-medium">{rule.name}</TableCell>
-                    <TableCell className="capitalize">{rule.channel}</TableCell>
-                    <TableCell>{rule.min_risk_score}</TableCell>
+                    <TableCell className="font-medium">{CHANNEL_LABEL[rule.channel] ?? rule.channel}</TableCell>
+                    <TableCell>{SEVERITY_LABEL[rule.min_severity] ?? rule.min_severity}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{rule.website ? "This site" : "All sites"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground capitalize">{rule.delivery_mode.replace("_", " ")}</TableCell>
                     <TableCell>
                       <Badge variant={rule.is_active ? "success" : "secondary"}>
                         {rule.is_active ? "Active" : "Paused"}
