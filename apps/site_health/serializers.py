@@ -43,7 +43,11 @@ class VulnerabilityReportSerializer(BaseModelSerializer):
 class SiteScanStateSerializer(BaseModelSerializer):
     class Meta:
         model = SiteScanState
-        fields = ("last_scanned_at", "scan_status", "wp_version", "plugins_detected", "error")
+        fields = (
+            "last_scanned_at", "scan_status", "wp_version",
+            "wp_latest_version", "wp_update_available",
+            "plugins_detected", "error",
+        )
         read_only_fields = fields
 
 

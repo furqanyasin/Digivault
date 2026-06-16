@@ -113,6 +113,8 @@ class SiteScanState(BaseModel):
     last_scanned_at = models.DateTimeField(null=True, blank=True)
     scan_status = models.CharField(max_length=20, default="never")
     wp_version = models.CharField(max_length=20, blank=True)
+    wp_latest_version = models.CharField(max_length=20, blank=True)
+    wp_update_available = models.BooleanField(default=False)
     plugins_detected = models.JSONField(default=list)
     error = models.TextField(blank=True)
 

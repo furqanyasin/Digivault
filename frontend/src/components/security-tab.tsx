@@ -78,7 +78,16 @@ export function SecurityTab({ websiteId, vulns, scanState }: Props) {
             )}
           </p>
           {state?.wp_version && (
-            <p className="text-xs text-muted-foreground">WordPress {state.wp_version}</p>
+            <p className="text-xs text-muted-foreground">
+              WordPress {state.wp_version}
+              {state.wp_update_available && state.wp_latest_version ? (
+                <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">
+                  <ShieldAlert className="h-3 w-3" /> Update available → {state.wp_latest_version}
+                </span>
+              ) : state.wp_latest_version ? (
+                <span className="ml-1.5 text-emerald-600">· up to date</span>
+              ) : null}
+            </p>
           )}
         </div>
         <Button

@@ -120,9 +120,19 @@ def run_security_scan(website_id: str) -> None:
                 defaults=v,
             )
 
+        # CMS update-available: compare detected WP core version to the latest.
+        if state.wp_version:
+            latest = _fetch_latest_wp_version()
+            if latest:
+                state.wp_latest_version = latest
+                state.wp_update_available = _version_lt(state.wp_version, latest)
+
         state.last_scanned_at = timezone.now()
         state.scan_status = "done"
-        state.save(update_fields=["last_scanned_at", "scan_status", "plugins_detected"])
+        state.save(update_fields=[
+            "last_scanned_at", "scan_status", "plugins_detected",
+            "wp_latest_version", "wp_update_available",
+        ])
         website.recalculate_health_score()
 
     except Exception as exc:
@@ -130,6 +140,38 @@ def run_security_scan(website_id: str) -> None:
         state.scan_status = "failed"
         state.error = str(exc)
         state.save(update_fields=["scan_status", "error"])
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    parts = []
+    for chunk in str(v).split("."):
+        num = "".join(c for c in chunk if c.isdigit())
+        parts.append(int(num) if num else 0)
+    return tuple(parts)
+
+
+def _version_lt(current: str, latest: str) -> bool:
+    """True if `current` is an older version than `latest`."""
+    return _version_tuple(current) < _version_tuple(latest)
+
+
+def _fetch_latest_wp_version() -> str | None:
+    """Return the current stable WordPress core version, or None on failure."""
+    try:
+        req = urllib.request.Request(
+            "https://api.wordpress.org/core/version-check/1.7/",
+            headers={"User-Agent": "Digivault/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        offers = data.get("offers", [])
+        for offer in offers:
+            if offer.get("response") == "upgrade" or offer.get("current"):
+                return offer.get("current")
+        return offers[0].get("current") if offers else None
+    except Exception as exc:
+        logger.warning("Failed to fetch latest WP version: %s", exc)
+        return None
 
 
 def _map_cvss_to_severity(score) -> str:

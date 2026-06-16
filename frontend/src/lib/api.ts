@@ -374,6 +374,8 @@ export interface SiteScanState {
   last_scanned_at: string | null;
   scan_status: "never" | "running" | "done" | "failed";
   wp_version: string;
+  wp_latest_version: string;
+  wp_update_available: boolean;
   plugins_detected: string[];
   error: string;
 }
