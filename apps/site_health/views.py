@@ -8,10 +8,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.permissions import IsTeamMember
-from apps.site_health.models import PhpError, SiteEvent, SiteScanState, VulnerabilityReport
+from apps.site_health.models import PhpError, SeoReport, SiteEvent, SiteScanState, VulnerabilityReport
 from apps.site_health.serializers import (
     PhpErrorIngestSerializer,
     PhpErrorSerializer,
+    SeoReportSerializer,
     SiteEventCreateSerializer,
     SiteEventSerializer,
     SiteScanStateSerializer,
@@ -143,3 +144,36 @@ class WebsiteSecurityScanView(APIView):
         website = generics.get_object_or_404(Website, pk=website_pk, team=team)
         run_security_scan.delay(str(website.pk))
         return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
+
+
+class WebsiteSeoView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get(self, request, website_pk):
+        team = request.user.active_team
+        website = generics.get_object_or_404(Website, pk=website_pk, team=team)
+        report, _ = SeoReport.objects.get_or_create(website=website)
+        data = SeoReportSerializer(report).data
+        data["seo_scan_interval_days"] = website.seo_scan_interval_days
+        return Response(data)
+
+    def post(self, request, website_pk):
+        from apps.site_health.tasks import run_seo_check
+        team = request.user.active_team
+        website = generics.get_object_or_404(Website, pk=website_pk, team=team)
+        run_seo_check.delay(str(website.pk))
+        return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
+
+    def patch(self, request, website_pk):
+        team = request.user.active_team
+        website = generics.get_object_or_404(Website, pk=website_pk, team=team)
+        valid = {c[0] for c in Website.SEO_INTERVAL_CHOICES}
+        try:
+            interval = int(request.data.get("seo_scan_interval_days"))
+        except (TypeError, ValueError):
+            return Response({"detail": "Invalid interval."}, status=status.HTTP_400_BAD_REQUEST)
+        if interval not in valid:
+            return Response({"detail": "Invalid interval."}, status=status.HTTP_400_BAD_REQUEST)
+        website.seo_scan_interval_days = interval
+        website.save(update_fields=["seo_scan_interval_days"])
+        return Response({"seo_scan_interval_days": interval})

@@ -53,7 +53,7 @@ export function FormsTab({ forms }: Props) {
     return (
       <div className="py-16 flex flex-col items-center gap-3 text-center">
         <FileText className="h-10 w-10 text-muted-foreground" />
-        <p className="font-medium">No forms detected yet</p>
+        <p className="font-medium">No form errors detected yet</p>
         <p className="text-sm text-muted-foreground max-w-sm">
           Forms will appear here once the tracking snippet fires on a page that contains a{" "}
           <code className="bg-muted px-1 rounded">&lt;form&gt;</code> element.

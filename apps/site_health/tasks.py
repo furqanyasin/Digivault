@@ -120,9 +120,19 @@ def run_security_scan(website_id: str) -> None:
                 defaults=v,
             )
 
+        # CMS update-available: compare detected WP core version to the latest.
+        if state.wp_version:
+            latest = _fetch_latest_wp_version()
+            if latest:
+                state.wp_latest_version = latest
+                state.wp_update_available = _version_lt(state.wp_version, latest)
+
         state.last_scanned_at = timezone.now()
         state.scan_status = "done"
-        state.save(update_fields=["last_scanned_at", "scan_status", "plugins_detected"])
+        state.save(update_fields=[
+            "last_scanned_at", "scan_status", "plugins_detected",
+            "wp_latest_version", "wp_update_available",
+        ])
         website.recalculate_health_score()
 
     except Exception as exc:
@@ -130,6 +140,38 @@ def run_security_scan(website_id: str) -> None:
         state.scan_status = "failed"
         state.error = str(exc)
         state.save(update_fields=["scan_status", "error"])
+
+
+def _version_tuple(v: str) -> tuple[int, ...]:
+    parts = []
+    for chunk in str(v).split("."):
+        num = "".join(c for c in chunk if c.isdigit())
+        parts.append(int(num) if num else 0)
+    return tuple(parts)
+
+
+def _version_lt(current: str, latest: str) -> bool:
+    """True if `current` is an older version than `latest`."""
+    return _version_tuple(current) < _version_tuple(latest)
+
+
+def _fetch_latest_wp_version() -> str | None:
+    """Return the current stable WordPress core version, or None on failure."""
+    try:
+        req = urllib.request.Request(
+            "https://api.wordpress.org/core/version-check/1.7/",
+            headers={"User-Agent": "Digivault/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        offers = data.get("offers", [])
+        for offer in offers:
+            if offer.get("response") == "upgrade" or offer.get("current"):
+                return offer.get("current")
+        return offers[0].get("current") if offers else None
+    except Exception as exc:
+        logger.warning("Failed to fetch latest WP version: %s", exc)
+        return None
 
 
 def _map_cvss_to_severity(score) -> str:
@@ -203,3 +245,132 @@ def purge_old_php_errors(days: int = 90) -> int:
 
     logger.info("site_health.purge_old_php_errors: removed %d rows", total)
     return total
+
+
+@shared_task(name="site_health.run_seo_check")
+def run_seo_check(website_id: str) -> None:
+    from apps.site_health import seo_checker
+    from apps.site_health.models import SeoReport, SiteEvent
+    from apps.site_health.notifications import notify_team
+    from apps.websites.models import Website
+
+    try:
+        website = Website.objects.get(pk=website_id)
+    except Website.DoesNotExist:
+        return
+
+    report, _ = SeoReport.objects.get_or_create(website=website)
+    prev = {
+        "homepage_indexable": report.homepage_indexable,
+        "robots_blocks_all": report.robots_blocks_all,
+        "sitemap_status": report.sitemap_status,
+        "first_run": report.check_status == "never",
+    }
+    report.check_status = "running"
+    report.error = ""
+    report.save(update_fields=["check_status", "error"])
+
+    domain = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
+    base = domain.rstrip("/")
+
+    try:
+        # --- robots.txt ---
+        robots = {"blocks_all": False, "sitemaps": []}
+        try:
+            status_code, body, _h = seo_checker.fetch(f"{base}/robots.txt")
+            if status_code == 200 and body.strip():
+                robots = seo_checker.parse_robots(body)
+                report.robots_status = "found"
+            else:
+                report.robots_status = "missing"
+        except Exception:
+            report.robots_status = "missing"
+        report.robots_blocks_all = robots["blocks_all"]
+
+        # --- sitemap ---
+        sitemap_url = robots["sitemaps"][0] if robots["sitemaps"] else f"{base}/sitemap.xml"
+        sitemap_urls: list[str] = []
+        try:
+            status_code, body, _h = seo_checker.fetch(sitemap_url)
+            if status_code == 200 and body.strip():
+                count, sitemap_urls = seo_checker.count_sitemap_urls(body, seo_checker.fetch)
+                report.sitemap_status = "found"
+                report.sitemap_url = sitemap_url
+                report.sitemap_url_count = count
+            else:
+                report.sitemap_status = "missing"
+        except Exception:
+            report.sitemap_status = "missing"
+
+        # --- indexability: homepage + up to MAX_PAGES sitemap pages ---
+        candidates = [base + "/"]
+        for u in sitemap_urls:
+            if seo_checker.same_origin(base, u) and u not in candidates:
+                candidates.append(u)
+            if len(candidates) >= seo_checker.MAX_PAGES:
+                break
+
+        pages_checked = []
+        for url in candidates:
+            try:
+                _sc, html, headers = seo_checker.fetch(url)
+                indexable, reason = seo_checker.page_indexability(html, headers.get("x-robots-tag", ""))
+            except Exception:
+                continue
+            pages_checked.append({"url": url, "indexable": indexable, "reason": reason})
+
+        report.pages_checked = pages_checked
+        report.noindex_count = sum(1 for p in pages_checked if not p["indexable"])
+        home = next((p for p in pages_checked if p["url"] == base + "/"), None)
+        report.homepage_indexable = home["indexable"] if home else None
+
+        report.check_status = "done"
+        report.last_checked_at = timezone.now()
+        report.save()
+    except Exception as exc:
+        logger.exception("run_seo_check failed for %s", website_id)
+        report.check_status = "failed"
+        report.error = str(exc)[:500]
+        report.save(update_fields=["check_status", "error"])
+        return
+
+    # --- regression alerts (skip on the first-ever run) ---
+    if prev["first_run"]:
+        return
+
+    def _alert(event_type, severity, summary):
+        SiteEvent.objects.create(
+            website=website, event_type=event_type, severity=severity, summary=summary,
+        )
+        notify_team(website.team, f"[Digivault] {summary}", f"{summary} — {website.domain}")
+
+    label = website.name or website.domain
+    if prev["homepage_indexable"] is True and report.homepage_indexable is False:
+        _alert(SiteEvent.EventType.SEO_NOINDEX_DETECTED, SiteEvent.Severity.CRITICAL,
+               f"{label} homepage is now set to noindex")
+    if not prev["robots_blocks_all"] and report.robots_blocks_all:
+        _alert(SiteEvent.EventType.SEO_ROBOTS_BLOCK, SiteEvent.Severity.CRITICAL,
+               f"{label} robots.txt now blocks all crawlers")
+    if prev["sitemap_status"] == "found" and report.sitemap_status == "missing":
+        _alert(SiteEvent.EventType.SEO_SITEMAP_MISSING, SiteEvent.Severity.WARNING,
+               f"{label} sitemap is no longer reachable")
+
+
+@shared_task(name="site_health.run_due_seo_checks")
+def run_due_seo_checks() -> int:
+    from apps.site_health.models import SeoReport
+    from apps.websites.models import Website
+
+    now = timezone.now()
+    enqueued = 0
+    for w in Website.objects.exclude(seo_scan_interval_days=0).iterator():
+        report = SeoReport.objects.filter(website=w).first()
+        due = (
+            report is None
+            or report.last_checked_at is None
+            or report.last_checked_at + timezone.timedelta(days=w.seo_scan_interval_days) <= now
+        )
+        if due:
+            run_seo_check.delay(str(w.pk))
+            enqueued += 1
+    return enqueued

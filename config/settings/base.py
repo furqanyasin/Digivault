@@ -212,6 +212,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "domains.check_all_domains",
         "schedule": crontab(hour=6, minute=0),
     },
+    "run-due-seo-checks": {
+        "task": "site_health.run_due_seo_checks",
+        "schedule": crontab(hour=4, minute=0),
+    },
     "purge-old-snapshots-weekly": {
         "task": "scripts.purge_old_snapshots",
         "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),

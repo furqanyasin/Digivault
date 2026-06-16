@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.accounts.totp_views import (
+    FirstPasswordView,
     LoginView,
     TotpConfirmView,
     TotpDisableView,
@@ -35,6 +36,7 @@ urlpatterns = [
     # Auth
     path("register/", RegisterView.as_view(), name="auth-register"),
     path("login/", LoginView.as_view(), name="auth-login"),
+    path("first-password/", FirstPasswordView.as_view(), name="auth-first-password"),
     # Legacy direct-token endpoint (used by API clients / tests; 2FA enforced at frontend layer)
     path("token/", TokenObtainPairView.as_view(), name="auth-token-obtain"),
     path("token/refresh/", TokenRefreshView.as_view(), name="auth-token-refresh"),

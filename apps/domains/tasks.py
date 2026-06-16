@@ -10,8 +10,10 @@ from django.utils import timezone
 from apps.domains.models import DomainAlert, DomainInfo
 from apps.domains.services import (
     DOMAIN_ALERT_THRESHOLDS,
+    HOSTING_ALERT_THRESHOLDS,
     SSL_ALERT_THRESHOLDS,
     DomainIntelligenceService,
+    check_smtp,
 )
 from apps.websites.models import Website
 
@@ -51,6 +53,14 @@ def check_domain(self, website_id: str) -> None:
         },
     )
 
+    # Mail (SMTP) health — best-effort, never blocks the domain check.
+    smtp = check_smtp(website.domain)
+    DomainInfo.objects.filter(pk=domain_info.pk).update(
+        smtp_status=smtp["smtp_status"],
+        mx_hosts=smtp["mx_hosts"],
+        smtp_checked_at=timezone.now(),
+    )
+
     _create_expiry_alerts(domain_info)
     _deliver_unsent_alerts(domain_info)
     website.recalculate_health_score()
@@ -70,6 +80,11 @@ def _create_expiry_alerts(domain_info: DomainInfo) -> None:
             DomainAlert.AlertType.SSL,
             domain_info.ssl_expires_at,
             SSL_ALERT_THRESHOLDS,
+        ),
+        (
+            DomainAlert.AlertType.HOSTING,
+            domain_info.hosting_expires_at,
+            HOSTING_ALERT_THRESHOLDS,
         ),
     ):
         if not expires_at:
@@ -94,7 +109,7 @@ def _deliver_unsent_alerts(domain_info: DomainInfo) -> None:
     """
     from apps.domains.notifications import deliver_domain_alert
 
-    for alert_type in (DomainAlert.AlertType.DOMAIN, DomainAlert.AlertType.SSL):
+    for alert_type in (DomainAlert.AlertType.DOMAIN, DomainAlert.AlertType.SSL, DomainAlert.AlertType.HOSTING):
         unsent = list(
             domain_info.alerts.filter(sent=False, alert_type=alert_type)
             .order_by("days_until_expiry")

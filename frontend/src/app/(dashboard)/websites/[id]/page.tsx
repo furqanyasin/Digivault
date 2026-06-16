@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings, Server } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
@@ -18,11 +18,14 @@ import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
 import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
+import { SeoTab, type SeoReport } from "@/components/seo-tab";
+import { DomainExtras } from "@/components/domain-extras";
+import { TrackingTab } from "@/components/tracking-tab";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string, id: string) {
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -36,6 +39,7 @@ async function getData(token: string, id: string) {
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
     api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
+    api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -51,6 +55,7 @@ async function getData(token: string, id: string) {
     siteEvents: siteEvents.status === "fulfilled" ? siteEvents.value : [],
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
     scanState: scanState.status === "fulfilled" ? scanState.value : null,
+    seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
   };
 }
 
@@ -110,7 +115,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -249,6 +254,9 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="forms" asChild>
             <Link href={`/websites/${id}?tab=forms`} prefetch>Forms ({forms.length})</Link>
           </TabsTrigger>
+          <TabsTrigger value="tracking" asChild>
+            <Link href={`/websites/${id}?tab=tracking`} prefetch>Tracking</Link>
+          </TabsTrigger>
           <TabsTrigger value="access" asChild>
             <Link href={`/websites/${id}?tab=access`} prefetch>Access & Domain</Link>
           </TabsTrigger>
@@ -270,6 +278,9 @@ export default async function WebsiteDetailPage({
           )}
           <TabsTrigger value="security" asChild>
             <Link href={`/websites/${id}?tab=security`} prefetch>Security {vulns.length > 0 ? `(${vulns.length})` : ""}</Link>
+          </TabsTrigger>
+          <TabsTrigger value="seo" asChild>
+            <Link href={`/websites/${id}?tab=seo`} prefetch>SEO</Link>
           </TabsTrigger>
           <TabsTrigger value="setup" asChild>
             <Link href={`/websites/${id}?tab=setup`} prefetch>
@@ -452,6 +463,23 @@ export default async function WebsiteDetailPage({
                   )}
                 </CardContent>
               </Card>
+              <Card className="md:col-span-2">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Server className="h-4 w-4" />
+                    Hosting renewal & Mail
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DomainExtras
+                    websiteId={id}
+                    hostingExpiresAt={domainInfo.hosting_expires_at}
+                    hostingDaysUntilExpiry={domainInfo.hosting_days_until_expiry}
+                    smtpStatus={domainInfo.smtp_status}
+                    mxHosts={domainInfo.mx_hosts ?? []}
+                  />
+                </CardContent>
+              </Card>
               <div className="md:col-span-2 flex justify-end">
                 <RefreshDomainButton websiteId={id} />
               </div>
@@ -571,6 +599,30 @@ export default async function WebsiteDetailPage({
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Tracking ── */}
+        <TabsContent value="tracking">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Tracking Codes</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <TrackingTab scripts={scripts.filter((s) => !isInternalStr(s.src_url))} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── SEO ── */}
+        <TabsContent value="seo">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">SEO Health</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <SeoTab websiteId={id} report={seoReport} />
             </CardContent>
           </Card>
         </TabsContent>

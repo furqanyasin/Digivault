@@ -34,8 +34,8 @@ class UserSerializer(BaseModelSerializer):
 
     class Meta:
         model = User
-        fields = ("id", "email", "first_name", "last_name", "timezone", "active_team", "created_at")
-        read_only_fields = ("id", "email", "active_team", "created_at")
+        fields = ("id", "email", "first_name", "last_name", "timezone", "active_team", "must_change_password", "created_at")
+        read_only_fields = ("id", "email", "active_team", "must_change_password", "created_at")
 
 
 class TeamSerializer(BaseModelSerializer):

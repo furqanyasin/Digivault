@@ -24,13 +24,6 @@ interface Member {
   user: { id: string; email: string; first_name: string; last_name: string };
 }
 
-interface PaginatedLogs {
-  count: number;
-  next: string | null;
-  previous: string | null;
-  results: LogEntry[];
-}
-
 const ACTION_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   "auth.login": "default",
   "auth.login_failed": "destructive",
@@ -83,7 +76,12 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<Member[]>([]);
   const [myRole, setMyRole] = useState<string>("viewer");
-  const [selectedUser, setSelectedUser] = useState("");
+  // Preselect a member when arriving via /logs?user_id=… (e.g. the
+  // "View activity" link on the Members page).
+  const [selectedUser, setSelectedUser] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("user_id") ?? "";
+  });
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
 
@@ -96,10 +94,14 @@ export default function LogsPage() {
     const res = await fetch(`/api/logs?${qs}`);
     if (res.ok) {
       const envelope = await res.json();
-      const body: PaginatedLogs = envelope?.data ?? envelope;
-      setLogs(body.results ?? []);
-      setTotal(body.count ?? 0);
-      setHasNext(!!body.next);
+      // List responses are enveloped as { data: [...rows], meta: {count, next, previous} }.
+      // (StandardPagination puts the array in `data` and counts in `meta`.)
+      const payload = envelope?.data ?? envelope;
+      const rows: LogEntry[] = Array.isArray(payload) ? payload : (payload?.results ?? []);
+      const meta = envelope?.meta ?? {};
+      setLogs(rows);
+      setTotal(meta.count ?? payload?.count ?? rows.length);
+      setHasNext(!!(meta.next ?? payload?.next));
     }
     setLoading(false);
   }, []);
@@ -114,17 +116,22 @@ export default function LogsPage() {
       const meEnv = await meRes.json();
       const teamsEnv = await teamsRes.json();
       const me = meEnv?.data ?? meEnv;
-      const teams: Array<{ id: string }> = teamsEnv?.data ?? teamsEnv;
+      const teams: Array<{ id: string; my_role?: string }> = teamsEnv?.data ?? teamsEnv;
       const activeTeamId = me?.active_team;
       if (!activeTeamId) return;
 
+      // Authoritative role comes from the team's own `my_role` field.
+      const activeTeam = Array.isArray(teams)
+        ? teams.find((t) => t.id === activeTeamId)
+        : null;
+      setMyRole(activeTeam?.my_role ?? "viewer");
+
+      // Members list powers the "Filter by member" dropdown for managers.
       const membersRes = await fetch(`/api/teams/${activeTeamId}/members`);
       if (membersRes.ok) {
         const membersEnv = await membersRes.json();
         const membersList: Member[] = membersEnv?.data ?? membersEnv;
-        setMembers(membersList);
-        const mine = membersList.find((m) => m.user.id === me.id);
-        setMyRole(mine?.role ?? "viewer");
+        if (Array.isArray(membersList)) setMembers(membersList);
       }
     })();
   }, []);

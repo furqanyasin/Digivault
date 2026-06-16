@@ -34,6 +34,10 @@ export default function LoginPage() {
         toast({ variant: "destructive", title: "Login failed", description: data?.detail ?? "Invalid email or password" });
         return;
       }
+      if (data.requires_password_change) {
+        router.push(`/first-password?session_key=${data.session_key}`);
+        return;
+      }
       if (data.requires_setup) {
         setSessionKey(data.session_key);
         router.push(`/2fa/setup?session_key=${data.session_key}`);

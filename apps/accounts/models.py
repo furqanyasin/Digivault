@@ -42,6 +42,10 @@ class User(AbstractUser):
     totp_enabled = models.BooleanField(default=False)
     totp_backup_codes = models.JSONField(default=list, blank=True)
 
+    # Set when an admin creates the account with a temporary password; forces a
+    # password change on first login before any other access.
+    must_change_password = models.BooleanField(default=False)
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []  # email is already required by USERNAME_FIELD
 

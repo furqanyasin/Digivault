@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
-from apps.site_health.models import PhpError, SiteEvent, SiteScanState, VulnerabilityReport
+from apps.site_health.models import PhpError, SeoReport, SiteEvent, SiteScanState, VulnerabilityReport
 
 
 class PhpErrorSerializer(BaseModelSerializer):
@@ -9,6 +9,17 @@ class PhpErrorSerializer(BaseModelSerializer):
         model = PhpError
         fields = ("id", "level", "message", "file", "line", "url", "captured_at")
         read_only_fields = fields
+
+
+class SeoReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SeoReport
+        fields = (
+            "last_checked_at", "check_status", "error",
+            "robots_status", "robots_blocks_all",
+            "sitemap_status", "sitemap_url", "sitemap_url_count",
+            "homepage_indexable", "pages_checked", "noindex_count",
+        )
 
 
 class SiteEventSerializer(BaseModelSerializer):
@@ -32,7 +43,11 @@ class VulnerabilityReportSerializer(BaseModelSerializer):
 class SiteScanStateSerializer(BaseModelSerializer):
     class Meta:
         model = SiteScanState
-        fields = ("last_scanned_at", "scan_status", "wp_version", "plugins_detected", "error")
+        fields = (
+            "last_scanned_at", "scan_status", "wp_version",
+            "wp_latest_version", "wp_update_available",
+            "plugins_detected", "error",
+        )
         read_only_fields = fields
 
 

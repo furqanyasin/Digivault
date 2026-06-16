@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UserPlus, Trash2, Check, ShieldAlert, ShieldOff, X } from "lucide-react";
+import { UserPlus, Trash2, Check, ShieldAlert, ShieldOff, X, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -181,16 +182,19 @@ export function TeamManagementClient({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="add-password">Password</Label>
+                    <Label htmlFor="add-password">Password (optional)</Label>
                     <Input
                       id="add-password"
                       type="password"
-                      placeholder="Min. 8 characters"
-                      required
+                      placeholder="Leave blank to email a set-password link"
                       minLength={8}
                       value={addForm.password}
                       onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank and the new member gets an email to set their own password.
+                      If you set one, they&apos;ll be required to change it on first login.
+                    </p>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="add-role">Role</Label>
@@ -286,6 +290,17 @@ export function TeamManagementClient({
                     {canManage && (
                       <TableCell>
                         <div className="flex items-center gap-1">
+                          <Button
+                            asChild
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                            title="View this member's activity"
+                          >
+                            <Link href={`/logs?user_id=${member.user.id}`}>
+                              <ScrollText className="h-3.5 w-3.5" />
+                            </Link>
+                          </Button>
                           {canModify && member.totp_enabled && (
                             <Button
                               size="icon"

@@ -19,6 +19,9 @@ def _alert_message(alert) -> tuple[str, str]:
     if alert.alert_type == "ssl":
         kind = "SSL certificate"
         days = domain_info.ssl_days_until_expiry
+    elif alert.alert_type == "hosting":
+        kind = "Hosting plan"
+        days = domain_info.hosting_days_until_expiry
     else:
         kind = "Domain registration"
         days = domain_info.domain_days_until_expiry

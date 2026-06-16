@@ -9,7 +9,9 @@ import secrets
 import pyotp
 import qrcode
 from django.conf import settings
+from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
@@ -312,6 +314,11 @@ class LoginView(APIView):
         session_key = secrets.token_hex(32)
         cache.set(f"preauth:{session_key}", str(user.pk), timeout=_SESSION_TTL)
 
+        # Forced password change (admin-created temp password) takes priority
+        # over the 2FA gate — the user must own their password first.
+        if user.must_change_password:
+            return Response({"requires_password_change": True, "session_key": session_key})
+
         if user.totp_enabled:
             # Check for a trusted device cookie (set after prior successful 2FA)
             device_token = request.META.get("HTTP_X_2FA_DEVICE_TOKEN", "").strip()
@@ -335,6 +342,54 @@ class LoginView(APIView):
 
         # 2FA mandatory — not yet set up
         return Response({"requires_setup": True, "session_key": session_key})
+
+
+class FirstPasswordView(APIView):
+    """POST /api/v1/auth/first-password/ — set the initial password for a user
+    flagged must_change_password, using the pre-auth session key from login.
+
+    Keeps the pre-auth session alive (refreshes TTL) so the caller can continue
+    straight into the mandatory 2FA setup flow.
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        from apps.accounts.models import User
+
+        session_key = (request.data.get("session_key") or "").strip()
+        new_password = request.data.get("password") or ""
+        if not session_key or not new_password:
+            return Response(
+                {"detail": "session_key and password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user_id = cache.get(f"preauth:{session_key}")
+        if not user_id:
+            return Response(
+                {"detail": "Session expired or invalid. Please log in again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            user = User.objects.get(pk=user_id)
+        except User.DoesNotExist:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response({"detail": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password"])
+
+        # Refresh the pre-auth window so 2FA setup (same session_key) can proceed.
+        cache.set(f"preauth:{session_key}", str(user.pk), timeout=_SESSION_TTL)
+
+        return Response({"detail": "Password set."})
 
 
 class TotpVerifyView(APIView):

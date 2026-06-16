@@ -165,11 +165,26 @@ class ReportBuilder:
             w.writerow(["", rec])
         return buf.getvalue()
 
+    # Brand palette (kept in sync with the frontend's indigo accent).
+    _BRAND = "#4F46E5"
+    _INK = "#111827"
+    _MUTED = "#6B7280"
+    _RULE = "#E5E7EB"
+    _SEVERITY_COLORS = {
+        "critical": "#DC2626",
+        "high": "#EA580C",
+        "medium": "#D97706",
+        "low": "#2563EB",
+    }
+
     @staticmethod
     def render_pdf(data: dict) -> bytes:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_RIGHT
         from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import cm
+        from reportlab.pdfgen import canvas as _canvas
         from reportlab.platypus import (
             ListFlowable,
             ListItem,
@@ -177,48 +192,228 @@ class ReportBuilder:
             SimpleDocTemplate,
             Spacer,
             Table,
+            TableStyle,
         )
 
-        buf = io.BytesIO()
-        doc = SimpleDocTemplate(buf, pagesize=A4, title="Digivault Report")
-        styles = getSampleStyleSheet()
-        story = []
         site = data["website"]
+        period = data["period"]
+        brand = colors.HexColor(ReportBuilder._BRAND)
+        muted = colors.HexColor(ReportBuilder._MUTED)
+        rule = colors.HexColor(ReportBuilder._RULE)
 
-        story.append(Paragraph(f"Digivault Report — {site['name']}", styles["Title"]))
+        LM = RM = 1.8 * cm
+        generated = timezone.localtime(timezone.now()).strftime("%d %b %Y · %H:%M %Z").strip()
+        header_title = "Website Monitoring & Security Report"
+        header_domain = site["domain"]
+
+        # --- Per-page header + footer, drawn via a two-pass canvas so the ---
+        # --- footer can show "Page X of Y". ---------------------------------
+        class _ReportCanvas(_canvas.Canvas):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._saved = []
+
+            def showPage(self):  # noqa: N802 (reportlab API)
+                self._saved.append(dict(self.__dict__))
+                self._startPage()
+
+            def save(self):
+                total = len(self._saved)
+                for state in self._saved:
+                    self.__dict__.update(state)
+                    self._draw_furniture(total)
+                    super().showPage()
+                super().save()
+
+            def _draw_furniture(self, total):
+                w, h = A4
+                # Header: brand bar + wordmark + report title/domain.
+                self.setFillColor(brand)
+                self.rect(0, h - 0.18 * cm, w, 0.18 * cm, stroke=0, fill=1)
+                self.setFont("Helvetica-Bold", 13)
+                self.drawString(LM, h - 1.25 * cm, "DIGIVAULT")
+                self.setFont("Helvetica", 8)
+                self.setFillColor(muted)
+                self.drawRightString(w - RM, h - 1.05 * cm, header_title)
+                self.drawRightString(w - RM, h - 1.45 * cm, header_domain)
+                self.setStrokeColor(rule)
+                self.setLineWidth(0.5)
+                self.line(LM, h - 1.75 * cm, w - RM, h - 1.75 * cm)
+                # Footer: rule + generated / domain / page numbers + notice.
+                self.line(LM, 1.5 * cm, w - RM, 1.5 * cm)
+                self.setFont("Helvetica", 7.5)
+                self.setFillColor(muted)
+                self.drawString(LM, 1.15 * cm, f"Generated {generated}")
+                self.drawCentredString(w / 2, 1.15 * cm, header_domain)
+                self.drawRightString(
+                    w - RM, 1.15 * cm, f"Page {self._pageNumber} of {total}"
+                )
+                self.drawString(
+                    LM, 0.8 * cm,
+                    "Confidential — prepared by Digivault for the named recipient only.",
+                )
+
+        # --- Bookmarks: register an outline entry for each section heading, ---
+        # --- making the PDF navigable from the viewer's sidebar. -------------
+        class _BookmarkDoc(SimpleDocTemplate):
+            def afterFlowable(self, flowable):
+                if isinstance(flowable, Paragraph) and flowable.style.name == "Section":
+                    text = flowable.getPlainText()
+                    key = f"sec-{id(flowable)}"
+                    self.canv.bookmarkPage(key)
+                    self.canv.addOutlineEntry(text, key, level=0)
+
+        buf = io.BytesIO()
+        doc = _BookmarkDoc(
+            buf,
+            pagesize=A4,
+            title=f"Digivault Report — {site['name']}",
+            author="Digivault",
+            leftMargin=LM,
+            rightMargin=RM,
+            topMargin=2.3 * cm,
+            bottomMargin=2.0 * cm,
+        )
+
+        base = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            "ReportTitle", parent=base["Title"], fontSize=20,
+            textColor=colors.HexColor(ReportBuilder._INK), spaceAfter=2,
+        )
+        subtitle_style = ParagraphStyle(
+            "ReportSubtitle", parent=base["Normal"], fontSize=10, textColor=muted,
+        )
+        section_style = ParagraphStyle(
+            "Section", parent=base["Heading2"], fontSize=13,
+            textColor=brand, spaceBefore=14, spaceAfter=6,
+        )
+        body_style = ParagraphStyle("Body", parent=base["Normal"], fontSize=9.5, leading=13)
+
+        story = []
+
+        # Title block
+        story.append(Paragraph(f"{site['name']}", title_style))
+        domain_link = f'<link href="https://{site["domain"]}" color="{ReportBuilder._BRAND}">{site["domain"]}</link>'
         story.append(Paragraph(
-            f"{site['domain']} · {data['period']['start']} to {data['period']['end']}",
-            styles["Normal"],
+            f'{domain_link} &nbsp;·&nbsp; Reporting period {period["start"]} to {period["end"]}',
+            subtitle_style,
         ))
-        story.append(Spacer(1, 0.6 * cm))
+        story.append(Spacer(1, 0.5 * cm))
 
-        overview = [
-            ["Health score", str(site["health_score"])],
-            ["Status", site["status"]],
-            ["Platform", site["platform"]],
-            ["Script changes", str(data["script_changes"]["total"])],
-            ["PHP errors", str(data["security"]["php_errors"])],
-        ]
-        t = Table(overview, hAlign="LEFT", colWidths=[5 * cm, 8 * cm])
-        story.append(t)
-        story.append(Spacer(1, 0.6 * cm))
+        def styled_table(rows, col_widths, header=False):
+            t = Table(rows, hAlign="LEFT", colWidths=col_widths)
+            cmds = [
+                ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                ("TEXTCOLOR", (0, 0), (0, -1), muted),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("LINEBELOW", (0, 0), (-1, -2), 0.5, rule),
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FBFBFE")),
+            ]
+            if header:
+                cmds += [
+                    ("BACKGROUND", (0, 0), (-1, 0), brand),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ]
+            t.setStyle(TableStyle(cmds))
+            return t
 
-        if data["domain"]:
-            story.append(Paragraph("Domain & SSL", styles["Heading2"]))
-            dom = data["domain"]
+        # Overview
+        story.append(Paragraph("Overview", section_style))
+        story.append(styled_table(
+            [
+                ["Health score", f"{site['health_score']} / 100"],
+                ["Status", str(site["status"]).title()],
+                ["Platform", site["platform"] or "—"],
+                ["Script changes (period)", str(data["script_changes"]["total"])],
+                ["PHP errors (period)", str(data["security"]["php_errors"])],
+            ],
+            [6 * cm, 9 * cm],
+        ))
+
+        # Script changes
+        story.append(Paragraph("Script Changes", section_style))
+        by_type = data["script_changes"]["by_type"]
+        if by_type:
+            rows = [["Change type", "Count"]] + [
+                [str(ct).replace("_", " ").title(), str(n)] for ct, n in by_type.items()
+            ]
+            story.append(styled_table(rows, [9 * cm, 6 * cm], header=True))
+        else:
+            story.append(Paragraph("No script changes recorded this period.", body_style))
+
+        high_risk = data["script_changes"].get("high_risk") or []
+        if high_risk:
+            story.append(Spacer(1, 0.3 * cm))
+            story.append(Paragraph("High-risk changes", ParagraphStyle(
+                "Sub", parent=body_style, fontName="Helvetica-Bold")))
+            hr_rows = [["Severity", "Type", "Description"]]
+            for hr in high_risk:
+                sev = str(hr.get("severity", "")).lower()
+                color = ReportBuilder._SEVERITY_COLORS.get(sev, ReportBuilder._MUTED)
+                hr_rows.append([
+                    Paragraph(f'<font color="{color}"><b>{sev.title()}</b></font>', body_style),
+                    str(hr.get("change_type", "")).replace("_", " ").title(),
+                    Paragraph(hr.get("description") or "—", body_style),
+                ])
+            story.append(styled_table(hr_rows, [2.6 * cm, 3 * cm, 9.4 * cm], header=True))
+
+        # Performance
+        if data["performance"]:
+            story.append(Paragraph("Performance", section_style))
+            perf_rows = [["Strategy", "Performance score", "LCP"]]
+            for p in data["performance"]:
+                score = p.get("performance_score")
+                lcp = p.get("lcp_ms")
+                perf_rows.append([
+                    str(p["strategy"]).title(),
+                    "—" if score is None else f"{score} / 100",
+                    "—" if lcp is None else f"{lcp:,} ms",
+                ])
+            story.append(styled_table(perf_rows, [5 * cm, 5 * cm, 5 * cm], header=True))
+
+        # Security
+        story.append(Paragraph("Security", section_style))
+        vulns = data["security"]["vulnerabilities_by_severity"]
+        if vulns:
+            sev_rows = [["Severity", "Findings"]]
+            for sev in ("critical", "high", "medium", "low"):
+                if sev in vulns:
+                    color = ReportBuilder._SEVERITY_COLORS.get(sev, ReportBuilder._MUTED)
+                    sev_rows.append([
+                        Paragraph(f'<font color="{color}"><b>{sev.title()}</b></font>', body_style),
+                        str(vulns[sev]),
+                    ])
+            story.append(styled_table(sev_rows, [9 * cm, 6 * cm], header=True))
+        else:
             story.append(Paragraph(
-                f"Registrar: {dom.get('registrar') or '—'} · "
-                f"Domain expires in: {dom.get('domain_days_until_expiry')} days · "
-                f"SSL expires in: {dom.get('ssl_days_until_expiry')} days",
-                styles["Normal"],
-            ))
-            story.append(Spacer(1, 0.4 * cm))
+                "No known vulnerabilities matched the detected plugins.", body_style))
 
-        story.append(Paragraph("Recommendations", styles["Heading2"]))
+        # Domain & SSL
+        if data["domain"]:
+            dom = data["domain"]
+            story.append(Paragraph("Domain & SSL", section_style))
+            story.append(styled_table(
+                [
+                    ["Registrar", dom.get("registrar") or "—"],
+                    ["Hosting provider", dom.get("hosting_provider") or "—"],
+                    ["Domain expires in", f"{dom.get('domain_days_until_expiry')} days"],
+                    ["SSL expires in", f"{dom.get('ssl_days_until_expiry')} days"],
+                ],
+                [6 * cm, 9 * cm],
+            ))
+
+        # Recommendations
+        story.append(Paragraph("Recommendations", section_style))
         story.append(ListFlowable(
-            [ListItem(Paragraph(r, styles["Normal"])) for r in data["recommendations"]],
+            [ListItem(Paragraph(r, body_style), leftIndent=12) for r in data["recommendations"]],
             bulletType="bullet",
+            bulletColor=brand,
         ))
 
-        doc.build(story)
+        doc.build(story, canvasmaker=_ReportCanvas)
         return buf.getvalue()

@@ -7,6 +7,7 @@ from apps.domains.models import DomainAlert, DomainInfo
 class DomainInfoSerializer(BaseModelSerializer):
     domain_days_until_expiry = serializers.ReadOnlyField()
     ssl_days_until_expiry = serializers.ReadOnlyField()
+    hosting_days_until_expiry = serializers.ReadOnlyField()
 
     class Meta:
         model = DomainInfo
@@ -23,6 +24,11 @@ class DomainInfoSerializer(BaseModelSerializer):
             "hosting_ip",
             "server_location",
             "uses_cloudflare",
+            "hosting_expires_at",
+            "hosting_days_until_expiry",
+            "smtp_status",
+            "mx_hosts",
+            "smtp_checked_at",
             "ssl_issuer",
             "ssl_expires_at",
             "ssl_days_until_expiry",

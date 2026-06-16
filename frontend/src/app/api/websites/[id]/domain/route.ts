@@ -30,3 +30,19 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   const envelope = await upstream.json().catch(() => ({}));
   return NextResponse.json(envelope?.data ?? envelope, { status: upstream.status });
 }
+
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const jar = await cookies();
+  const token = jar.get("ss_access")?.value;
+  if (!token) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json();
+  const upstream = await fetch(`${API_BASE}/api/v1/websites/${id}/domain/`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const envelope = await upstream.json().catch(() => ({}));
+  return NextResponse.json(envelope?.data ?? envelope, { status: upstream.status });
+}

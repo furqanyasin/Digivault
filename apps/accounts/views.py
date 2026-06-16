@@ -462,7 +462,7 @@ class TeamCreateUserView(APIView):
             return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
         if not name:
             return Response({"detail": "Name is required."}, status=status.HTTP_400_BAD_REQUEST)
-        if not password or len(password) < 8:
+        if password and len(password) < 8:
             return Response({"detail": "Password must be at least 8 characters."}, status=status.HTTP_400_BAD_REQUEST)
         if role not in ROLE_LEVELS:
             return Response({"detail": f"Invalid role: {role}"}, status=status.HTTP_400_BAD_REQUEST)
@@ -489,32 +489,65 @@ class TeamCreateUserView(APIView):
                 status=status.HTTP_201_CREATED,
             )
 
-        try:
-            validate_password(password)
-        except DjangoValidationError as exc:
-            return Response({"detail": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
-
         parts = name.split(" ", 1)
-        user = User.objects.create_user(
-            email=email,
-            password=password,
-            first_name=parts[0],
-            last_name=parts[1] if len(parts) > 1 else "",
-        )
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else ""
+
+        if password:
+            # Path B — admin set a temporary password; force change on first login.
+            try:
+                validate_password(password)
+            except DjangoValidationError as exc:
+                return Response({"detail": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+            user = User.objects.create_user(
+                email=email, password=password, first_name=first_name, last_name=last_name,
+            )
+            user.must_change_password = True
+            user.save(update_fields=["must_change_password"])
+            email_body = (
+                f"Hi {first_name},\n\n"
+                f"An account has been created for you on Digivault by {request.user.email}.\n\n"
+                f"Email: {email}\n"
+                f"Team: {team.name} ({role})\n\n"
+                f"Your administrator will share your temporary password separately. "
+                f"You'll be asked to set your own password the first time you log in.\n\n"
+                f"Log in at: {settings.FRONTEND_URL}/login\n"
+            )
+        else:
+            # Path A — no password; email a set-password link (no credential emailed).
+            user = User.objects.create_user(
+                email=email, password=None, first_name=first_name, last_name=last_name,
+            )
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+            reset_token = secrets.token_urlsafe(48)
+            PasswordResetRequest.objects.create(
+                user=user,
+                status=PasswordResetRequest.Status.APPROVED,
+                reset_token=reset_token,
+                approved_by=request.user,
+                approved_at=timezone.now(),
+                expires_at=timezone.now() + timedelta(days=7),
+            )
+            set_password_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
+            email_body = (
+                f"Hi {first_name},\n\n"
+                f"An account has been created for you on Digivault by {request.user.email}.\n\n"
+                f"Email: {email}\n"
+                f"Team: {team.name} ({role})\n\n"
+                f"Set your password (link valid for 7 days):\n{set_password_url}\n\n"
+                f"After setting your password you'll be guided through two-factor "
+                f"authentication setup.\n"
+            )
+
         membership = TeamMembership.objects.create(user=user, team=team, role=role)
         if not user.active_team:
             User.objects.filter(pk=user.pk).update(active_team=team)
 
         try:
             send_mail(
-                subject=f"Your Digivault account has been created",
-                message=(
-                    f"Hi {parts[0]},\n\n"
-                    f"An account has been created for you on Digivault by {request.user.email}.\n\n"
-                    f"Email: {email}\n"
-                    f"Team: {team.name} ({role})\n\n"
-                    f"Log in at: {settings.FRONTEND_URL}/login\n"
-                ),
+                subject="Your Digivault account has been created",
+                message=email_body,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
                 fail_silently=True,
