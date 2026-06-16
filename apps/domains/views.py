@@ -10,6 +10,7 @@ from apps.domains.models import DomainAlert, DomainInfo
 from apps.domains.serializers import DomainInfoSerializer
 from apps.domains.services import (
     DOMAIN_ALERT_THRESHOLDS,
+    HOSTING_ALERT_THRESHOLDS,
     SSL_ALERT_THRESHOLDS,
     DomainIntelligenceService,
 )
@@ -45,6 +46,7 @@ def _create_expiry_alerts(domain_info: DomainInfo) -> None:
     for alert_type, expires_at, thresholds in (
         (DomainAlert.AlertType.DOMAIN, domain_info.expires_at, DOMAIN_ALERT_THRESHOLDS),
         (DomainAlert.AlertType.SSL, domain_info.ssl_expires_at, SSL_ALERT_THRESHOLDS),
+        (DomainAlert.AlertType.HOSTING, domain_info.hosting_expires_at, HOSTING_ALERT_THRESHOLDS),
     ):
         if not expires_at:
             continue
@@ -102,4 +104,32 @@ class DomainInfoView(APIView):
             description=f"Refreshed domain & SSL info for '{website.domain}'",
             resource_type="website", resource_id=website.pk,
         )
+        return Response(DomainInfoSerializer(info).data, status=status.HTTP_200_OK)
+
+    def patch(self, request, website_pk):
+        """Manually set the hosting expiry date (not discoverable via WHOIS)."""
+        from django.utils.dateparse import parse_datetime, parse_date
+
+        website = self._get_website(request, website_pk)
+        if not website:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        info, _ = DomainInfo.objects.get_or_create(website=website)
+
+        if "hosting_expires_at" in request.data:
+            raw = request.data.get("hosting_expires_at")
+            if raw in (None, ""):
+                info.hosting_expires_at = None
+            else:
+                parsed = parse_datetime(raw) or parse_date(raw)
+                if parsed is None:
+                    return Response({"detail": "Invalid date."}, status=status.HTTP_400_BAD_REQUEST)
+                from datetime import date, datetime
+                if isinstance(parsed, date) and not isinstance(parsed, datetime):
+                    parsed = timezone.make_aware(datetime.combine(parsed, datetime.min.time()))
+                elif timezone.is_naive(parsed):
+                    parsed = timezone.make_aware(parsed)
+                info.hosting_expires_at = parsed
+            info.save(update_fields=["hosting_expires_at"])
+            _create_expiry_alerts(info)
+
         return Response(DomainInfoSerializer(info).data, status=status.HTTP_200_OK)

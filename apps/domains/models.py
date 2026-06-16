@@ -28,6 +28,13 @@ class DomainInfo(BaseModel):
     hosting_ip = models.GenericIPAddressField(null=True, blank=True)
     server_location = models.CharField(max_length=100, blank=True)
     uses_cloudflare = models.BooleanField(default=False)
+    # Manually entered — hosting renewal is not discoverable via WHOIS/DNS.
+    hosting_expires_at = models.DateTimeField(null=True, blank=True)
+
+    # Mail (SMTP) — populated by the daily domain check.
+    smtp_status = models.CharField(max_length=20, blank=True)  # ok/unreachable/no_mx/error
+    mx_hosts = models.JSONField(default=list, blank=True)
+    smtp_checked_at = models.DateTimeField(null=True, blank=True)
 
     # SSL
     ssl_issuer = models.CharField(max_length=200, blank=True)
@@ -58,6 +65,14 @@ class DomainInfo(BaseModel):
         delta = self.ssl_expires_at - timezone.now()
         return max(0, delta.days)
 
+    @property
+    def hosting_days_until_expiry(self) -> int | None:
+        if not self.hosting_expires_at:
+            return None
+        from django.utils import timezone
+        delta = self.hosting_expires_at - timezone.now()
+        return max(0, delta.days)
+
 
 class DomainAlert(BaseModel):
     """A pending or sent expiry alert for a domain or SSL certificate."""
@@ -65,6 +80,7 @@ class DomainAlert(BaseModel):
     class AlertType(models.TextChoices):
         DOMAIN = "domain", "Domain Expiry"
         SSL = "ssl", "SSL Expiry"
+        HOSTING = "hosting", "Hosting Expiry"
 
     domain_info = models.ForeignKey(
         DomainInfo,

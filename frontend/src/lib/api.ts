@@ -196,6 +196,11 @@ export interface DomainInfo {
   hosting_provider: string | null;
   hosting_ip: string | null;
   server_location: string | null;
+  hosting_expires_at: string | null;
+  hosting_days_until_expiry: number | null;
+  smtp_status: string | null;
+  mx_hosts: string[];
+  smtp_checked_at: string | null;
   ssl_issuer: string | null;
   ssl_expires_at: string | null;
   ssl_days_until_expiry: number | null;

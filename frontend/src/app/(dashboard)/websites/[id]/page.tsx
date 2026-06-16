@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings, Server } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
@@ -19,6 +19,7 @@ import { PhpErrorsTab } from "@/components/php-errors-tab";
 import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
+import { DomainExtras } from "@/components/domain-extras";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
@@ -456,6 +457,23 @@ export default async function WebsiteDetailPage({
                   {domainInfo.last_checked_at && (
                     <InfoRow label="Last checked" value={fmtDateTime(domainInfo.last_checked_at)} />
                   )}
+                </CardContent>
+              </Card>
+              <Card className="md:col-span-2">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Server className="h-4 w-4" />
+                    Hosting renewal & Mail
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DomainExtras
+                    websiteId={id}
+                    hostingExpiresAt={domainInfo.hosting_expires_at}
+                    hostingDaysUntilExpiry={domainInfo.hosting_days_until_expiry}
+                    smtpStatus={domainInfo.smtp_status}
+                    mxHosts={domainInfo.mx_hosts ?? []}
+                  />
                 </CardContent>
               </Card>
               <div className="md:col-span-2 flex justify-end">

@@ -47,6 +47,49 @@ _CLOUDFLARE_NS_PATTERN = re.compile(r"\.ns\.cloudflare\.com$", re.I)
 # Domain expiry thresholds that trigger alerts (days before expiry)
 DOMAIN_ALERT_THRESHOLDS = [90, 60, 30, 14, 7, 3]
 SSL_ALERT_THRESHOLDS = [90, 30, 7]
+HOSTING_ALERT_THRESHOLDS = [90, 60, 30, 14, 7, 3]
+
+
+def _resolve_mx(domain: str) -> list[str]:
+    """Return MX hostnames ordered by preference. Requires dnspython."""
+    import dns.resolver
+
+    answers = dns.resolver.resolve(domain, "MX", lifetime=8)
+    records = sorted((r.preference, str(r.exchange).rstrip(".")) for r in answers)
+    return [host for _pref, host in records]
+
+
+def _probe_smtp(host: str, timeout: int = 8) -> bool:
+    """Open an SMTP connection and read the greeting. True if it responds."""
+    import smtplib
+
+    with smtplib.SMTP(host, 25, timeout=timeout) as smtp:
+        code = smtp.noop()[0]
+        return 200 <= code < 400
+
+
+def check_smtp(domain: str, *, resolve_mx=None, probe=None) -> dict:
+    """Check a domain's mail setup. Returns {'smtp_status', 'mx_hosts'}.
+
+    smtp_status: ok / unreachable / no_mx / error. Never raises.
+    `resolve_mx` and `probe` are injectable for testing.
+    """
+    resolve_mx = resolve_mx or _resolve_mx
+    probe = probe or _probe_smtp
+    try:
+        hosts = resolve_mx(domain)
+    except Exception as exc:
+        logger.warning("MX resolution failed for %s: %s", domain, exc)
+        return {"smtp_status": "error", "mx_hosts": []}
+    if not hosts:
+        return {"smtp_status": "no_mx", "mx_hosts": []}
+    for host in hosts[:3]:
+        try:
+            if probe(host):
+                return {"smtp_status": "ok", "mx_hosts": hosts}
+        except Exception:
+            continue
+    return {"smtp_status": "unreachable", "mx_hosts": hosts}
 
 
 @dataclass
