@@ -11,11 +11,12 @@ from django.core.mail import send_mail
 logger = logging.getLogger(__name__)
 
 
-def notify_team(team, subject: str, body: str) -> None:
-    """Best-effort delivery to every active channel for the team."""
-    from apps.monitors.models import NotificationChannel
+def notify_team(website, subject: str, body: str) -> None:
+    """Best-effort delivery to the website's notification channel (or the team's
+    active channels when the site has none set)."""
+    from apps.monitors.notifications import resolve_channels
 
-    for ch in NotificationChannel.objects.filter(team=team, is_active=True):
+    for ch in resolve_channels(website):
         try:
             if ch.channel_type == "email":
                 addrs = ch.config.get("addresses", [])

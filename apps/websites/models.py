@@ -70,6 +70,14 @@ class Website(BaseModel):
         choices=SEO_INTERVAL_CHOICES, default=0,
         help_text="How often to auto-run the SEO health check. 0 = off.",
     )
+    # One channel for all of this site's alerts (uptime, domain/SSL/hosting,
+    # SEO). When unset, alerts fall back to the team's active channels.
+    notification_channel = models.ForeignKey(
+        "monitors.NotificationChannel",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
 
     objects = TeamScopedQuerySet.as_manager()
 

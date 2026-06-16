@@ -52,6 +52,9 @@ def _create_uptime_monitor_db_only(website):
                 "retry_count": 1,
             },
         )
+        if monitor.website_id != website.id:
+            monitor.website = website
+            monitor.save(update_fields=["website"])
         return monitor
     except Exception:
         logger.exception("Failed to auto-create monitor for %s", website.domain)

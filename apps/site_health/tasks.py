@@ -386,7 +386,7 @@ def run_seo_check(website_id: str) -> None:
         SiteEvent.objects.create(
             website=website, event_type=event_type, severity=severity, summary=summary,
         )
-        notify_team(website.team, f"[Digivault] {summary}", f"{summary} — {website.domain}")
+        notify_team(website, f"[Digivault] {summary}", f"{summary} — {website.domain}")
 
     label = website.name or website.domain
     if prev["homepage_indexable"] is True and report.homepage_indexable is False:
