@@ -77,12 +77,12 @@ def deliver_domain_alert(alert) -> bool:
     Leaves the alert unsent if the team has no channels or every send failed,
     so a later domain check retries it.
     """
-    from apps.monitors.models import NotificationChannel
+    from apps.monitors.notifications import resolve_channels
 
-    team = alert.domain_info.website.team
-    channels = list(NotificationChannel.objects.filter(team=team, is_active=True))
+    website = alert.domain_info.website
+    channels = resolve_channels(website)
     if not channels:
-        logger.info("No active channels for team %s; domain alert %s left unsent", team.id, alert.id)
+        logger.info("No active channels for %s; domain alert %s left unsent", website.domain, alert.id)
         return False
 
     subject, body = _alert_message(alert)

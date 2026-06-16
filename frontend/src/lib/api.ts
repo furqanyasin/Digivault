@@ -98,6 +98,9 @@ export interface Website {
   unknown_script_count: number;
   snippet_html: string;
   last_seen_at: string | null;
+  notification_channel: string | null;
+  notification_channel_name: string | null;
+  status_page: { slug: string; name: string; status: string; monitor_count: number } | null;
   created_at: string;
   updated_at: string;
 }

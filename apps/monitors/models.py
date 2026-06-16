@@ -40,6 +40,13 @@ class Monitor(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="monitors")
+    # Links a monitor to the website it watches (set for auto-provisioned
+    # monitors). Lets uptime alerts route to the website's notification channel
+    # and powers the status-page card on the website detail page.
+    website = models.ForeignKey(
+        "websites.Website", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="monitors",
+    )
 
     name = models.CharField(max_length=200)
     url = models.CharField(max_length=2000)

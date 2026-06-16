@@ -120,8 +120,29 @@ def dispatch(channel: "NotificationChannel", monitor: "Monitor", old_status: str
         )
 
 
+def resolve_channels(website):
+    """The notification channels a website's alerts route to: its own channel if
+    set + active, otherwise the team's active channels. Used by uptime, domain
+    and SEO alerts so 'one channel per website' covers everything."""
+    from apps.monitors.models import NotificationChannel
+
+    if website is not None and getattr(website, "notification_channel_id", None):
+        ch = website.notification_channel
+        if ch and ch.is_active:
+            return [ch]
+    team = getattr(website, "team", None)
+    if team is None:
+        return []
+    return list(NotificationChannel.objects.filter(team=team, is_active=True))
+
+
 def notify_status_change(monitor: "Monitor", old_status: str, new_status: str) -> None:
-    """Fire notifications for all rules linked to this monitor matching the event."""
+    """Fire notifications for this monitor's status change.
+
+    Sends to the website's single channel (if its website has one set) AND any
+    explicit per-monitor rules — deduped by channel so the same channel never
+    gets two messages.
+    """
     from apps.monitors.models import MonitorNotificationRule
 
     is_down = new_status == "down"
@@ -131,11 +152,20 @@ def notify_status_change(monitor: "Monitor", old_status: str, new_status: str) -
     if not (is_down or is_recovery or is_degraded):
         return
 
-    rules = MonitorNotificationRule.objects.filter(
-        monitor=monitor,
-        channel__is_active=True,
-    ).select_related("channel")
+    channels = {}  # id -> channel, deduped
 
+    # The website's own channel covers all status changes by default.
+    if monitor.website_id:
+        for ch in resolve_channels(monitor.website):
+            # Only the website's explicitly-set channel auto-fires here; the
+            # team-wide fallback is intentionally not used for uptime noise.
+            if monitor.website.notification_channel_id and ch.is_active:
+                channels[ch.id] = ch
+
+    # Explicit per-monitor rules (extra channels / fine-grained events).
+    rules = MonitorNotificationRule.objects.filter(
+        monitor=monitor, channel__is_active=True
+    ).select_related("channel")
     for rule in rules:
         should_send = (
             (is_down and rule.notify_on_down)
@@ -143,7 +173,10 @@ def notify_status_change(monitor: "Monitor", old_status: str, new_status: str) -
             or (is_degraded and rule.notify_on_degraded)
         )
         if should_send:
-            dispatch(rule.channel, monitor, old_status, new_status)
+            channels[rule.channel.id] = rule.channel
+
+    for channel in channels.values():
+        dispatch(channel, monitor, old_status, new_status)
 
 
 # ------------------------------------------------------------------
