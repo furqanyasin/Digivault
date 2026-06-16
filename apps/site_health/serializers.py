@@ -1,7 +1,14 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
-from apps.site_health.models import PhpError, SeoReport, SiteEvent, SiteScanState, VulnerabilityReport
+from apps.site_health.models import (
+    PhpError,
+    SecurityHeaderReport,
+    SeoReport,
+    SiteEvent,
+    SiteScanState,
+    VulnerabilityReport,
+)
 
 
 class PhpErrorSerializer(BaseModelSerializer):
@@ -19,6 +26,18 @@ class SeoReportSerializer(serializers.ModelSerializer):
             "robots_status", "robots_blocks_all", "robots_content",
             "sitemap_status", "sitemap_url", "sitemap_url_count", "sitemap_pages",
             "homepage_indexable", "pages_checked", "noindex_count",
+            "meta_title", "meta_description", "h1", "canonical_url", "schema_types",
+        )
+
+
+class SecurityHeaderReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SecurityHeaderReport
+        fields = (
+            "last_checked_at", "check_status", "error",
+            "final_url", "status_code",
+            "score", "grade", "headers",
+            "pass_count", "warn_count", "fail_count",
         )
 
 

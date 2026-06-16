@@ -95,3 +95,93 @@ def page_indexability(html: str, x_robots_tag: str = ""):
 
 def same_origin(base: str, candidate: str) -> bool:
     return urlparse(base).netloc == urlparse(candidate).netloc
+
+
+def _attr(tag: str, name: str) -> str:
+    """Extract an attribute value from a single HTML tag string."""
+    m = re.search(rf'{name}\s*=\s*"([^"]*)"', tag, re.I) or re.search(
+        rf"{name}\s*=\s*'([^']*)'", tag, re.I
+    )
+    return (m.group(1).strip() if m else "")
+
+
+def _strip_tags(text: str) -> str:
+    return re.sub(r"<[^>]+>", "", text or "").strip()
+
+
+def _collapse_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _schema_types(html: str) -> list[str]:
+    """Collect schema.org @type values from JSON-LD blocks (handles @graph and
+    arrays). Best-effort: malformed JSON blocks are skipped."""
+    import json
+
+    types: list[str] = []
+
+    def _collect(node):
+        if isinstance(node, dict):
+            t = node.get("@type")
+            if isinstance(t, str):
+                types.append(t)
+            elif isinstance(t, list):
+                types.extend(str(x) for x in t)
+            for key in ("@graph", "mainEntity", "itemListElement"):
+                if key in node:
+                    _collect(node[key])
+        elif isinstance(node, list):
+            for item in node:
+                _collect(item)
+
+    for m in re.finditer(
+        r'<script[^>]+type\s*=\s*["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html or "", re.I | re.S,
+    ):
+        try:
+            _collect(json.loads(m.group(1).strip()))
+        except (ValueError, TypeError):
+            continue
+    # de-dupe, preserve order
+    seen, out = set(), []
+    for t in types:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
+def parse_homepage_meta(html: str) -> dict:
+    """Extract on-page SEO signals from a page's HTML. Network-free.
+
+    Returns {meta_title, meta_description, h1, canonical_url, schema_types}.
+    """
+    html = html or ""
+
+    title_m = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+    meta_title = _collapse_ws(_strip_tags(title_m.group(1))) if title_m else ""
+
+    meta_description = ""
+    for m in re.finditer(r"<meta\b[^>]*>", html, re.I):
+        tag = m.group(0)
+        if _attr(tag, "name").lower() == "description":
+            meta_description = _collapse_ws(_attr(tag, "content"))
+            break
+
+    canonical_url = ""
+    for m in re.finditer(r"<link\b[^>]*>", html, re.I):
+        tag = m.group(0)
+        if "canonical" in _attr(tag, "rel").lower():
+            canonical_url = _attr(tag, "href")
+            break
+
+    h1_m = re.search(r"<h1[^>]*>(.*?)</h1>", html, re.I | re.S)
+    h1 = _collapse_ws(_strip_tags(h1_m.group(1))) if h1_m else ""
+
+    return {
+        "meta_title": meta_title[:500],
+        "meta_description": meta_description[:1000],
+        "h1": h1[:500],
+        "canonical_url": canonical_url[:2048],
+        "schema_types": _schema_types(html),
+    }

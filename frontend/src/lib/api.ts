@@ -383,6 +383,30 @@ export interface SiteScanState {
   error: string;
 }
 
+export interface SecurityHeaderCheck {
+  name: string;
+  key: string;
+  present: boolean;
+  status: "pass" | "warn" | "fail";
+  value: string;
+  recommendation: string;
+  weight: number;
+}
+
+export interface SecurityHeaderReport {
+  last_checked_at: string | null;
+  check_status: "never" | "running" | "done" | "failed";
+  error: string;
+  final_url: string;
+  status_code: number | null;
+  score: number;
+  grade: string;
+  headers: SecurityHeaderCheck[];
+  pass_count: number;
+  warn_count: number;
+  fail_count: number;
+}
+
 export interface CruxReport {
   id: string;
   origin: string;

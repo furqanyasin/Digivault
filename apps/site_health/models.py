@@ -44,6 +44,7 @@ class SiteEvent(BaseModel):
         SEO_NOINDEX_DETECTED = "seo_noindex_detected", "SEO: noindex detected"
         SEO_ROBOTS_BLOCK = "seo_robots_block", "SEO: robots.txt blocks all"
         SEO_SITEMAP_MISSING = "seo_sitemap_missing", "SEO: sitemap missing"
+        SEO_META_CHANGED = "seo_meta_changed", "SEO: on-page meta changed"
 
     class Severity(models.TextChoices):
         INFO = "info", "Info"
@@ -149,5 +150,39 @@ class SeoReport(BaseModel):
     noindex_count = models.PositiveIntegerField(default=0)
     scan_cursor = models.PositiveIntegerField(default=0)  # rotation offset into the page list
 
+    # On-page SEO signals captured from the homepage each run. Changes between
+    # runs raise SEO_META_CHANGED SiteEvents (see run_seo_check).
+    meta_title = models.CharField(max_length=500, blank=True)
+    meta_description = models.TextField(blank=True)
+    h1 = models.CharField(max_length=500, blank=True)
+    canonical_url = models.CharField(max_length=2048, blank=True)
+    schema_types = models.JSONField(default=list)  # detected schema.org @type values
+
     def __str__(self):
         return f"SeoReport({self.website})"
+
+
+class SecurityHeaderReport(BaseModel):
+    """One-per-website snapshot of HTTP security-header posture (CSP, HSTS,
+    X-Frame-Options, …) graded into a 0–100 score and a letter grade."""
+
+    website = models.OneToOneField(
+        "websites.Website", on_delete=models.CASCADE, related_name="security_header_report"
+    )
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    check_status = models.CharField(max_length=20, default="never")  # never/running/done/failed
+    error = models.TextField(blank=True)
+
+    final_url = models.CharField(max_length=2048, blank=True)
+    status_code = models.PositiveIntegerField(null=True, blank=True)
+
+    score = models.PositiveSmallIntegerField(default=0)
+    grade = models.CharField(max_length=2, default="")  # A+, A, B, C, D, F
+    # [{name, key, present, status, value, recommendation, weight}]
+    headers = models.JSONField(default=list)
+    pass_count = models.PositiveSmallIntegerField(default=0)
+    warn_count = models.PositiveSmallIntegerField(default=0)
+    fail_count = models.PositiveSmallIntegerField(default=0)
+
+    def __str__(self):
+        return f"SecurityHeaderReport({self.website}: {self.grade})"
