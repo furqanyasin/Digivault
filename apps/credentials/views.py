@@ -11,6 +11,14 @@ from rest_framework_simplejwt.tokens import RefreshToken
 logger = logging.getLogger(__name__)
 
 
+def _display_name(user) -> str:
+    """A human label for a user: full name if set, else email."""
+    if user is None:
+        return "a user"
+    full = f"{user.first_name} {user.last_name}".strip()
+    return full or user.email
+
+
 class CredentialSaveThrottle(UserRateThrottle):
     rate = "100/hour"
     scope = "credential_save"
@@ -490,23 +498,24 @@ class CredentialShareListCreateView(APIView):
             )
 
         # Only developers need shares; owners/managers already have access.
-        target_user_ids = [
-            m.user_id for m in memberships
+        target_members = [
+            m for m in memberships
             if m.role in (TeamMembership.Role.DEVELOPER, TeamMembership.Role.EDITOR, TeamMembership.Role.SEO)
         ]
         can_view = ser.validated_data["can_view_password"]
         affected_ids = []
-        for uid in target_user_ids:
+        for m in target_members:
             CredentialShare.objects.update_or_create(
-                credential=cred, user_id=uid,
+                credential=cred, user_id=m.user_id,
                 defaults={"shared_by": request.user, "can_view_password": can_view},
             )
-            affected_ids.append(str(uid))
+            affected_ids.append(str(m.user_id))
 
         if affected_ids:
+            who = ", ".join(_display_name(m.user) for m in target_members)
             AuditService.log_request(
                 request, ActivityLog.Action.CREDENTIAL_SHARED,
-                description=f"Shared credential '{cred.label}' with {len(affected_ids)} user(s)",
+                description=f"Shared credential '{cred.label}' with {who}",
                 resource_type="credential", resource_id=cred.pk,
                 metadata={"shared_with_user_ids": affected_ids, "can_view_password": can_view},
             )
@@ -598,15 +607,19 @@ class CredentialShareDeleteView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         if not can_modify_credential(request.user, cred):
             return Response(status=status.HTTP_403_FORBIDDEN)
+        from apps.accounts.models import User
+        target = User.objects.filter(pk=user_id).first()
+
         deleted, _ = CredentialShare.objects.filter(
             credential=cred, user_id=user_id
         ).delete()
         if not deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        who = _display_name(target) if target else "a user"
         AuditService.log_request(
             request, ActivityLog.Action.CREDENTIAL_UNSHARED,
-            description=f"Unshared credential '{cred.label}'",
+            description=f"Unshared credential '{cred.label}' from {who}",
             resource_type="credential", resource_id=cred.pk,
             metadata={"unshared_user_id": str(user_id)},
         )

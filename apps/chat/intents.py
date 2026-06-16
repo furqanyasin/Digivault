@@ -142,6 +142,12 @@ def handle_check_website(team, params):
     high_pending = ScriptChange.objects.filter(
         website=site, acknowledged_at__isnull=True, severity__in=['high', 'critical']
     ).count()
+    # Compute counts directly — script_count/unknown_script_count are annotation
+    # -only attributes that don't exist on a plainly-fetched Website.
+    script_count = Script.objects.filter(website=site, is_active=True).count()
+    unknown_count = Script.objects.filter(
+        website=site, is_active=True, provider='unknown', review_status='pending'
+    ).count()
     emoji = _SITE_EMOJI.get(site.status, '❓')
     last_seen = site.last_seen_at.strftime('%d %b %Y %H:%M UTC') if site.last_seen_at else 'Never'
 
@@ -162,7 +168,7 @@ def handle_check_website(team, params):
         'reply': (
             f"**{site.name}** ({site.domain})\n"
             f"Status: {emoji} {site.status.capitalize()}\n"
-            f"Scripts detected: **{site.script_count or 0}** ({site.unknown_script_count or 0} unknown)\n"
+            f"Scripts detected: **{script_count}** ({unknown_count} unknown)\n"
             f"Key providers: {providers_str}\n"
             f"Pending changes: **{pending}**{alert_str}\n"
             f"Last seen: {last_seen}"
