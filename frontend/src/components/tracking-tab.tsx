@@ -28,8 +28,8 @@ export function TrackingTab({ scripts }: { scripts: Script[] }) {
         <p className="font-medium">No tracking codes detected yet</p>
         <p className="text-sm text-muted-foreground max-w-sm">
           Analytics, advertising, and tag-manager scripts appear here once the snippet
-          sees them load in a real browser. A code shown as <span className="text-emerald-600">Firing</span> is
-          live; one that drops to <span className="text-red-600">Stopped</span> is no longer loading.
+          sees them load in a real browser. A code shown as <span className="text-emerald-600">Active</span> is
+          live; one that drops to <span className="text-red-600">Inactive</span> is no longer loading.
         </p>
       </div>
     );
@@ -41,8 +41,8 @@ export function TrackingTab({ scripts }: { scripts: Script[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {firing.length} tracking code{firing.length !== 1 ? "s" : ""} firing
-        {stopped.length > 0 && `, ${stopped.length} stopped`}
+        {firing.length} tracking code{firing.length !== 1 ? "s" : ""} active
+        {stopped.length > 0 && `, ${stopped.length} inactive`}
       </p>
       <div className="border rounded-lg divide-y">
         {[...firing, ...stopped].map((s) => (
@@ -64,7 +64,7 @@ export function TrackingTab({ scripts }: { scripts: Script[] }) {
               </div>
             </div>
             <span className={`text-xs font-medium shrink-0 ${s.is_active ? "text-emerald-600" : "text-red-600"}`}>
-              {s.is_active ? "Firing" : "Stopped"}
+              {s.is_active ? "Active" : "Inactive"}
             </span>
           </div>
         ))}
