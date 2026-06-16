@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings, Server, Bell } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState } from "@/lib/api";
+import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState, SecurityHeaderReport } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,6 +18,7 @@ import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
 import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
+import { SecurityHeadersPanel } from "@/components/security-headers-panel";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { DomainExtras } from "@/components/domain-extras";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
@@ -29,7 +30,7 @@ async function getData(token: string, id: string) {
   // All tab data is fetched up front so the tabs can switch instantly on the
   // client (no per-tab server navigation). Runs in parallel; the instant
   // loading skeleton (loading.tsx) covers the initial wait.
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -44,6 +45,7 @@ async function getData(token: string, id: string) {
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
     api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
     api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
+    api.get<SecurityHeaderReport>(`/api/v1/websites/${id}/security-headers/`, token),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -60,6 +62,7 @@ async function getData(token: string, id: string) {
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
     scanState: scanState.status === "fulfilled" ? scanState.value : null,
     seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
+    headerReport: headerReport.status === "fulfilled" ? headerReport.value : null,
   };
 }
 
@@ -119,7 +122,7 @@ export default async function WebsiteDetailPage({
   const { id } = await params;
   const { tab = "overview" } = await searchParams;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -584,7 +587,8 @@ export default async function WebsiteDetailPage({
             <CardHeader>
               <CardTitle className="text-base">Security &amp; Vulnerability Scan</CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4">
+            <CardContent className="px-4 pb-4 space-y-6">
+              <SecurityHeadersPanel websiteId={id} report={headerReport} />
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
             </CardContent>
           </Card>

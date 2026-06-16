@@ -265,6 +265,11 @@ def run_seo_check(website_id: str) -> None:
         "robots_blocks_all": report.robots_blocks_all,
         "sitemap_status": report.sitemap_status,
         "first_run": report.check_status == "never",
+        "meta_title": report.meta_title,
+        "meta_description": report.meta_description,
+        "h1": report.h1,
+        "canonical_url": report.canonical_url,
+        "schema_types": list(report.schema_types or []),
     }
     report.check_status = "running"
     report.error = ""
@@ -343,6 +348,7 @@ def run_seo_check(website_id: str) -> None:
         now_iso = timezone.now().isoformat()
         fresh: dict[str, dict] = {}
         home_indexable = None
+        home_meta = None
         for url in batch:
             try:
                 _sc, html, headers = seo_checker.fetch(url)
@@ -352,6 +358,7 @@ def run_seo_check(website_id: str) -> None:
             fresh[url] = {"url": url, "indexable": indexable, "reason": reason, "checked_at": now_iso}
             if url == home:
                 home_indexable = indexable
+                home_meta = seo_checker.parse_homepage_meta(html)
 
         # Merge fresh results over the cumulative record; keep only pages still
         # in the universe (drops pages removed from the site over time).
@@ -367,6 +374,13 @@ def run_seo_check(website_id: str) -> None:
         else:
             home_entry = next((p for p in pages_checked if p["url"] == home), None)
             report.homepage_indexable = home_entry["indexable"] if home_entry else None
+
+        if home_meta is not None:
+            report.meta_title = home_meta["meta_title"]
+            report.meta_description = home_meta["meta_description"]
+            report.h1 = home_meta["h1"]
+            report.canonical_url = home_meta["canonical_url"]
+            report.schema_types = home_meta["schema_types"]
 
         report.check_status = "done"
         report.last_checked_at = timezone.now()
@@ -398,6 +412,82 @@ def run_seo_check(website_id: str) -> None:
     if prev["sitemap_status"] == "found" and report.sitemap_status == "missing":
         _alert(SiteEvent.EventType.SEO_SITEMAP_MISSING, SiteEvent.Severity.WARNING,
                f"{label} sitemap is no longer reachable")
+
+    # On-page meta change detection. Only compare fields that have ever been
+    # populated (skips the transition from a never-captured blank to a value).
+    meta_fields = [
+        ("meta_title", "title"),
+        ("meta_description", "meta description"),
+        ("h1", "H1"),
+        ("canonical_url", "canonical URL"),
+    ]
+    changes = []
+    for field, human in meta_fields:
+        old, new = prev[field], getattr(report, field)
+        if old and old != new:
+            changes.append({"field": human, "old": old, "new": new})
+    old_schema, new_schema = set(prev["schema_types"]), set(report.schema_types or [])
+    if prev["schema_types"] and old_schema != new_schema:
+        changes.append({
+            "field": "schema types",
+            "old": ", ".join(sorted(old_schema)) or "—",
+            "new": ", ".join(sorted(new_schema)) or "—",
+        })
+    if changes:
+        what = ", ".join(c["field"] for c in changes)
+        SiteEvent.objects.create(
+            website=website,
+            event_type=SiteEvent.EventType.SEO_META_CHANGED,
+            severity=SiteEvent.Severity.WARNING,
+            summary=f"{label} on-page SEO changed: {what}",
+            details={"changes": changes},
+        )
+        notify_team(
+            website,
+            f"[Digivault] {label} on-page SEO changed: {what}",
+            f"On-page SEO changed on {website.domain}: {what}",
+        )
+
+
+@shared_task(name="site_health.run_security_header_check")
+def run_security_header_check(website_id: str) -> None:
+    """Fetch the website homepage and grade its HTTP security headers."""
+    from apps.site_health import header_checker, seo_checker
+    from apps.site_health.models import SecurityHeaderReport
+    from apps.websites.models import Website
+
+    try:
+        website = Website.objects.get(pk=website_id)
+    except Website.DoesNotExist:
+        return
+
+    report, _ = SecurityHeaderReport.objects.get_or_create(website=website)
+    report.check_status = "running"
+    report.error = ""
+    report.save(update_fields=["check_status", "error"])
+
+    domain = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
+    base = domain.rstrip("/") + "/"
+
+    try:
+        status_code, _body, headers = seo_checker.fetch(base)
+        result = header_checker.grade_headers(headers)
+        report.final_url = base
+        report.status_code = status_code
+        report.score = result["score"]
+        report.grade = result["grade"]
+        report.headers = result["headers"]
+        report.pass_count = result["pass_count"]
+        report.warn_count = result["warn_count"]
+        report.fail_count = result["fail_count"]
+        report.check_status = "done"
+        report.last_checked_at = timezone.now()
+        report.save()
+    except Exception as exc:
+        logger.exception("run_security_header_check failed for %s", website_id)
+        report.check_status = "failed"
+        report.error = str(exc)[:500]
+        report.save(update_fields=["check_status", "error"])
 
 
 @shared_task(name="site_health.run_due_seo_checks")

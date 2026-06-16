@@ -8,10 +8,18 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.permissions import IsTeamMember
-from apps.site_health.models import PhpError, SeoReport, SiteEvent, SiteScanState, VulnerabilityReport
+from apps.site_health.models import (
+    PhpError,
+    SecurityHeaderReport,
+    SeoReport,
+    SiteEvent,
+    SiteScanState,
+    VulnerabilityReport,
+)
 from apps.site_health.serializers import (
     PhpErrorIngestSerializer,
     PhpErrorSerializer,
+    SecurityHeaderReportSerializer,
     SeoReportSerializer,
     SiteEventCreateSerializer,
     SiteEventSerializer,
@@ -143,6 +151,23 @@ class WebsiteSecurityScanView(APIView):
         team = request.user.active_team
         website = generics.get_object_or_404(Website, pk=website_pk, team=team)
         run_security_scan.delay(str(website.pk))
+        return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
+
+
+class WebsiteSecurityHeadersView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get(self, request, website_pk):
+        team = request.user.active_team
+        website = generics.get_object_or_404(Website, pk=website_pk, team=team)
+        report, _ = SecurityHeaderReport.objects.get_or_create(website=website)
+        return Response(SecurityHeaderReportSerializer(report).data)
+
+    def post(self, request, website_pk):
+        from apps.site_health.tasks import run_security_header_check
+        team = request.user.active_team
+        website = generics.get_object_or_404(Website, pk=website_pk, team=team)
+        run_security_header_check.delay(str(website.pk))
         return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 

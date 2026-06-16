@@ -19,6 +19,11 @@ export interface SeoReport {
   pages_checked: PageRow[];
   noindex_count: number;
   seo_scan_interval_days: number;
+  meta_title: string;
+  meta_description: string;
+  h1: string;
+  canonical_url: string;
+  schema_types: string[];
 }
 
 const INTERVALS = [
@@ -33,6 +38,17 @@ const INTERVALS = [
 function StatusIcon({ ok, warn }: { ok: boolean; warn?: boolean }) {
   if (warn) return <AlertTriangle className="h-4 w-4 text-amber-500" />;
   return ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <XCircle className="h-4 w-4 text-red-500" />;
+}
+
+function MetaRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex gap-3 px-3 py-2 text-xs">
+      <span className="text-muted-foreground w-32 shrink-0">{label}</span>
+      <span className={`flex-1 break-words ${mono ? "font-mono" : ""} ${value ? "" : "text-muted-foreground"}`}>
+        {value || "—"}
+      </span>
+    </div>
+  );
 }
 
 export function SeoTab({ websiteId, report }: { websiteId: string; report: SeoReport | null }) {
@@ -130,6 +146,30 @@ export function SeoTab({ websiteId, report }: { websiteId: string; report: SeoRe
           </p>
         </div>
       </div>
+
+      {(data.meta_title || data.meta_description || data.h1 || data.canonical_url || data.schema_types?.length > 0) && (
+        <div className="border rounded-lg divide-y">
+          <div className="px-3 py-2 text-sm font-medium">On-page SEO <span className="text-xs text-muted-foreground font-normal">· homepage · changes raise a Site Event</span></div>
+          <MetaRow label="Title" value={data.meta_title} />
+          <MetaRow label="Meta description" value={data.meta_description} />
+          <MetaRow label="H1" value={data.h1} />
+          <MetaRow label="Canonical" value={data.canonical_url} mono />
+          <div className="flex gap-3 px-3 py-2 text-xs">
+            <span className="text-muted-foreground w-32 shrink-0">Schema</span>
+            <span className="flex-1">
+              {data.schema_types?.length > 0 ? (
+                <span className="flex flex-wrap gap-1">
+                  {data.schema_types.map((t) => (
+                    <span key={t} className="rounded bg-muted px-1.5 py-0.5 font-mono">{t}</span>
+                  ))}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">None detected</span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
 
       {data.robots_content && (
         <details className="border rounded-lg">

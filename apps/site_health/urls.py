@@ -3,6 +3,7 @@ from django.urls import path
 from apps.site_health.views import (
     PhpErrorIngestView,
     WebsitePhpErrorListView,
+    WebsiteSecurityHeadersView,
     WebsiteSecurityScanView,
     WebsiteSeoView,
     WebsiteSiteEventCreateView,
@@ -21,5 +22,6 @@ website_urlpatterns = [
     path("events/create/", WebsiteSiteEventCreateView.as_view(), name="website-events-create"),
     path("vulnerabilities/", WebsiteVulnerabilityListView.as_view(), name="website-vulnerabilities"),
     path("scan/", WebsiteSecurityScanView.as_view(), name="website-scan"),
+    path("security-headers/", WebsiteSecurityHeadersView.as_view(), name="website-security-headers"),
     path("seo/", WebsiteSeoView.as_view(), name="website-seo"),
 ]
