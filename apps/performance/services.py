@@ -209,6 +209,16 @@ class CruxService:
                     f"No Chrome UX data for {origin}. "
                     "The origin must have sufficient real-user traffic to appear in CrUX."
                 ) from e
+            if e.code == 403:
+                # Almost always means the Chrome UX Report API is not enabled
+                # for the API key's Google Cloud project (it is a separate API
+                # from PageSpeed Insights and must be enabled on its own).
+                raise RuntimeError(
+                    "Chrome UX Report API is not enabled for this API key's "
+                    "Google Cloud project. Enable it at "
+                    "https://console.cloud.google.com/apis/library/chromeuxreport.googleapis.com "
+                    "then retry. (It is separate from the PageSpeed Insights API.)"
+                ) from e
             raise RuntimeError(f"CrUX API HTTP {e.code}: {body[:200]}") from e
 
         with ctx as resp:
