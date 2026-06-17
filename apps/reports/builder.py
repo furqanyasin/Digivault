@@ -409,22 +409,6 @@ class ReportBuilder:
         else:
             story.append(Paragraph("No script changes recorded this period.", body_style))
 
-        high_risk = data["script_changes"].get("high_risk") or []
-        if high_risk:
-            story.append(Spacer(1, 0.3 * cm))
-            story.append(Paragraph("High-risk changes", ParagraphStyle(
-                "Sub", parent=body_style, fontName="Helvetica-Bold")))
-            hr_rows = [["Severity", "Type", "Description"]]
-            for hr in high_risk:
-                sev = str(hr.get("severity", "")).lower()
-                color = ReportBuilder._SEVERITY_COLORS.get(sev, ReportBuilder._MUTED)
-                hr_rows.append([
-                    Paragraph(f'<font color="{color}"><b>{sev.title()}</b></font>', body_style),
-                    str(hr.get("change_type", "")).replace("_", " ").title(),
-                    Paragraph(hr.get("description") or "—", body_style),
-                ])
-            story.append(styled_table(hr_rows, [2.6 * cm, 3 * cm, 9.4 * cm], header=True))
-
         # Performance
         if data["performance"]:
             story.append(Paragraph("Performance", section_style))
