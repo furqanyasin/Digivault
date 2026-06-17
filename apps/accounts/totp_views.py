@@ -65,6 +65,12 @@ class TotpVerifyThrottle(AnonRateThrottle):
     scope = "totp_verify"
 
 
+class AuthRateThrottle(AnonRateThrottle):
+    """Login/refresh — proxied server-side so all users share one IP. Uses the
+    generous, env-tunable "auth" scope instead of the strict daily anon cap."""
+    scope = "auth"
+
+
 def _issue_tokens(user) -> dict:
     refresh = RefreshToken.for_user(user)
     return {"access": str(refresh.access_token), "refresh": str(refresh)}
@@ -283,6 +289,7 @@ class LoginView(APIView):
 
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         from django.contrib.auth import authenticate
