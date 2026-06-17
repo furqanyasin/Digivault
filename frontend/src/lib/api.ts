@@ -82,6 +82,8 @@ export interface Team {
   slug: string;
   plan: string;
   my_role?: string | null;
+  // Allowed feature keys when my_role === "custom" (drives nav gating).
+  my_features?: string[];
 }
 
 export interface Website {
@@ -222,6 +224,7 @@ export interface TeamMember {
     timezone: string;
   };
   role: string;
+  feature_access: string[];
   totp_enabled: boolean;
   created_at: string;
 }

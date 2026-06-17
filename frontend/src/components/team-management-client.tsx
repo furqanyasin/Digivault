@@ -18,21 +18,38 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TeamMember } from "@/lib/api";
 
-const ROLES = ["viewer", "developer", "editor", "seo", "manager", "owner"] as const;
+// Editor/Seo are retired — only these roles are offered now. (Legacy roles kept
+// valid in the backend so existing members still work; they just aren't listed.)
+const ROLES = ["viewer", "developer", "manager", "custom", "owner"] as const;
 type Role = typeof ROLES[number];
 
-const ROLE_LEVELS: Record<Role, number> = {
-  viewer: 1, developer: 2, editor: 2, seo: 2, manager: 3, owner: 4,
+const ROLE_LEVELS: Record<string, number> = {
+  viewer: 1, developer: 2, custom: 2, editor: 2, seo: 2, manager: 3, owner: 4,
 };
 
 const ROLE_BADGE: Record<string, string> = {
   owner: "bg-amber-100 text-amber-800 border border-amber-200",
   manager: "bg-blue-100 text-blue-800 border border-blue-200",
   developer: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+  custom: "bg-indigo-100 text-indigo-800 border border-indigo-200",
   editor: "bg-purple-100 text-purple-800 border border-purple-200",
   seo: "bg-teal-100 text-teal-800 border border-teal-200",
   viewer: "bg-gray-100 text-gray-700 border border-gray-200",
 };
+
+// Feature keys a custom member's access can be limited to — mirrors the backend
+// CUSTOM_FEATURE_KEYS and the sidebar nav.
+const FEATURES: { key: string; label: string }[] = [
+  { key: "websites", label: "Websites" },
+  { key: "clients", label: "Clients" },
+  { key: "monitors", label: "Monitors" },
+  { key: "status_pages", label: "Status Pages" },
+  { key: "alerts", label: "Alerts" },
+  { key: "reports", label: "Reports" },
+  { key: "renewals", label: "Renewal Center" },
+  { key: "credentials", label: "Credentials" },
+  { key: "activity_log", label: "Activity Log" },
+];
 
 interface PasswordResetReq {
   id: string;
@@ -103,13 +120,22 @@ export function TeamManagementClient({
     }
   }
 
-  async function handleRoleChange(memberId: string, newRole: Role) {
+  async function handleRoleChange(memberId: string, newRole: Role, featureAccess?: string[]) {
+    const body: Record<string, unknown> = { role: newRole };
+    if (newRole === "custom") body.feature_access = featureAccess ?? [];
     await fetch(`/api/teams/${teamId}/members/${memberId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: newRole }),
+      body: JSON.stringify(body),
     });
     refresh();
+  }
+
+  async function handleToggleFeature(member: TeamMember, key: string) {
+    const current = new Set(member.feature_access ?? []);
+    if (current.has(key)) current.delete(key);
+    else current.add(key);
+    await handleRoleChange(member.id, "custom", Array.from(current));
   }
 
   async function handleRemoveMember(memberId: string) {
@@ -265,19 +291,43 @@ export function TeamManagementClient({
                     </TableCell>
                     <TableCell>
                       {canModify ? (
-                        <Select
-                          value={member.role}
-                          onValueChange={(v) => handleRoleChange(member.id, v as Role)}
-                        >
-                          <SelectTrigger className="h-7 w-[110px] text-xs px-2">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {assignableRoles.map((r) => (
-                              <SelectItem key={r} value={r} className="capitalize text-xs">{r}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="space-y-2">
+                          <Select
+                            value={member.role}
+                            onValueChange={(v) => handleRoleChange(member.id, v as Role)}
+                          >
+                            <SelectTrigger className="h-7 w-[110px] text-xs px-2">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {assignableRoles.map((r) => (
+                                <SelectItem key={r} value={r} className="capitalize text-xs">{r}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {member.role === "custom" && (
+                            <div className="flex flex-wrap gap-1 max-w-[340px]">
+                              {FEATURES.map((f) => {
+                                const on = (member.feature_access ?? []).includes(f.key);
+                                return (
+                                  <button
+                                    key={f.key}
+                                    type="button"
+                                    onClick={() => handleToggleFeature(member, f.key)}
+                                    className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                                      on
+                                        ? "bg-indigo-100 text-indigo-800 border-indigo-200"
+                                        : "bg-muted text-muted-foreground border-transparent hover:border-border"
+                                    }`}
+                                    title={on ? `Remove ${f.label} access` : `Grant ${f.label} access`}
+                                  >
+                                    {on ? "✓ " : ""}{f.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium capitalize ${ROLE_BADGE[member.role] ?? ""}`}>
                           {member.role}

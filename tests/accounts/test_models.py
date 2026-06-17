@@ -68,7 +68,8 @@ class TestTeamMembership:
 
     def test_role_choices(self):
         roles = [r.value for r in TeamMembership.Role]
-        assert set(roles) == {"owner", "manager", "developer", "editor", "seo", "viewer"}
+        # custom = per-member feature access; editor/seo retained as legacy.
+        assert set(roles) == {"owner", "manager", "developer", "viewer", "custom", "editor", "seo"}
 
 
 @pytest.mark.django_db

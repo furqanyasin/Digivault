@@ -11,9 +11,11 @@ class AlertRule(BaseModel):
     """
 
     class Channel(models.TextChoices):
-        EMAIL = "email", "Email"
-        SLACK = "slack", "Slack"
         IN_APP = "in_app", "In-App"
+        EMAIL = "email", "Email"
+        CLICKUP = "clickup", "ClickUp"
+        # Legacy — no longer offered in the UI, kept so existing rules stay valid.
+        SLACK = "slack", "Slack"
 
     class DeliveryMode(models.TextChoices):
         IMMEDIATE = "immediate", "Immediate"

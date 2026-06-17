@@ -41,23 +41,33 @@ class UserSerializer(BaseModelSerializer):
 class TeamSerializer(BaseModelSerializer):
     member_count = serializers.SerializerMethodField()
     my_role = serializers.SerializerMethodField()
+    my_features = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ("id", "name", "slug", "plan", "member_count", "my_role", "created_at")
+        fields = ("id", "name", "slug", "plan", "member_count", "my_role", "my_features", "created_at")
         read_only_fields = ("id", "slug", "created_at")
 
     def get_member_count(self, obj) -> int:
         return obj.memberships.count()
 
-    def get_my_role(self, obj) -> str | None:
-        """The requesting user's role in this team — lets the UI gate
-        manager-only sections without an extra members fetch."""
+    def _my_membership(self, obj):
         request = self.context.get("request")
         if request is None or not request.user.is_authenticated:
             return None
-        membership = obj.memberships.filter(user=request.user).first()
-        return membership.role if membership else None
+        return obj.memberships.filter(user=request.user).first()
+
+    def get_my_role(self, obj) -> str | None:
+        """The requesting user's role in this team — lets the UI gate
+        manager-only sections without an extra members fetch."""
+        m = self._my_membership(obj)
+        return m.role if m else None
+
+    def get_my_features(self, obj) -> list:
+        """Allowed feature keys for the requesting user when their role is
+        'custom' — drives nav/page gating in the frontend layout."""
+        m = self._my_membership(obj)
+        return list(m.feature_access or []) if m else []
 
 
 class TeamMembershipSerializer(BaseModelSerializer):
@@ -66,7 +76,7 @@ class TeamMembershipSerializer(BaseModelSerializer):
 
     class Meta:
         model = TeamMembership
-        fields = ("id", "user", "role", "totp_enabled", "created_at")
+        fields = ("id", "user", "role", "feature_access", "totp_enabled", "created_at")
         read_only_fields = ("id", "totp_enabled", "created_at")
 
 
