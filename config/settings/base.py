@@ -154,11 +154,16 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ],
+    # Auth (login + token refresh) is proxied server-side by the Next.js app, so
+    # Django sees a single shared IP for it — a tight per-IP "anon" cap then locks
+    # everyone out (refresh alone fires every few minutes). Keep anon generous and
+    # env-tunable; brute-force protection on login is a dedicated "auth" scope.
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "100/day",
-        "user": "5000/day",
-        "ingest": "10000/day",
-        "extension": "300/hour",
+        "anon": env("THROTTLE_ANON", default="1000/hour"),
+        "user": env("THROTTLE_USER", default="10000/day"),
+        "auth": env("THROTTLE_AUTH", default="120/minute"),
+        "ingest": env("THROTTLE_INGEST", default="10000/day"),
+        "extension": env("THROTTLE_EXTENSION", default="300/hour"),
         "totp_verify": "10/minute",
         "totp_setup": "10/hour",
     },
