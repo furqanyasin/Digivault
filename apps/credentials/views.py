@@ -1,8 +1,12 @@
+import csv
+import io
 import logging
 import uuid
+from urllib.parse import urlparse
 
 from django.core.cache import cache
 from rest_framework import generics, permissions, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
@@ -643,3 +647,129 @@ class CredentialShareDeleteView(APIView):
             metadata={"unshared_user_id": str(user_id)},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# Map LastPass URL/grouping hints to our credential types.
+_LP_TYPE_HINTS = [
+    ("wp-admin", "wordpress"), ("wp-login", "wordpress"), ("siteground", "siteground"),
+    ("cpanel", "cpanel"), ("cloudflare", "cloudflare"), ("godaddy", "godaddy"),
+    ("namecheap", "namecheap"), ("hostinger", "hostinger"), ("shopify", "shopify"),
+    ("wix.com", "wix"), ("webflow", "webflow"), ("framer", "framer"),
+    ("wpengine", "wpengine"), ("wpenginepowered", "wpengine"), ("kinsta", "kinsta"),
+    ("bluehost", "bluehost"),
+]
+
+
+def _guess_credential_type(url: str, grouping: str) -> str:
+    blob = f"{url} {grouping}".lower()
+    for needle, ctype in _LP_TYPE_HINTS:
+        if needle in blob:
+            return ctype
+    return "custom"
+
+
+class CredentialImportView(APIView):
+    """POST /api/v1/credentials/import/ — import a LastPass CSV export.
+
+    Expected columns (LastPass default): url, username, password, totp, extra,
+    name, grouping, fav. Each row becomes an encrypted Credential. When the URL's
+    host matches a team website the credential links to it; otherwise it's a
+    standalone (Hosting & General) login. Re-importing the same site+username
+    refreshes the stored password instead of duplicating.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        team = request.user.active_team
+        if team is None:
+            return Response({"detail": "No active team."}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_obj = request.FILES.get("file")
+        if not file_obj:
+            return Response({"detail": "No file provided."}, status=status.HTTP_400_BAD_REQUEST)
+        if file_obj.size > 5 * 1024 * 1024:
+            return Response({"detail": "File too large (max 5 MB)."}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+
+        try:
+            text = file_obj.read().decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(text))
+        except Exception:
+            return Response(
+                {"detail": "Could not read the CSV. Export from LastPass as a CSV file and try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from apps.websites.models import Website
+
+        created = updated = skipped = 0
+        for row in reader:
+            name = (row.get("name") or "").strip()
+            url = (row.get("url") or "").strip()
+            username = (row.get("username") or "").strip()
+            password = row.get("password") or ""
+            extra = (row.get("extra") or "").strip()
+            totp = (row.get("totp") or "").strip()
+            grouping = (row.get("grouping") or "").strip()
+
+            # Skip secure notes / rows with no usable login.
+            if not username and not password:
+                skipped += 1
+                continue
+
+            notes = extra
+            if totp:
+                notes = (notes + "\n" if notes else "") + f"TOTP secret: {totp}"
+
+            # Link to a team website when the host matches; else standalone.
+            host = ""
+            try:
+                parsed = urlparse(url if "://" in url else f"https://{url}")
+                host = (parsed.hostname or "").lower()
+            except ValueError:
+                host = ""
+            website = None
+            if host:
+                bare = host.removeprefix("www.")
+                website = (
+                    Website.objects.filter(team=team, domain__iexact=host).first()
+                    or Website.objects.filter(team=team, domain__iexact=bare).first()
+                    or Website.objects.filter(team=team, domain__iexact=f"www.{bare}").first()
+                )
+
+            label = name or host or "Imported login"
+            cred_type = _guess_credential_type(url, grouping)
+
+            existing = None
+            if username:
+                existing = Credential.objects.filter(
+                    team=team, website=website,
+                    username_hash=Credential.hash_username(username),
+                ).first()
+
+            if existing:
+                CredentialService.update(
+                    credential=existing,
+                    password=password or None,
+                    login_url=url or None,
+                    updated_by=request.user,
+                )
+                updated += 1
+            else:
+                CredentialService.create(
+                    label=label, credential_type=cred_type, login_url=url,
+                    username=username, password=password, notes=notes,
+                    created_by=request.user, team=team, website=website,
+                )
+                created += 1
+
+        if created or updated:
+            AuditService.log_request(
+                request, ActivityLog.Action.CREDENTIAL_CREATED,
+                description=f"Imported credentials from CSV — {created} created, {updated} updated",
+                resource_type="credential",
+                metadata={"created": created, "updated": updated, "skipped": skipped, "source": "lastpass_csv"},
+            )
+
+        return Response({"created": created, "updated": updated, "skipped": skipped})

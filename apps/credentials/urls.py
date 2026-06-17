@@ -3,6 +3,7 @@ from django.urls import path
 from apps.credentials.views import (
     CredentialAccessLogView,
     CredentialDetailView,
+    CredentialImportView,
     CredentialListCreateView,
     CredentialRevealView,
     CredentialShareDeleteView,
@@ -16,6 +17,11 @@ urlpatterns = [
         "credentials/",
         TeamCredentialListCreateView.as_view(),
         name="credential-team-list-create",
+    ),
+    path(
+        "credentials/import/",
+        CredentialImportView.as_view(),
+        name="credential-import",
     ),
     path(
         "websites/<uuid:website_pk>/credentials/",
