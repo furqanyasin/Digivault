@@ -259,7 +259,14 @@ class ClientImportView(APIView):
             raw_ppc = (row.get("Are we running PPC Ads (drop down)") or "").strip().lower()
             ppc = "yes" if raw_ppc.startswith("yes") else ("no" if raw_ppc.startswith("no") else "")
 
-            domain_access = (row.get("Where we have the domain access (drop down)") or "").strip()
+            # "Domain Access" is the current sample header; the long
+            # "Where we have the domain access (drop down)" is the legacy
+            # ClickUp-export header, still accepted for backward compatibility.
+            domain_access = (
+                row.get("Domain Access")
+                or row.get("Where we have the domain access (drop down)")
+                or ""
+            ).strip()
             comments = (row.get("Comments (short text)") or "").strip()
 
             raw_built = (row.get("Website Built by Digi") or row.get("Website built by Digi  (drop down)") or "").strip()

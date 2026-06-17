@@ -128,7 +128,7 @@ export function ClientsClient({ initialClients }: Props) {
     const headers = [
       "Task ID", "Task Name", "Websites URL (short text)", "Hosting Platform (drop down)",
       "Migration Status (drop down)", "Confirmation from CSM for Migration (drop down)",
-      "Are we running PPC Ads (drop down)", "Where we have the domain access (drop down)",
+      "Are we running PPC Ads (drop down)", "Domain Access",
       "Comments (short text)", "Website Built by Digi", "Website Maintained by Digi",
     ];
     const example = [
@@ -250,7 +250,7 @@ export function ClientsClient({ initialClients }: Props) {
                     </Badge>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs pt-1 border-t border-current/10">
-                    <LookupRow label="Access" value={r.access_summary} />
+                    <LookupRow label="Domain Access" value={r.access_summary} />
                     <LookupRow label="Hosting" value={(HOSTING_LABELS[r.hosting_platform] ?? r.hosting_platform) || "—"} />
                     <LookupRow label="Built by Digi" value={r.website_built_by_digi || "—"} />
                     <LookupRow label="Maintained by Digi" value={r.website_maintained_by_digi || "—"} />
@@ -306,7 +306,7 @@ export function ClientsClient({ initialClients }: Props) {
               <TableRow>
                 <TableHead>Client</TableHead>
                 <TableHead>Hosting</TableHead>
-                <TableHead>Access</TableHead>
+                <TableHead>Domain Access</TableHead>
                 <TableHead>Built by Digi</TableHead>
                 <TableHead>Maintained by Digi</TableHead>
                 <TableHead>Status</TableHead>
