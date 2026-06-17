@@ -397,7 +397,7 @@ def _update_website_status(website: Website) -> None:
     )
     severities = {c.severity for c in open_changes if not _is_internal(c)}
 
-    if ScriptChange.Severity.HIGH in severities:
+    if severities & {ScriptChange.Severity.CRITICAL, ScriptChange.Severity.HIGH}:
         new_status = Website.Status.CRITICAL
     elif ScriptChange.Severity.MEDIUM in severities:
         new_status = Website.Status.WARNING

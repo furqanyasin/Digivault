@@ -48,12 +48,23 @@ function FieldBadge({ field }: { field: DetectedForm["fields"][number] }) {
   );
 }
 
+// A structural signature for a form, ignoring which page it appeared on. The
+// same form (e.g. a footer newsletter signup) shows up on every page, producing
+// one DetectedForm row per page — collapse those into a single entry.
+function formSignature(f: DetectedForm): string {
+  const fields = f.fields.map((x) => `${x.name}:${x.type}`).join(",");
+  return [
+    f.detection_type, f.form_method, f.form_id, f.form_name,
+    f.form_action, f.provider, fields,
+  ].join("|");
+}
+
 export function FormsTab({ forms }: Props) {
   if (forms.length === 0) {
     return (
       <div className="py-16 flex flex-col items-center gap-3 text-center">
         <FileText className="h-10 w-10 text-muted-foreground" />
-        <p className="font-medium">No form errors detected yet</p>
+        <p className="font-medium">No forms detected yet</p>
         <p className="text-sm text-muted-foreground max-w-sm">
           Forms will appear here once the tracking snippet fires on a page that contains a{" "}
           <code className="bg-muted px-1 rounded">&lt;form&gt;</code> element.
@@ -62,18 +73,23 @@ export function FormsTab({ forms }: Props) {
     );
   }
 
-  const byPage: Record<string, DetectedForm[]> = {};
+  // Deduplicate identical forms across pages, keeping the most recently seen.
+  const bySignature = new Map<string, DetectedForm>();
   for (const f of forms) {
-    const key = f.page_url;
-    if (!byPage[key]) byPage[key] = [];
-    byPage[key].push(f);
+    const sig = formSignature(f);
+    const existing = bySignature.get(sig);
+    if (!existing || f.last_seen_at > existing.last_seen_at) {
+      bySignature.set(sig, f);
+    }
   }
+  const uniqueForms = Array.from(bySignature.values());
+  const pageCount = new Set(forms.map((f) => f.page_url)).size;
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {forms.length} form{forms.length !== 1 ? "s" : ""} detected across{" "}
-        {Object.keys(byPage).length} page{Object.keys(byPage).length !== 1 ? "s" : ""}
+        {uniqueForms.length} form{uniqueForms.length !== 1 ? "s" : ""} detected across{" "}
+        {pageCount} page{pageCount !== 1 ? "s" : ""}
       </p>
       <Table>
         <TableHeader>
@@ -87,7 +103,7 @@ export function FormsTab({ forms }: Props) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {forms.map((form) => (
+          {uniqueForms.map((form) => (
             <TableRow key={form.id}>
               <TableCell className="align-top">
                 <div className="font-mono text-xs text-muted-foreground truncate max-w-[180px]" title={form.page_url}>
