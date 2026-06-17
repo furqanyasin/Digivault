@@ -139,6 +139,39 @@ def _team(request):
     return request.user.active_team
 
 
+def _sync_hosting_to_websites(client) -> None:
+    """Mirror the client's hosting renewal date onto its website(s).
+
+    The website's hosting expiry lives on DomainInfo (shown on the Access & Domain
+    tab and used for expiry alerts). Without this, a date set on the client never
+    appears on the website. Matches by the Website.client FK or a same-domain
+    website in the team. Only writes when the client has a date — never clears a
+    website-set date.
+    """
+    if not client.hosting_renewal_date:
+        return
+
+    from datetime import datetime, time
+
+    from django.utils import timezone
+
+    from apps.domains.models import DomainInfo
+    from apps.websites.models import Website
+
+    dt = datetime.combine(client.hosting_renewal_date, time.min)
+    if timezone.is_aware(timezone.now()):
+        dt = timezone.make_aware(dt)
+
+    websites = Website.objects.filter(team=client.team).filter(
+        Q(client=client) | Q(domain__iexact=client.domain)
+    )
+    for w in websites:
+        di, _ = DomainInfo.objects.get_or_create(website=w)
+        if di.hosting_expires_at != dt:
+            di.hosting_expires_at = dt
+            di.save(update_fields=["hosting_expires_at", "updated_at"])
+
+
 class ClientListCreateView(generics.ListCreateAPIView):
     """GET /api/v1/clients/   POST /api/v1/clients/"""
 
@@ -159,6 +192,7 @@ class ClientListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         client = serializer.save(team=_team(self.request))
+        _sync_hosting_to_websites(client)
         AuditService.log_request(
             self.request, ActivityLog.Action.CLIENT_CREATED,
             description=f"Created client '{client.name}'",
@@ -177,6 +211,7 @@ class ClientDetailView(generics.RetrieveUpdateAPIView):
 
     def perform_update(self, serializer):
         client = serializer.save()
+        _sync_hosting_to_websites(client)
         AuditService.log_request(
             self.request, ActivityLog.Action.CLIENT_UPDATED,
             description=f"Updated client '{client.name}'",
@@ -385,6 +420,8 @@ class ClientImportView(APIView):
                 created += 1
             else:
                 updated += 1
+
+            _sync_hosting_to_websites(obj)
 
         if created or updated:
             AuditService.log_request(
