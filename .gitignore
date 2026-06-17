@@ -71,3 +71,6 @@ frontend/.env.production.local
 
 # Redis dump
 dump.rdb
+
+# Generated Marp slide exports
+/security.pdf
