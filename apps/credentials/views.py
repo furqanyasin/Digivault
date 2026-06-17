@@ -301,13 +301,32 @@ class ExtensionCredentialLookupView(generics.ListAPIView):
         return super().list(request, *args, **kwargs)
 
     def get_queryset(self):
+        from django.db.models import Q
+
         team = self.request.user.active_team
         if team is None:
             return Credential.objects.none()
         domain = self.request.query_params.get("domain", "").strip().lower()
-        return Credential.objects.visible_to(self.request.user).filter(
-            website__team=team,
-            website__domain__iexact=domain,
+        if not domain:
+            return Credential.objects.none()
+
+        bare = domain.removeprefix("www.")
+        # Match a website-linked credential by the website's domain (with/without
+        # www), OR any credential — including standalone hosting logins — whose
+        # login_url points at this host. Anchoring on "//host" keeps it from
+        # matching the host inside a path.
+        match = (
+            Q(website__domain__iexact=domain)
+            | Q(website__domain__iexact=bare)
+            | Q(website__domain__iexact=f"www.{bare}")
+            | Q(login_url__icontains=f"//{bare}")
+            | Q(login_url__icontains=f"//www.{bare}")
+        )
+        return (
+            Credential.objects.visible_to(self.request.user)
+            .filter(team=team)
+            .filter(match)
+            .distinct()
         )
 
 
