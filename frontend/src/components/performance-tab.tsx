@@ -317,7 +317,51 @@ const CRUX_METRICS = [
   { label: "INP", p75Key: "inp_p75_ms", goodKey: "inp_good", niKey: "inp_ni", poorKey: "inp_poor", unit: "ms", desc: "Interaction to Next Paint" },
 ] as const;
 
-function CruxSection({ websiteId, reports }: { websiteId: string; reports: CruxReport[] }) {
+function scorePillColor(s: number | null) {
+  if (s === null) return "bg-muted text-muted-foreground";
+  if (s >= 90) return "bg-emerald-100 text-emerald-700";
+  if (s >= 50) return "bg-amber-100 text-amber-700";
+  return "bg-red-100 text-red-700";
+}
+
+// Core Web Vitals assessment from CrUX p75 values — Google's pass criteria
+// (LCP ≤ 2.5s, INP ≤ 200ms, CLS ≤ 0.1).
+function cwvAssessment(r: CruxReport | null): { label: string; color: string } | null {
+  if (!r) return null;
+  const checks: boolean[] = [];
+  if (r.lcp_p75_ms != null) checks.push(r.lcp_p75_ms <= 2500);
+  if (r.inp_p75_ms != null) checks.push(r.inp_p75_ms <= 200);
+  if (r.cls_p75 != null) checks.push(r.cls_p75 <= 0.1);
+  if (checks.length === 0) return null;
+  return checks.every(Boolean)
+    ? { label: "Core Web Vitals: Passed", color: "bg-emerald-100 text-emerald-700" }
+    : { label: "Core Web Vitals: Needs improvement", color: "bg-amber-100 text-amber-700" };
+}
+
+function RecentLabScore({ label, report }: { label: string; report: PerformanceReport | null }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className={`text-sm font-bold px-2 py-0.5 rounded ${scorePillColor(report?.performance_score ?? null)}`}>
+        {report?.performance_score ?? "—"}
+      </span>
+      <span className="text-xs text-muted-foreground">
+        {label}{report ? ` · ${fmtDate(report.checked_at)}` : ""}
+      </span>
+    </div>
+  );
+}
+
+function CruxSection({
+  websiteId,
+  reports,
+  mobile,
+  desktop,
+}: {
+  websiteId: string;
+  reports: CruxReport[];
+  mobile: PerformanceReport | null;
+  desktop: PerformanceReport | null;
+}) {
   const [running, setRunning] = useState(false);
   const router = useRouter();
   const [error, setError] = useState("");
@@ -343,11 +387,15 @@ function CruxSection({ websiteId, reports }: { websiteId: string; reports: CruxR
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Users className="h-4 w-4 text-muted-foreground" />
           <h3 className="font-semibold text-sm">Real User Metrics (Chrome UX Report)</h3>
           <Badge variant="secondary" className="text-xs">p75 field data</Badge>
+          {(() => {
+            const a = cwvAssessment(latest);
+            return a ? <span className={`text-xs font-medium px-2 py-0.5 rounded ${a.color}`}>{a.label}</span> : null;
+          })()}
         </div>
         <Button size="sm" variant="outline" onClick={fetchCrux} disabled={running}>
           <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${running ? "animate-spin" : ""}`} />
@@ -355,15 +403,32 @@ function CruxSection({ websiteId, reports }: { websiteId: string; reports: CruxR
         </Button>
       </div>
 
+      {/* Recent lab score — always available, and the practical fallback for
+          low-traffic sites that have no real-user (CrUX) field data. */}
+      {(mobile || desktop) && (
+        <div className="rounded-lg border p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Recent score</span>
+            <span className="text-[11px] text-muted-foreground">Lab estimate · PageSpeed Insights</span>
+          </div>
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            <RecentLabScore label="Mobile" report={mobile} />
+            <RecentLabScore label="Desktop" report={desktop} />
+          </div>
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       {!latest ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+          <CardContent className="flex flex-col items-center justify-center py-10 gap-2 text-center">
             <Users className="h-10 w-10 text-muted-foreground" />
-            <p className="font-medium">No real-user data yet</p>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              CrUX data comes from real Chrome users visiting your site. Click &ldquo;Fetch CrUX&rdquo; to pull the latest field data from Google.
+            <p className="font-medium">No real-user (field) data</p>
+            <p className="text-sm text-muted-foreground max-w-md">
+              CrUX only reports for sites with enough real Chrome traffic, so smaller sites often show nothing here —
+              that&rsquo;s normal, not an error. Use the <span className="font-medium">Recent score</span> above (lab data)
+              as your performance indicator. Click &ldquo;Fetch CrUX&rdquo; to check for field data.
             </p>
             <Button size="sm" onClick={fetchCrux} disabled={running} className="mt-1">
               {running ? "Fetching…" : "Fetch CrUX data"}
@@ -620,7 +685,12 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
 
       {/* Real User Metrics (CrUX) — always shown regardless of lab data */}
       <div className="border-t pt-6">
-        <CruxSection websiteId={websiteId} reports={cruxReports} />
+        <CruxSection
+          websiteId={websiteId}
+          reports={cruxReports}
+          mobile={mobileReports[0] ?? null}
+          desktop={desktopReports[0] ?? null}
+        />
       </div>
     </div>
   );

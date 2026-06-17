@@ -177,7 +177,11 @@ export function RenewalsClient() {
       }
     }
     if (clientsRes.ok) {
-      const clients = asList<ClientRow>(unwrap(await clientsRes.json()));
+      // /api/clients returns { clients: [...], count }, not a bare array/envelope.
+      const clientsJson = await clientsRes.json();
+      const clients: ClientRow[] = Array.isArray(clientsJson?.clients)
+        ? clientsJson.clients
+        : asList<ClientRow>(unwrap(clientsJson));
       for (const c of clients) {
         if (!c.hosting_renewal_date) continue;
         const key = normDomain(c.website_url);
