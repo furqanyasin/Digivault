@@ -39,6 +39,15 @@ class TestBuilder:
         }
         assert data["script_changes"]["total"] >= 1
         assert isinstance(data["recommendations"], list) and data["recommendations"]
+        # Active scripts are gathered (the fixture has one active, non-internal script).
+        assert data["scripts"]["active_total"] >= 1
+        assert any(s["domain"] == "x.com" for s in data["scripts"]["active"])
+
+    def test_csv_lists_active_scripts(self, report_website):
+        data = ReportBuilder.gather(report_website, PERIOD_START, PERIOD_END)
+        csv_text = ReportBuilder.render_csv(data)
+        assert "Active scripts (total)" in csv_text
+        assert "Active" in csv_text
 
     def test_render_pdf_returns_pdf_bytes(self, report_website):
         data = ReportBuilder.gather(report_website, PERIOD_START, PERIOD_END)
