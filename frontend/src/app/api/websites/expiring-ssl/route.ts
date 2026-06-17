@@ -7,7 +7,7 @@ export async function GET() {
   const jar = await cookies();
   const token = jar.get("ss_access")?.value;
   if (!token) return NextResponse.json([], { status: 401 });
-  const upstream = await fetch(`${API_BASE}/api/v1/websites/expiring-ssl/?days=14`, {
+  const upstream = await fetch(`${API_BASE}/api/v1/websites/expiring-ssl/?days=30`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const envelope = await upstream.json().catch(() => ({}));
