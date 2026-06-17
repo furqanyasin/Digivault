@@ -55,6 +55,54 @@ class SlackDelivery:
                 raise RuntimeError(f"Slack webhook returned {resp.status}")
 
 
+class ClickUpDelivery:
+    """Post the alert as a comment on the team's active ClickUp notification
+    channel(s). Reuses the NotificationChannel config (api_token + task_id) that
+    powers uptime/website alerts, so no extra config lives on the rule."""
+
+    @staticmethod
+    def send(notification) -> None:
+        import json as _json
+        import urllib.request
+
+        from apps.monitors.models import NotificationChannel
+
+        channels = list(
+            NotificationChannel.objects.filter(
+                team=notification.team, is_active=True, channel_type="clickup"
+            )
+        )
+        if not channels:
+            logger.warning(
+                "ClickUpDelivery: no active ClickUp channel for team %s", notification.team_id
+            )
+            return
+
+        comment = _build_clickup_comment(notification)
+        delivered = False
+        for ch in channels:
+            api_token = (ch.config or {}).get("api_token", "")
+            task_id = (ch.config or {}).get("task_id", "")
+            if not api_token or not task_id:
+                continue
+            url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
+            data = _json.dumps({"comment_text": comment}).encode("utf-8")
+            req = urllib.request.Request(
+                url, data=data,
+                headers={"Content-Type": "application/json", "Authorization": api_token},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status not in (200, 201):
+                    raise RuntimeError(f"ClickUp delivery returned HTTP {resp.status}")
+            delivered = True
+        if not delivered:
+            logger.warning(
+                "ClickUpDelivery: ClickUp channel(s) for team %s missing api_token/task_id",
+                notification.team_id,
+            )
+
+
 class InAppDelivery:
     """In-app delivery creates the Notification record and pushes it to any
     open WebSocket connections for the team via the Channels layer."""
@@ -72,6 +120,7 @@ class InAppDelivery:
 
 _BACKENDS = {
     "email": EmailDelivery,
+    "clickup": ClickUpDelivery,
     "slack": SlackDelivery,
     "in_app": InAppDelivery,
 }
@@ -112,6 +161,16 @@ def _build_email_body(notification) -> str:
         if change.new_value:
             lines.append(f"After: {change.new_value}")
     lines.append("\nView in Digivault dashboard to acknowledge this alert.")
+    return "\n".join(lines)
+
+
+def _build_clickup_comment(notification) -> str:
+    change = notification.script_change
+    lines = [f"🔔 {notification.website.name} ({notification.website.domain})"]
+    if change:
+        lines.append(f"{change.get_change_type_display()} — {change.severity.upper()}")
+        if change.description:
+            lines.append(change.description)
     return "\n".join(lines)
 
 
