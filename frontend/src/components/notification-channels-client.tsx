@@ -28,7 +28,7 @@ function configSummary(channel: NotificationChannel): string {
     return addrs.join(", ") || "—";
   }
   if (channel.channel_type === "clickup") {
-    return `task: ${c.task_id ?? "—"}`;
+    return c.chat_url ? "chat channel" : `task: ${c.task_id ?? "—"}`;
   }
   return "—";
 }
@@ -68,14 +68,28 @@ function ConfigFields({
           />
         </div>
         <div className="space-y-2">
-          <Label>Task ID</Label>
+          <Label>Chat channel link <span className="text-muted-foreground">(preferred)</span></Label>
+          <Input
+            value={config.chat_url ?? ""}
+            onChange={(e) => onChange("chat_url", e.target.value)}
+            placeholder="https://your-team.clickup.com/123456/chat/r/xxxx-000"
+            className="text-sm"
+          />
+          <p className="text-xs text-muted-foreground">
+            Posts notifications into a ClickUp Chat channel (group). Open the channel in ClickUp and copy its URL.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label>Task ID <span className="text-muted-foreground">(or, to comment on a task)</span></Label>
           <Input
             value={config.task_id ?? ""}
             onChange={(e) => onChange("task_id", e.target.value)}
             placeholder="e.g. 86evnnba3"
             className="font-mono text-sm"
-            required
           />
+          <p className="text-xs text-muted-foreground">
+            Used only if no Chat channel link is set. Provide a Chat link or a Task ID.
+          </p>
         </div>
       </>
     );

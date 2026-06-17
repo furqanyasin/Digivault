@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.request
 from typing import TYPE_CHECKING
 
@@ -56,27 +57,61 @@ def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
         raise
 
 
+# Matches a ClickUp Chat channel link, e.g.
+# https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438
+_CLICKUP_CHAT_RE = re.compile(r"clickup\.com/(\d+)/chat/(?:r/)?([^/?#]+)", re.I)
+
+
+def parse_clickup_chat(url: str) -> tuple[str | None, str | None]:
+    """Return (workspace_id, channel_id) from a ClickUp Chat channel link."""
+    m = _CLICKUP_CHAT_RE.search(url or "")
+    return (m.group(1), m.group(2)) if m else (None, None)
+
+
+def post_clickup(config: dict, text: str) -> bool:
+    """Post `text` to a ClickUp target. Prefers a Chat channel (v3 API) when the
+    config has a `chat_url`; otherwise comments on a `task_id` (v2). Returns True
+    if a request was sent, False if the config has no usable target. Raises on a
+    non-2xx response so callers can log/retry."""
+    config = config or {}
+    api_token = config.get("api_token", "")
+    if not api_token:
+        return False
+    headers = {"Content-Type": "application/json", "Authorization": api_token}
+
+    chat_url = config.get("chat_url", "")
+    if chat_url:
+        ws, ch = parse_clickup_chat(chat_url)
+        if ws and ch:
+            url = f"https://api.clickup.com/api/v3/workspaces/{ws}/chat/channels/{ch}/messages"
+            data = json.dumps({"type": "message", "content": text, "content_format": "text/md"}).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status not in (200, 201):
+                    raise RuntimeError(f"ClickUp chat returned HTTP {resp.status}")
+            return True
+
+    task_id = config.get("task_id", "")
+    if task_id:
+        url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
+        data = json.dumps({"comment_text": text}).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            if resp.status not in (200, 201):
+                raise RuntimeError(f"ClickUp comment returned HTTP {resp.status}")
+        return True
+
+    return False
+
+
 def _send_clickup(channel, monitor, old_status: str, new_status: str) -> None:
-    api_token = channel.config.get("api_token", "")
-    task_id = channel.config.get("task_id", "")
-    if not api_token or not task_id:
-        logger.warning("ClickUp channel %s missing api_token or task_id", channel.id)
-        return
     emoji = STATUS_EMOJI.get(new_status, "")
-    comment_text = (
+    text = (
         f"{emoji} **{monitor.name}** status changed: {old_status.upper()} → {new_status.upper()}\n"
         f"URL: {monitor.url}"
     )
-    url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
-    data = json.dumps({"comment_text": comment_text}).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data,
-        headers={"Content-Type": "application/json", "Authorization": api_token},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        if resp.status not in (200, 201):
-            raise RuntimeError(f"ClickUp delivery returned HTTP {resp.status}")
+    if not post_clickup(channel.config, text):
+        logger.warning("ClickUp channel %s has no api_token or target", channel.id)
 
 
 def _send_slack(channel, monitor, old_status: str, new_status: str) -> None:
