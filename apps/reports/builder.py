@@ -46,6 +46,32 @@ class ReportBuilder:
             .values("change_type", "severity", "description")[:20]
         )
 
+        # Active scripts currently running on the site, grouped by domain and
+        # excluding Digivault's own infra (the tracking snippet) — matches the
+        # website detail "Active Scripts" list.
+        from apps.scripts.models import Script
+        from apps.scripts.tasks import _internal_hosts
+
+        internal = _internal_hosts()
+        grouped: dict[str, dict] = {}
+        for s in Script.objects.filter(website=website, is_active=True).order_by("provider", "src_domain"):
+            blob = f"{s.src_url or ''} {s.src_domain or ''}".lower()
+            if any(h in blob for h in internal):
+                continue
+            key = (s.src_domain or s.src_url or "").lower()
+            if key not in grouped:
+                grouped[key] = {
+                    "domain": s.src_domain or s.src_url or "—",
+                    "provider": s.provider,
+                    "category": s.category,
+                    "files": 0,
+                }
+            grouped[key]["files"] += 1
+        active_scripts = sorted(
+            grouped.values(),
+            key=lambda r: (r["provider"] == "unknown", r["provider"], r["domain"]),
+        )
+
         # Domain / SSL
         domain = None
         try:
@@ -100,6 +126,11 @@ class ReportBuilder:
                 "start": period_start.isoformat(),
                 "end": period_end.isoformat(),
             },
+            "scripts": {
+                "active_total": sum(r["files"] for r in active_scripts),
+                "active_domains": len(active_scripts),
+                "active": active_scripts,
+            },
             "script_changes": {
                 "total": sum(change_counts.values()),
                 "by_type": change_counts,
@@ -150,6 +181,11 @@ class ReportBuilder:
         w.writerow([])
         w.writerow(["Health score", site["health_score"]])
         w.writerow(["Status", site["status"]])
+        w.writerow([])
+        scripts = data.get("scripts", {})
+        w.writerow(["Active scripts (total)", scripts.get("active_total", 0)])
+        for s in scripts.get("active", []):
+            w.writerow([f"  {s['provider']} — {s['domain']}", s.get("category") or "", "Active"])
         w.writerow([])
         w.writerow(["Script changes (total)", data["script_changes"]["total"]])
         for ct, n in data["script_changes"]["by_type"].items():
@@ -329,11 +365,38 @@ class ReportBuilder:
                 ["Health score", f"{site['health_score']} / 100"],
                 ["Status", str(site["status"]).title()],
                 ["Platform", site["platform"] or "—"],
+                ["Active scripts", str(data.get("scripts", {}).get("active_total", 0))],
                 ["Script changes (period)", str(data["script_changes"]["total"])],
                 ["PHP errors (period)", str(data["security"]["php_errors"])],
             ],
             [6 * cm, 9 * cm],
         ))
+
+        # Active scripts
+        story.append(Paragraph("Active Scripts", section_style))
+        active = data.get("scripts", {}).get("active") or []
+        if active:
+            story.append(Paragraph(
+                f"{data['scripts']['active_total']} active script(s) across "
+                f"{data['scripts']['active_domains']} domain(s).", body_style))
+            story.append(Spacer(1, 0.2 * cm))
+            cap = 60
+            as_rows = [["Provider", "Domain", "Category", "Status"]]
+            for s in active[:cap]:
+                prov = s["provider"] if s["provider"] and s["provider"] != "unknown" else "—"
+                cat = s["category"] if s["category"] and s["category"] != "unknown" else "—"
+                as_rows.append([
+                    Paragraph(str(prov), body_style),
+                    Paragraph(str(s["domain"]), body_style),
+                    Paragraph(str(cat).replace("_", " ").title(), body_style),
+                    Paragraph('<font color="#16A34A"><b>Active</b></font>', body_style),
+                ])
+            story.append(styled_table(as_rows, [4 * cm, 6 * cm, 3 * cm, 2 * cm], header=True))
+            if len(active) > cap:
+                story.append(Paragraph(
+                    f"… and {len(active) - cap} more active script domain(s).", body_style))
+        else:
+            story.append(Paragraph("No active third-party scripts detected.", body_style))
 
         # Script changes
         story.append(Paragraph("Script Changes", section_style))
