@@ -25,7 +25,7 @@ export default function NewClientPage() {
   const router = useRouter();
   const [form, setForm] = useState({
     name: "", website_url: "", hosting_platform: "",
-    hosting_renewal_date: "", domain_access_location: "",
+    hosting_renewal_date: "", contract_renewal_date: "", domain_access_location: "",
     migration_status: "", csm_migration_confirmation: "",
     running_ppc_ads: "", website_built_by_digi: "", website_maintained_by_digi: "",
     notes: "", comments: "", clickup_task_id: "",
@@ -42,7 +42,12 @@ export default function NewClientPage() {
     setSaving(true);
     setError("");
     try {
-      const payload = { ...form, hosting_platform: form.hosting_platform === "_unknown" ? "" : form.hosting_platform };
+      const payload = {
+        ...form,
+        hosting_platform: form.hosting_platform === "_unknown" ? "" : form.hosting_platform,
+        hosting_renewal_date: form.hosting_renewal_date || null,
+        contract_renewal_date: form.contract_renewal_date || null,
+      };
       const res = await fetch("/api/clients", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,6 +98,10 @@ export default function NewClientPage() {
               <div className="space-y-1.5">
                 <Label>Hosting renewal date</Label>
                 <Input type="date" value={form.hosting_renewal_date} onChange={(e) => set("hosting_renewal_date", e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Contract renewal date</Label>
+                <Input type="date" value={form.contract_renewal_date} onChange={(e) => set("contract_renewal_date", e.target.value)} />
               </div>
               <div className="space-y-1.5">
                 <Label>Website built by Digi</Label>
