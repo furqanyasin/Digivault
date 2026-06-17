@@ -27,84 +27,80 @@
     document.body.appendChild(host);
     shadowRoot = host.attachShadow({ mode: 'open' });
 
-    const style = document.createElement('style');
-    style.textContent = `
-      .ss-icon-btn {
-        position: fixed;
-        width: 24px;
-        height: 24px;
-        border: none;
-        background: rgba(15,23,42,0.85);
-        border-radius: 4px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        pointer-events: all;
-        opacity: 0.75;
-        transition: opacity 0.15s, background 0.15s;
-        padding: 0;
-      }
-      .ss-icon-btn:hover { opacity: 1; background: rgba(59,130,246,0.9); }
-
-      .ss-dropdown {
-        position: fixed;
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 6px;
-        padding: 4px 0;
-        min-width: 230px;
-        max-height: 200px;
-        overflow-y: auto;
-        pointer-events: all;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        z-index: 1;
-      }
-
-      .ss-cred-btn {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        width: 100%;
-        padding: 8px 12px;
-        background: none;
-        border: none;
-        color: #f1f5f9;
-        font-size: 13px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        cursor: pointer;
-        text-align: left;
-        pointer-events: all;
-      }
-      .ss-cred-btn:hover, .ss-cred-btn:focus { background: #293548; outline: none; }
-
-      .ss-cred-label {
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .ss-type-chip {
-        font-size: 11px;
-        background: rgba(59,130,246,0.15);
-        color: #93c5fd;
-        padding: 1px 7px;
-        border-radius: 999px;
-        white-space: nowrap;
-        flex-shrink: 0;
-      }
-
-      .ss-empty {
-        padding: 10px 14px;
-        color: #94a3b8;
-        font-size: 12px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      }
-    `;
-    shadowRoot.appendChild(style);
+    // Style the shadow DOM with a constructed stylesheet (adoptedStyleSheets).
+    // A <style> element would be blocked on sites with a strict `style-src`
+    // CSP; constructed sheets are CSSOM and exempt. All UI CSS lives here so no
+    // inline styles or <style> tags are ever injected into the page.
+    applyShadowStyles(shadowRoot);
     return shadowRoot;
+  }
+
+  const SHADOW_CSS = `
+    .ss-icon-btn {
+      position: fixed; width: 24px; height: 24px; border: none;
+      background: rgba(15,23,42,0.85); border-radius: 4px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: all; opacity: 0.75;
+      transition: opacity 0.15s, background 0.15s; padding: 0;
+    }
+    .ss-icon-btn:hover { opacity: 1; background: rgba(59,130,246,0.9); }
+    .ss-dropdown {
+      position: fixed; background: #1e293b; border: 1px solid #334155;
+      border-radius: 6px; padding: 4px 0; min-width: 230px; max-height: 200px;
+      overflow-y: auto; pointer-events: all; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 1;
+    }
+    .ss-cred-btn {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      width: 100%; padding: 8px 12px; background: none; border: none; color: #f1f5f9;
+      font-size: 13px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      cursor: pointer; text-align: left; pointer-events: all;
+    }
+    .ss-cred-btn:hover, .ss-cred-btn:focus { background: #293548; outline: none; }
+    .ss-cred-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ss-type-chip {
+      font-size: 11px; background: rgba(59,130,246,0.15); color: #93c5fd;
+      padding: 1px 7px; border-radius: 999px; white-space: nowrap; flex-shrink: 0;
+    }
+    .ss-empty {
+      padding: 10px 14px; color: #94a3b8; font-size: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .dv-save-bar {
+      position: fixed; top: 0; left: 0; right: 0; background: #0f172a;
+      border-bottom: 2px solid #22c55e; padding: 10px 16px; display: flex;
+      align-items: center; gap: 12px; pointer-events: all;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px; color: #f1f5f9; z-index: 2; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+    .dv-save-text { flex: 1; min-width: 0; }
+    .dv-save-domain { color: #4ade80; font-weight: 600; }
+    .dv-save-user { color: #94a3b8; font-size: 11px; margin-top: 2px;
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dv-save-btn {
+      padding: 5px 14px; border: none; border-radius: 5px; font-size: 12px;
+      font-family: inherit; cursor: pointer; pointer-events: all; flex-shrink: 0; white-space: nowrap;
+    }
+    .dv-save-btn-primary { background: #22c55e; color: #fff; font-weight: 600; }
+    .dv-save-btn-primary:hover { background: #16a34a; }
+    .dv-save-btn-primary:disabled { opacity: 0.6; cursor: default; }
+    .dv-save-btn-ghost { background: transparent; color: #94a3b8; }
+    .dv-save-btn-ghost:hover { color: #f1f5f9; }
+    /* helpers replacing former inline style attributes (CSP-safe) */
+    .dv-icon-svg { flex-shrink: 0; }
+    .dv-error { color: #f87171; }
+  `;
+
+  function applyShadowStyles(root) {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(SHADOW_CSS);
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    } catch (_e) {
+      // Legacy fallback (subject to page CSP, but better than nothing).
+      const styleEl = document.createElement('style');
+      styleEl.textContent = SHADOW_CSS;
+      root.appendChild(styleEl);
+    }
   }
 
   // ----------------------------------------------------------------
@@ -452,47 +448,10 @@
     const root = getOrCreateShadowRoot();
     if (root.querySelector('.dv-save-bar')) return;
 
-    const style = document.createElement('style');
-    style.textContent = `
-      .dv-save-bar {
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        background: #0f172a;
-        border-bottom: 2px solid #22c55e;
-        padding: 10px 16px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        pointer-events: all;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-size: 13px;
-        color: #f1f5f9;
-        z-index: 2;
-        box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-      }
-      .dv-save-text { flex: 1; min-width: 0; }
-      .dv-save-domain { color: #4ade80; font-weight: 600; }
-      .dv-save-user { color: #94a3b8; font-size: 11px; margin-top: 2px;
-                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      .dv-save-btn {
-        padding: 5px 14px;
-        border: none; border-radius: 5px;
-        font-size: 12px; font-family: inherit;
-        cursor: pointer; pointer-events: all;
-        flex-shrink: 0; white-space: nowrap;
-      }
-      .dv-save-btn-primary { background: #22c55e; color: #fff; font-weight: 600; }
-      .dv-save-btn-primary:hover { background: #16a34a; }
-      .dv-save-btn-primary:disabled { opacity: 0.6; cursor: default; }
-      .dv-save-btn-ghost { background: transparent; color: #94a3b8; }
-      .dv-save-btn-ghost:hover { color: #f1f5f9; }
-    `;
-    root.appendChild(style);
-
     const bar = document.createElement('div');
     bar.className = 'dv-save-bar';
     bar.innerHTML = `
-      <svg width="18" height="18" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+      <svg width="18" height="18" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" class="dv-icon-svg">
         <path d="M7 1L2 3v4c0 2.76 2.17 5.34 5 6 2.83-.66 5-3.24 5-6V3L7 1z" fill="#22c55e"/>
       </svg>
       <div class="dv-save-text">
@@ -509,7 +468,6 @@
     function dismiss() {
       clearTimeout(autoTimer);
       bar.remove();
-      style.remove();
       chrome.storage.session.remove(PENDING_KEY);
     }
 
@@ -525,7 +483,7 @@
         if (!result || result.error) {
           const msg = result?.detail || 'Could not save — is this domain registered in Digivault?';
           bar.querySelector('.dv-save-text').innerHTML =
-            `<div style="color:#f87171">${escapeStr(msg)}</div>`;
+            `<div class="dv-error">${escapeStr(msg)}</div>`;
           saveBtn.remove();
           bar.querySelector('#dv-save-no').textContent = 'Dismiss';
           chrome.storage.session.remove(PENDING_KEY);
