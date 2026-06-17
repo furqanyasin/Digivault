@@ -91,6 +91,32 @@ class TestExtensionCredentialsLookup:
         assert resp.status_code == 200
         assert len(json.loads(resp.content)["data"]) == 1
 
+    def test_www_variant_matches(self, owner, team, website, credential):
+        """A www. host should match a bare website domain (and vice-versa)."""
+        client = _auth_client(owner)
+        resp = client.get("/api/extension/credentials/", {"domain": "www.ecsite.io"})
+        assert resp.status_code == 200
+        assert len(json.loads(resp.content)["data"]) == 1
+
+    def test_standalone_credential_matched_by_login_url(self, owner, team):
+        """A standalone (no-website) credential autofills on its login_url host."""
+        CredentialService.create(
+            team=team,
+            label="SiteGround",
+            credential_type="siteground",
+            login_url="https://my.siteground.com/login",
+            username="host-admin",
+            password="secret",
+            notes="",
+            created_by=owner,
+        )
+        client = _auth_client(owner)
+        resp = client.get("/api/extension/credentials/", {"domain": "my.siteground.com"})
+        assert resp.status_code == 200
+        data = json.loads(resp.content)["data"]
+        assert len(data) == 1
+        assert data[0]["label"] == "SiteGround"
+
     def test_credentials_from_other_team_not_returned(self, owner, team, website, credential):
         other_owner = User.objects.create_user(email="other@test.com", password="Pass123!")
         TeamService.create(name="Other Agency", owner=other_owner)

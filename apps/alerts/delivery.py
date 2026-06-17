@@ -62,10 +62,8 @@ class ClickUpDelivery:
 
     @staticmethod
     def send(notification) -> None:
-        import json as _json
-        import urllib.request
-
         from apps.monitors.models import NotificationChannel
+        from apps.monitors.notifications import post_clickup
 
         channels = list(
             NotificationChannel.objects.filter(
@@ -79,26 +77,12 @@ class ClickUpDelivery:
             return
 
         comment = _build_clickup_comment(notification)
-        delivered = False
-        for ch in channels:
-            api_token = (ch.config or {}).get("api_token", "")
-            task_id = (ch.config or {}).get("task_id", "")
-            if not api_token or not task_id:
-                continue
-            url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
-            data = _json.dumps({"comment_text": comment}).encode("utf-8")
-            req = urllib.request.Request(
-                url, data=data,
-                headers={"Content-Type": "application/json", "Authorization": api_token},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                if resp.status not in (200, 201):
-                    raise RuntimeError(f"ClickUp delivery returned HTTP {resp.status}")
-            delivered = True
+        # post_clickup routes to a Chat channel (v3) or a task comment (v2)
+        # depending on the channel config.
+        delivered = any(post_clickup(ch.config, comment) for ch in channels)
         if not delivered:
             logger.warning(
-                "ClickUpDelivery: ClickUp channel(s) for team %s missing api_token/task_id",
+                "ClickUpDelivery: ClickUp channel(s) for team %s have no usable target",
                 notification.team_id,
             )
 
