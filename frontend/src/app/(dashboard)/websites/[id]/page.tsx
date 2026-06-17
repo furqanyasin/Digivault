@@ -151,6 +151,12 @@ export default async function WebsiteDetailPage({
 
   // Scripts tab / stats: hide internal infrastructure noise
   const activeScripts = scripts.filter((s) => s.is_active && !isInternalStr(s.src_url));
+  // Don't show scripts the classifier never recognised once they've been
+  // triaged — they're resolved noise. Unknowns still pending review stay
+  // visible so they can be actioned.
+  const displayScripts = activeScripts.filter(
+    (s) => s.provider !== "unknown" || s.review_status === "pending"
+  );
   // Plugins tab: needs digilaticsvps scripts to detect WP plugins
   const allActiveScripts = scripts.filter((s) => s.is_active);
 
@@ -202,7 +208,7 @@ export default async function WebsiteDetailPage({
             <CardContent className="flex items-center gap-3 py-4">
               <Code className="h-7 w-7 text-blue-500 shrink-0" />
               <div>
-                <p className="text-2xl font-bold">{activeScripts.length}</p>
+                <p className="text-2xl font-bold">{displayScripts.length}</p>
                 <p className="text-xs text-muted-foreground">Active scripts</p>
               </div>
             </CardContent>
@@ -248,7 +254,7 @@ export default async function WebsiteDetailPage({
       <Tabs key={tab} defaultValue={tab}>
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="scripts">Scripts ({activeScripts.length})</TabsTrigger>
+          <TabsTrigger value="scripts">Scripts ({displayScripts.length})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
           <TabsTrigger value="forms">Forms ({forms.length})</TabsTrigger>
           <TabsTrigger value="tracking">Tracking</TabsTrigger>
@@ -282,13 +288,13 @@ export default async function WebsiteDetailPage({
             </CardContent>
           </Card>
 
-          {activeScripts.length > 0 && (
+          {displayScripts.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center justify-between">
                   Top Scripts
                   <Link href={`/websites/${id}?tab=scripts`} className="text-xs font-normal text-muted-foreground hover:text-foreground">
-                    View all {activeScripts.length} →
+                    View all {displayScripts.length} →
                   </Link>
                 </CardTitle>
               </CardHeader>
@@ -302,7 +308,7 @@ export default async function WebsiteDetailPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {activeScripts.slice(0, 7).map((script) => (
+                    {displayScripts.slice(0, 7).map((script) => (
                       <TableRow key={script.id}>
                         <TableCell><Badge variant={providerVariant(script.provider)}>{script.provider}</Badge></TableCell>
                         <TableCell className="text-sm">{script.category || "—"}</TableCell>
@@ -322,10 +328,10 @@ export default async function WebsiteDetailPage({
         <TabsContent value="scripts">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Active Scripts ({activeScripts.length})</CardTitle>
+              <CardTitle className="text-base">Active Scripts ({displayScripts.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <ScriptsTab scripts={activeScripts} websiteId={id} />
+              <ScriptsTab scripts={displayScripts} websiteId={id} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -348,14 +354,21 @@ export default async function WebsiteDetailPage({
         <TabsContent value="forms" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Detected Forms ({forms.length})</CardTitle>
+              <CardTitle className="text-base">Detected Forms</CardTitle>
             </CardHeader>
             <CardContent className="p-0 px-4 pb-4">
               <FormsTab forms={forms} />
             </CardContent>
           </Card>
 
-          {formErrors.length > 0 && (
+          {formErrors.length === 0 ? (
+            <Card className="border-emerald-200 dark:border-emerald-900">
+              <CardContent className="py-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0" />
+                No form submission errors detected.
+              </CardContent>
+            </Card>
+          ) : (
             <Card className="border-red-200 dark:border-red-900">
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">

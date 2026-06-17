@@ -356,7 +356,24 @@ class ScriptReviewView(APIView):
             resource_type="script", resource_id=script.pk,
             metadata={"review_status": review_status},
         )
+
+        # Triaging a script (approve/block/ignore) resolves the open changes that
+        # flagged it — most importantly the HIGH "Unknown script detected" change
+        # that drives the site to 'critical'. Acknowledge them and recompute so
+        # the dashboard heals immediately instead of staying stuck at critical.
+        if review_status != Script.ReviewStatus.PENDING:
+            self._resolve_open_changes(script, request.user)
+
         return Response(ScriptSerializer(script).data)
+
+    @staticmethod
+    def _resolve_open_changes(script, user) -> None:
+        script.changes.filter(acknowledged_at__isnull=True).update(
+            acknowledged_at=timezone.now(), acknowledged_by=user
+        )
+        from apps.scripts.tasks import _update_website_status
+        _update_website_status(script.website)
+        script.website.recalculate_health_score()
 
 
 class BulkScriptReviewView(APIView):
@@ -387,11 +404,27 @@ class BulkScriptReviewView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        updated = Script.objects.filter(
+        scripts = Script.objects.filter(
             pk__in=script_ids,
             website_id=website_pk,
             website__team=team,
-        ).update(review_status=review_status)
+        )
+        updated = scripts.update(review_status=review_status)
+
+        # Resolve the open changes flagged against these scripts, then recompute
+        # the website's status + health ONCE so a bulk approve heals 'critical'.
+        if updated and review_status != Script.ReviewStatus.PENDING:
+            ScriptChange.objects.filter(
+                script__in=list(scripts.values_list("pk", flat=True)),
+                acknowledged_at__isnull=True,
+            ).update(acknowledged_at=timezone.now(), acknowledged_by=request.user)
+
+            from apps.scripts.tasks import _update_website_status
+            from apps.websites.models import Website
+            website = Website.objects.filter(pk=website_pk).first()
+            if website:
+                _update_website_status(website)
+                website.recalculate_health_score()
 
         if updated:
             AuditService.log_request(
