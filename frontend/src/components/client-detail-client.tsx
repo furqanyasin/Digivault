@@ -65,6 +65,7 @@ export function ClientDetailClient({ client: initial }: Props) {
     website_url: initial.website_url,
     hosting_platform: toSelect(initial.hosting_platform),
     hosting_renewal_date: initial.hosting_renewal_date ?? "",
+    contract_renewal_date: initial.contract_renewal_date ?? "",
     domain_access_location: initial.domain_access_location,
     migration_status: toSelect(initial.migration_status),
     csm_migration_confirmation: toSelect(initial.csm_migration_confirmation),
@@ -103,6 +104,10 @@ export function ClientDetailClient({ client: initial }: Props) {
         hosting_platform: fromSelect(form.hosting_platform),
         migration_status: fromSelect(form.migration_status),
         csm_migration_confirmation: fromSelect(form.csm_migration_confirmation),
+        // An empty <input type="date"> yields "" — DRF's DateField rejects that;
+        // send null so it clears the field instead of erroring.
+        hosting_renewal_date: form.hosting_renewal_date || null,
+        contract_renewal_date: form.contract_renewal_date || null,
         website_built_by_digi: form.website_built_by_digi === "unknown" ? "" : form.website_built_by_digi,
         website_maintained_by_digi: form.website_maintained_by_digi === "unknown" ? "" : form.website_maintained_by_digi,
       };
@@ -113,7 +118,8 @@ export function ClientDetailClient({ client: initial }: Props) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setSaveError(data?.detail ?? "Save failed.");
+        // Surface the real reason: { detail } or the envelope's first error message.
+        setSaveError(data?.detail || data?.errors?.[0]?.message || "Save failed.");
         return;
       }
       setSaveMsg("Saved successfully.");
@@ -210,6 +216,9 @@ export function ClientDetailClient({ client: initial }: Props) {
               </Field>
               <Field label="Hosting renewal date">
                 <Input type="date" value={form.hosting_renewal_date} onChange={(e) => set("hosting_renewal_date", e.target.value)} />
+              </Field>
+              <Field label="Contract renewal date">
+                <Input type="date" value={form.contract_renewal_date} onChange={(e) => set("contract_renewal_date", e.target.value)} />
               </Field>
               <Field label="Domain access location">
                 <Input

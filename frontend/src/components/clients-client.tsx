@@ -58,9 +58,10 @@ export function ClientsClient({ initialClients }: Props) {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupExpanded, setLookupExpanded] = useState(true);
 
-  // Import
+  // Import / export
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   // Sync all
   const [syncing, setSyncing] = useState(false);
@@ -124,17 +125,22 @@ export function ClientsClient({ initialClients }: Props) {
     }
   }
 
+  // Canonical column order — must match the backend EXPORT_HEADERS so an export
+  // can be edited and re-imported without remapping.
   function handleDownloadSample() {
     const headers = [
       "Task ID", "Task Name", "Websites URL (short text)", "Hosting Platform (drop down)",
-      "Migration Status (drop down)", "Confirmation from CSM for Migration (drop down)",
-      "Are we running PPC Ads (drop down)", "Domain Access",
-      "Comments (short text)", "Website Built by Digi", "Website Maintained by Digi",
+      "Hosting Renewal Date", "Contract Renewal Date", "Domain Access", "Website Built by Digi",
+      "Website Maintained by Digi", "Migration Status (drop down)",
+      "Confirmation from CSM for Migration (drop down)",
+      "Are we running PPC Ads (drop down)", "Notes", "Comments (short text)",
     ];
     const example = [
-      "86evnnba3", "Example Client Ltd", "https://example.com", "siteground",
-      "No - We didn't do", "Yes, we can do migration", "No",
-      "Khurram GoDaddy Account", "Renewal due in March", "Yes", "Yes",
+      "86evnnba3", "Example Client Ltd", "https://example.com", "SiteGround",
+      "2027-03-15", "2027-06-30", "Khurram GoDaddy Account", "Yes",
+      "Yes", "No - We didn't do",
+      "Yes, We can do Migration", "No",
+      "Internal note about this client", "Renewal due in March",
     ];
     const csv = [headers, example].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -144,6 +150,23 @@ export function ClientsClient({ initialClients }: Props) {
     a.download = "clients-import-sample.csv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/clients/export");
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "clients-export.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   }
 
   async function handleSyncAll() {
@@ -181,6 +204,9 @@ export function ClientsClient({ initialClients }: Props) {
               <span><Upload className="h-4 w-4 mr-1" />{importing ? "Importing…" : "Import CSV"}</span>
             </Button>
           </label>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
+            <Download className="h-4 w-4 mr-1" />{exporting ? "Exporting…" : "Export CSV"}
+          </Button>
           <Button variant="outline" size="sm" onClick={handleSyncAll} disabled={syncing}>
             <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing…" : "Sync ClickUp"}

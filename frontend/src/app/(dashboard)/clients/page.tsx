@@ -10,6 +10,7 @@ export interface ClientRecord {
   status: "active" | "inactive";
   hosting_platform: string;
   hosting_renewal_date: string | null;
+  contract_renewal_date: string | null;
   domain_access_location: string;
   migration_status: string;
   csm_migration_confirmation: string;

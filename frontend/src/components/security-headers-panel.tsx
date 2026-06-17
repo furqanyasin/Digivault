@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, AlertTriangle, X, RefreshCw, Loader2 } from "lucide-react";
+import { Check, AlertTriangle, X, RefreshCw, Loader2, Wrench, Copy, ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SecurityHeaderReport } from "@/lib/api";
 import { fmtDateTime } from "@/lib/utils";
@@ -9,6 +9,124 @@ import { fmtDateTime } from "@/lib/utils";
 interface Props {
   websiteId: string;
   report: SecurityHeaderReport | null;
+}
+
+// Recommended directives for the headers Digivault grades, ordered to match the
+// checklist. The CSP is a permissive *starter* — a strict policy must be tuned
+// per-site or it will block legitimate scripts/styles (see the caveat below).
+const RECOMMENDED: { name: string; value: string }[] = [
+  { name: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains; preload" },
+  { name: "X-Frame-Options", value: "SAMEORIGIN" },
+  { name: "X-Content-Type-Options", value: "nosniff" },
+  { name: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { name: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  { name: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { name: "Content-Security-Policy", value: "default-src 'self'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'self'" },
+];
+
+type Platform = "nginx" | "apache" | "wordpress" | "cloudflare";
+
+const PLATFORMS: { key: Platform; label: string }[] = [
+  { key: "nginx", label: "Nginx" },
+  { key: "apache", label: "Apache" },
+  { key: "wordpress", label: "WordPress" },
+  { key: "cloudflare", label: "Cloudflare" },
+];
+
+function buildSnippet(platform: Platform): string {
+  if (platform === "nginx") {
+    return (
+      "# Add inside the server { } block, then: nginx -t && systemctl reload nginx\n" +
+      RECOMMENDED.map((h) => `add_header ${h.name} "${h.value}" always;`).join("\n")
+    );
+  }
+  if (platform === "apache") {
+    return (
+      "# Add to .htaccess or the <VirtualHost> (needs mod_headers)\n" +
+      "<IfModule mod_headers.c>\n" +
+      RECOMMENDED.map((h) => `  Header always set ${h.name} "${h.value}"`).join("\n") +
+      "\n</IfModule>"
+    );
+  }
+  if (platform === "wordpress") {
+    return (
+      "// Drop in the theme's functions.php or a small mu-plugin\n" +
+      "add_action('send_headers', function () {\n" +
+      RECOMMENDED.map((h) => `    header('${h.name}: ${h.value}');`).join("\n") +
+      "\n});"
+    );
+  }
+  // cloudflare
+  return (
+    "Cloudflare → Rules → Transform Rules → Modify Response Header → Create rule\n" +
+    'Apply to: Hostname equals your domain, then "Set static" for each:\n\n' +
+    RECOMMENDED.map((h) => `${h.name}: ${h.value}`).join("\n")
+  );
+}
+
+function HeaderFixGuide({ failCount }: { failCount: number }) {
+  const [platform, setPlatform] = useState<Platform>("nginx");
+  const [copied, setCopied] = useState(false);
+  const snippet = buildSnippet(platform);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable — user can select manually */
+    }
+  }
+
+  return (
+    <div className="flex-1 min-w-0 rounded-lg border bg-muted/30 p-3 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <Wrench className="h-4 w-4 text-muted-foreground shrink-0" />
+        <h4 className="text-sm font-medium">How to fix {failCount > 0 ? `the ${failCount} missing header${failCount > 1 ? "s" : ""}` : "these"}</h4>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        These are set by the <span className="font-medium">web server / CDN</span> — not in page content. Pick the
+        client&apos;s stack and add the block once; it covers every header above.
+      </p>
+
+      <div className="flex flex-wrap gap-1">
+        {PLATFORMS.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            onClick={() => setPlatform(p.key)}
+            className={`px-2.5 py-1 rounded text-xs border transition-colors ${
+              platform === p.key ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="relative">
+        <pre className="text-[11px] leading-relaxed bg-background border rounded-md p-3 pr-10 overflow-x-auto font-mono whitespace-pre">
+          {snippet}
+        </pre>
+        <button
+          type="button"
+          onClick={copy}
+          className="absolute top-2 right-2 p-1.5 rounded border bg-background hover:bg-muted"
+          title="Copy snippet"
+        >
+          {copied ? <ClipboardCheck className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+        </button>
+      </div>
+
+      <p className="text-[11px] text-amber-600 dark:text-amber-500 leading-relaxed">
+        <span className="font-medium">Heads-up on Content-Security-Policy:</span> the value above is a permissive
+        starter so it won&apos;t break the site. Tighten it gradually (remove <code className="font-mono">&apos;unsafe-inline&apos;</code>/
+        <code className="font-mono">&apos;unsafe-eval&apos;</code>, allowlist real third-party domains) and re-test —
+        a too-strict CSP can block analytics, chat widgets and fonts. After deploying, click <span className="font-medium">Check Headers</span> to re-grade.
+      </p>
+    </div>
+  );
 }
 
 const GRADE_COLOR: Record<string, string> = {
@@ -86,9 +204,9 @@ export function SecurityHeadersPanel({ websiteId, report }: Props) {
             : "No header check run yet. Click Check Headers to grade this site."}
         </p>
       ) : (
-        <div className="flex flex-col sm:flex-row gap-5">
+        <div className="flex flex-col lg:flex-row gap-5">
           {/* Grade badge */}
-          <div className="flex sm:flex-col items-center gap-3 sm:gap-1.5 shrink-0">
+          <div className="flex lg:flex-col items-center gap-3 lg:gap-1.5 shrink-0">
             <div
               className={`flex items-center justify-center h-20 w-20 rounded-xl border text-3xl font-bold ${
                 GRADE_COLOR[data.grade] ?? "bg-muted text-foreground border-border"
@@ -105,7 +223,7 @@ export function SecurityHeadersPanel({ websiteId, report }: Props) {
           </div>
 
           {/* Header checklist */}
-          <div className="flex-1 space-y-2 min-w-0">
+          <div className="lg:w-[44%] space-y-2 min-w-0 shrink-0">
             {data.headers.map((h) => (
               <div key={h.key} className="flex items-start gap-2.5">
                 {STATUS_ICON[h.status]}
@@ -126,6 +244,16 @@ export function SecurityHeadersPanel({ websiteId, report }: Props) {
               </div>
             ))}
           </div>
+
+          {/* How-to-fix guide — fills the space beside the checklist */}
+          {data.fail_count + data.warn_count > 0 ? (
+            <HeaderFixGuide failCount={data.fail_count} />
+          ) : (
+            <div className="flex-1 min-w-0 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20 p-3 flex items-center gap-2">
+              <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+              <p className="text-sm text-muted-foreground">All graded headers are present — nothing to fix right now.</p>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -58,6 +58,7 @@ class ActivityLog(BaseModel):
         CLIENT_STATUS_CHANGED = "client.status_changed", "Client status changed"
         CLIENT_SYNCED = "client.synced", "Client synced from ClickUp"
         CLIENT_IMPORTED = "client.imported", "Clients imported"
+        CLIENT_EXPORTED = "client.exported", "Clients exported"
         # Alerts
         ALERT_RULE_CREATED = "alert.rule_created", "Alert rule created"
         ALERT_RULE_UPDATED = "alert.rule_updated", "Alert rule updated"

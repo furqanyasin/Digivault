@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import { RefreshCw, Zap, Monitor, Smartphone, Users, AlertTriangle, CheckCircle2, Wrench } from "lucide-react";
+import { RefreshCw, Zap, Monitor, Smartphone, Users, AlertTriangle, CheckCircle2, Wrench, ExternalLink } from "lucide-react";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -511,6 +511,15 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
                   {latest.url && (
                     <p className="text-xs font-mono text-muted-foreground truncate max-w-[200px]">{latest.url}</p>
                   )}
+                  <a
+                    href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(latest.url || "")}&form_factor=${strategy}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                  >
+                    Compare on PageSpeed Insights
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
                 </div>
               </CardContent>
             </Card>
@@ -553,6 +562,13 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
                   );
                 })}
               </div>
+              <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+                These are <span className="font-medium">lab</span> measurements from a single Lighthouse run via Google
+                PageSpeed Insights. Scores vary run-to-run with server load, network and mobile CPU throttling, so a
+                check here may differ by several points from one you run on PageSpeed Insights a few minutes apart —
+                both are correct snapshots. Watch the trend over several checks, and treat the Real User Metrics (CrUX)
+                below as the authoritative field data.
+              </p>
             </CardContent>
           </Card>
 

@@ -4,9 +4,24 @@ from apps.clients.models import Client
 from apps.common.serializers import BaseModelSerializer
 
 
+class BlankableDateField(serializers.DateField):
+    """A DateField that treats an empty string as null.
+
+    HTML <input type="date"> submits "" when cleared; DRF's DateField would
+    otherwise reject it with "Date has wrong format" and fail the whole save.
+    """
+
+    def to_internal_value(self, value):
+        if value in ("", None):
+            return None
+        return super().to_internal_value(value)
+
+
 class ClientSerializer(BaseModelSerializer):
     domain = serializers.CharField(read_only=True)
     assigned_websites_count = serializers.SerializerMethodField()
+    hosting_renewal_date = BlankableDateField(required=False, allow_null=True)
+    contract_renewal_date = BlankableDateField(required=False, allow_null=True)
 
     class Meta:
         model = Client
