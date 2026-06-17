@@ -38,6 +38,17 @@ function asList<T>(value: unknown): T[] {
   return v?.results ?? [];
 }
 
+/** Normalise a URL/domain to a bare host for cross-source matching. */
+function normDomain(url: string | null): string {
+  if (!url) return "";
+  return url
+    .toLowerCase()
+    .trim()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split("/")[0];
+}
+
 function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const ms = new Date(dateStr).getTime() - Date.now();
@@ -148,30 +159,37 @@ export function RenewalsClient() {
       );
     }
     // Hosting comes from both website-level expiry dates and client records.
+    // The Website's Access-tab date is authoritative — dedupe by domain so a
+    // site with both a website hosting-expiry and a client hosting-renewal
+    // date only appears once.
     const hostingRows: RenewalRow[] = [];
+    const hostingDomains = new Set<string>();
     if (hostRes.ok) {
       const items = asList<ExpiringItem>(unwrap(await hostRes.json()));
-      hostingRows.push(
-        ...items.map((i) => ({
+      for (const i of items) {
+        hostingDomains.add(normDomain(i.domain));
+        hostingRows.push({
           key: `host-w-${i.id}`,
           label: i.name || i.domain,
           sub: i.domain,
           days: i.days_until_expiry,
-        }))
-      );
+        });
+      }
     }
     if (clientsRes.ok) {
       const clients = asList<ClientRow>(unwrap(await clientsRes.json()));
-      hostingRows.push(
-        ...clients
-          .filter((c) => c.hosting_renewal_date)
-          .map((c) => ({
-            key: `host-c-${c.id}`,
-            label: c.name,
-            sub: c.website_url,
-            days: daysUntil(c.hosting_renewal_date),
-          }))
-      );
+      for (const c of clients) {
+        if (!c.hosting_renewal_date) continue;
+        const key = normDomain(c.website_url);
+        if (key && hostingDomains.has(key)) continue;  // already covered by the website source
+        if (key) hostingDomains.add(key);
+        hostingRows.push({
+          key: `host-c-${c.id}`,
+          label: c.name,
+          sub: c.website_url,
+          days: daysUntil(c.hosting_renewal_date),
+        });
+      }
       setContracts(
         clients
           .filter((c) => c.contract_renewal_date)
