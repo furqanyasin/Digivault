@@ -68,8 +68,17 @@ async function authedFetch(url, options = {}) {
 // Existing: badge update on tab load
 // ------------------------------------------------------------------
 
+// MV3 chrome.action.* return promises that reject (e.g. "No tab with id") when
+// the tab was closed between the event and the call — swallow both the sync
+// throw and the async rejection so they don't surface as uncaught errors.
+function actionSafe(promise) {
+  try {
+    if (promise && typeof promise.catch === "function") promise.catch(() => {});
+  } catch { /* ignore */ }
+}
+
 function setBadgeSafe(props) {
-  try { chrome.action.setBadgeText(props); } catch { /* tab closed */ }
+  try { actionSafe(chrome.action.setBadgeText(props)); } catch { /* tab closed */ }
 }
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -96,8 +105,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const text = String(data.script_count);
     const color = data.has_unknown ? "#f97316" : "#22c55e";
     setBadgeSafe({ text, tabId });
-    try { chrome.action.setBadgeBackgroundColor({ color, tabId }); } catch { /* tab closed */ }
-    try { chrome.action.setBadgeTextColor({ color: "#ffffff", tabId }); } catch { /* tab closed */ }
+    try { actionSafe(chrome.action.setBadgeBackgroundColor({ color, tabId })); } catch { /* tab closed */ }
+    try { actionSafe(chrome.action.setBadgeTextColor({ color: "#ffffff", tabId })); } catch { /* tab closed */ }
   } catch {
     setBadgeSafe({ text: "", tabId });
     await chrome.storage.session.remove(String(tabId));
