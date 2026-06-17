@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Digivault — Management Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --brand:#4f46e5; --brand2:#7c3aed; --ink:#0f172a; --muted:#64748b;
+    --line:#e5e7eb; --bg:#f1f5f9; --card:#ffffff;
+    --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --sky:#0ea5e9;
+    --shadow:0 10px 30px -12px rgba(15,23,42,.18);
+    --radius:18px;
+    --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--font); color:var(--ink); background:#0b1020;
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+
+  /* ---- Deck shell ---- */
+  .deck{position:relative; width:100vw; height:100vh; overflow:hidden;}
+  .slide{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    padding:64px 80px 88px; opacity:0; visibility:hidden;
+    transform:translateY(18px) scale(.99);
+    transition:opacity .5s ease, transform .5s ease, visibility .5s;
+    background:var(--bg);
+  }
+  .slide.active{opacity:1; visibility:visible; transform:none;}
+
+  /* ---- Slide chrome ---- */
+  .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:30px;}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:800; letter-spacing:-.02em; font-size:18px;}
+  .brand .logo{
+    width:30px; height:30px; border-radius:9px;
+    background:linear-gradient(135deg,var(--brand),var(--brand2));
+    display:grid; place-items:center; box-shadow:0 6px 16px -6px var(--brand);
+  }
+  .kicker{
+    font-size:12px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--brand); display:flex; align-items:center; gap:10px;
+  }
+  .kicker .num{
+    background:var(--brand); color:#fff; width:24px; height:24px; border-radius:7px;
+    display:grid; place-items:center; font-size:12px;
+  }
+  h1{font-size:46px; line-height:1.05; letter-spacing:-.03em; font-weight:900; margin:14px 0 6px;}
+  h1 .grad{background:linear-gradient(120deg,var(--brand),var(--brand2)); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .lead{font-size:18px; color:var(--muted); max-width:760px; line-height:1.5;}
+  .body{flex:1; display:flex; flex-direction:column; justify-content:center;}
+
+  /* ---- Cards / grids ---- */
+  .kpis{display:grid; grid-template-columns:repeat(6,1fr); gap:16px; margin-top:26px;}
+  .kpi{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:var(--shadow);}
+  .kpi .v{font-size:30px; font-weight:800; letter-spacing:-.02em;}
+  .kpi .l{font-size:12px; color:var(--muted); margin-top:4px; font-weight:600;}
+  .kpi.b{border-left:4px solid var(--brand);}
+  .kpi.r{border-left:4px solid var(--bad);} .kpi.a{border-left:4px solid var(--warn);}
+  .kpi.g{border-left:4px solid var(--ok);} .kpi.s{border-left:4px solid var(--sky);} .kpi.v2{border-left:4px solid var(--brand2);}
+
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:8px;}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:8px;}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:22px 22px; box-shadow:var(--shadow); display:flex; gap:16px;
+  }
+  .ic{
+    width:44px; height:44px; border-radius:12px; flex:0 0 auto; display:grid; place-items:center;
+    background:linear-gradient(135deg,rgba(79,70,229,.12),rgba(124,58,237,.12)); color:var(--brand);
+  }
+  .ic svg{width:22px; height:22px}
+  .card h3{font-size:16px; font-weight:700; margin-bottom:4px; letter-spacing:-.01em;}
+  .card p{font-size:13.5px; color:var(--muted); line-height:1.45;}
+  .card.bad .ic{background:rgba(239,68,68,.1); color:var(--bad);}
+  .card.warn .ic{background:rgba(245,158,11,.12); color:var(--warn);}
+
+  .feat{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:6px;}
+  .f{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:var(--shadow);}
+  .f .h{display:flex; align-items:center; gap:10px; margin-bottom:6px;}
+  .f .h .ic{width:34px; height:34px; border-radius:9px;}
+  .f .h .ic svg{width:18px; height:18px}
+  .f .h b{font-size:14px; letter-spacing:-.01em;}
+  .f p{font-size:12.5px; color:var(--muted); line-height:1.4;}
+  .pill{display:inline-block; font-size:11px; font-weight:700; color:var(--ok); background:rgba(16,185,129,.1); padding:2px 8px; border-radius:999px; margin-left:auto;}
+
+  /* ---- Footer / nav ---- */
+  .foot{position:absolute; left:80px; right:80px; bottom:30px; display:flex; align-items:center; justify-content:space-between; font-size:12px; color:var(--muted);}
+  .dots{display:flex; gap:8px; align-items:center;}
+  .dot{width:9px; height:9px; border-radius:999px; background:#cbd5e1; border:none; cursor:pointer; transition:.25s;}
+  .dot.active{background:var(--brand); width:26px;}
+  .arrows{display:flex; gap:8px;}
+  .arrows button{
+    width:34px; height:34px; border-radius:10px; border:1px solid var(--line); background:#fff;
+    cursor:pointer; font-size:16px; color:var(--ink); display:grid; place-items:center; transition:.2s;
+  }
+  .arrows button:hover{border-color:var(--brand); color:var(--brand);}
+
+  /* ---- Dark slide (security) ---- */
+  .slide.dark{
+    background:radial-gradient(1200px 600px at 20% -10%, #1e1b4b 0%, #0b1020 55%);
+    color:#e2e8f0;
+  }
+  .slide.dark .lead{color:#94a3b8}
+  .slide.dark .kicker{color:#a5b4fc}
+  .slide.dark .kicker .num{background:#6366f1}
+  .slide.dark .card{background:rgba(255,255,255,.04); border-color:rgba(255,255,255,.08); box-shadow:none; backdrop-filter:blur(6px);}
+  .slide.dark .card h3{color:#f8fafc}
+  .slide.dark .card p{color:#94a3b8}
+  .slide.dark .ic{background:rgba(129,140,248,.16); color:#c7d2fe}
+  .slide.dark .foot{color:#64748b}
+  .slide.dark h1 .grad{background:linear-gradient(120deg,#a5b4fc,#c4b5fd); -webkit-background-clip:text; background-clip:text; color:transparent;}
+  .badgeRow{display:flex; gap:10px; flex-wrap:wrap; margin-top:18px;}
+  .badge{font-size:12px; font-weight:600; padding:8px 14px; border-radius:999px; border:1px solid var(--line); background:#fff; color:var(--ink); display:flex; gap:8px; align-items:center; box-shadow:var(--shadow);}
+  .badge svg{width:14px; height:14px; color:var(--ok)}
+
+  /* dual-audience security cards */
+  .slide.sec .card{padding:18px 20px;}
+  .card .plain{font-size:13.5px; line-height:1.5; margin-bottom:8px; color:var(--ink);}
+  .card .tech{font-size:12px; line-height:1.5; color:var(--muted);}
+  .card .tech .tag{
+    display:inline-block; font-size:9.5px; letter-spacing:.09em; text-transform:uppercase; font-weight:800;
+    color:var(--brand); background:rgba(79,70,229,.12); padding:2px 7px; border-radius:999px; margin-right:7px; vertical-align:1px;
+  }
+  .card .like{font-size:11px; font-weight:700; color:var(--ok); background:rgba(16,185,129,.12); padding:2px 9px; border-radius:999px; margin-left:auto; align-self:flex-start; white-space:nowrap;}
+  .titleRow{display:flex; align-items:center; gap:10px; margin-bottom:6px;}
+  .titleRow h3{margin:0;}
+
+  .hint{position:fixed; bottom:14px; left:50%; transform:translateX(-50%); font-size:11px; color:#475569; background:rgba(255,255,255,.06); padding:5px 12px; border-radius:999px; pointer-events:none; z-index:50;}
+
+  /* ---- Print: one slide per page ---- */
+  @media print{
+    @page{size:1280px 720px; margin:0}
+    body{overflow:visible}
+    .deck{height:auto}
+    .slide{position:relative; opacity:1!important; visibility:visible!important; transform:none!important; page-break-after:always; height:720px; width:1280px;}
+    .arrows,.hint{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- SLIDE 1 — DASHBOARD -->
+  <section class="slide active">
+    <div class="top">
+      <div class="brand"><span class="logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5l-8-3Z" fill="#fff"/></svg>
+      </span>Digivault</div>
+      <div class="kicker"><span class="num">1</span> Overview</div>
+    </div>
+    <div class="body">
+      <h1>One <span class="grad">command center</span> for every client website.</h1>
+      <p class="lead">Digivault gives the agency a single live dashboard across all client sites — third-party scripts, uptime, domains &amp; SSL, performance, security, credentials and client records — replacing scattered spreadsheets, tabs and guesswork.</p>
+      <div class="kpis">
+        <div class="kpi b"><div class="v">All sites</div><div class="l">Monitored in one place</div></div>
+        <div class="kpi r"><div class="v">Issues</div><div class="l">Surfaced instantly</div></div>
+        <div class="kpi a"><div class="v">Changes</div><div class="l">Pending review</div></div>
+        <div class="kpi v2"><div class="v">Health</div><div class="l">Score per site</div></div>
+        <div class="kpi s"><div class="v">Uptime</div><div class="l">Monitors &amp; status</div></div>
+        <div class="kpi g"><div class="v">Renewals</div><div class="l">Never missed</div></div>
+      </div>
+      <p class="lead" style="margin-top:26px; font-size:15px;">Every site carries a <b style="color:var(--ink)">health score</b> and live status — so the team sees what needs attention at a glance, and managers see the whole portfolio's posture in one screen.</p>
+    </div>
+    <div class="foot"><span>Confidential — Digivault management overview</span><span>01 / 04</span></div>
+  </section>
+
+  <!-- SLIDE 2 — PROBLEMS -->
+  <section class="slide">
+    <div class="top">
+      <div class="brand"><span class="logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5l-8-3Z" fill="#fff"/></svg>
+      </span>Digivault</div>
+      <div class="kicker"><span class="num">2</span> The Problem</div>
+    </div>
+    <div class="body">
+      <h1>What was <span class="grad">slowing us down</span> &amp; putting clients at risk.</h1>
+      <p class="lead">Managing dozens of client sites across hosts, domains and logins meant constant blind spots — we often found out about problems <em>after</em> the client did.</p>
+      <div class="grid3" style="margin-top:24px">
+        <div class="card bad"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></div>
+          <div><h3>Silent script changes</h3><p>Third-party scripts (pixels, tag manager, chat) changed on client sites with zero visibility — a security, compliance and breakage risk.</p></div>
+        </div>
+        <div class="card bad"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18M3 12h18M3 17h18"/></svg></div>
+          <div><h3>Access scattered everywhere</h3><p>"Do we even have access to this site?" Hosting, domain and login info lived in spreadsheets, chats and people's memory.</p></div>
+        </div>
+        <div class="card bad"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <div><h3>Missed renewals</h3><p>Domains, SSL, hosting and contracts lapsing unnoticed — risking outages and lost domains.</p></div>
+        </div>
+        <div class="card bad"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+          <div><h3>Credentials shared unsafely</h3><p>Client logins passed around in plaintext over chat and email — a serious security exposure.</p></div>
+        </div>
+        <div class="card bad"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+          <div><h3>No uptime / performance eyes</h3><p>No proactive monitoring of downtime, speed or vulnerabilities — issues discovered late, reactively.</p></div>
+        </div>
+        <div class="card bad"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H5.2L4 18V4Z"/></svg></div>
+          <div><h3>Manual client reporting</h3><p>Pulling status together by hand for each client — slow, inconsistent, easy to skip.</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Confidential — Digivault management overview</span><span>02 / 04</span></div>
+  </section>
+
+  <!-- SLIDE 3 — FEATURES -->
+  <section class="slide">
+    <div class="top">
+      <div class="brand"><span class="logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5l-8-3Z" fill="#fff"/></svg>
+      </span>Digivault</div>
+      <div class="kicker"><span class="num">3</span> The Solution</div>
+    </div>
+    <div class="body">
+      <h1>Features that <span class="grad">solve every gap.</span></h1>
+      <p class="lead">Each problem above now has a purpose-built, automated answer inside Digivault.</p>
+      <div class="feat" style="margin-top:20px">
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6 2 12l6 6M16 6l6 6-6 6"/></svg></span><b>Script Monitoring</b><span class="pill">solved</span></div><p>A lightweight snippet detects every third-party script &amp; change, classifies the provider, and alerts on anything new or modified.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V8l9-5 9 5v13"/><path d="M9 21v-6h6v6"/></svg></span><b>Client Registry</b><span class="pill">solved</span></div><p>Hosting, domain access, built/maintained-by-Digi, migration status — with CSV import/export, ClickUp sync &amp; instant "do we have access?" lookup.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><b>Renewal Center</b><span class="pill">solved</span></div><p>Domains, SSL, hosting &amp; contracts tracked and sorted by urgency — renewals surfaced before they lapse.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><b>Credential Vault</b><span class="pill">solved</span></div><p>Encrypted logins with controlled sharing and one-click browser-extension autofill — no more passwords in chat.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span><b>Uptime &amp; Status</b><span class="pill">solved</span></div><p>HTTP/ping/port/SSL monitors every 30s with public status pages and instant down/recovery alerts.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"/></svg></span><b>Performance</b><span class="pill">solved</span></div><p>Lighthouse + real-user (CrUX) scores with a prioritized optimization plan per site.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 5v6c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5l-8-3Z"/></svg></span><b>Security Scans</b><span class="pill">solved</span></div><p>Vulnerability scanning &amp; security-header grading with concrete fixes for each client site.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span><b>Smart Alerts</b><span class="pill">solved</span></div><p>Routed to Email, In-app or a ClickUp Chat channel — the team hears about issues the moment they happen.</p></div>
+        <div class="f"><div class="h"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/></svg></span><b>Automated Reports</b><span class="pill">solved</span></div><p>One-click branded PDF/CSV client reports — scripts, performance, security &amp; recommendations.</p></div>
+      </div>
+    </div>
+    <div class="foot"><span>Confidential — Digivault management overview</span><span>03 / 04</span></div>
+  </section>
+
+  <!-- SLIDE 4 — SECURITY -->
+  <section class="slide sec">
+    <div class="top">
+      <div class="brand"><span class="logo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2 4 5v6c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5l-8-3Z" fill="#fff"/></svg>
+      </span>Digivault</div>
+      <div class="kicker"><span class="num">4</span> Security</div>
+    </div>
+    <div class="body" style="justify-content:flex-start; padding-top:4px;">
+      <h1 style="font-size:34px; margin:8px 0 4px;">LastPass-grade vaulting. <span class="grad">WP-management-grade</span> site security. Built in.</h1>
+      <p class="lead" style="font-size:15px;">The protection people trust from LastPass and ManageWP / MainWP — built into Digivault. For each area: what it means for you, and how it works under the hood.</p>
+      <div class="grid2" style="margin-top:16px; gap:14px;">
+
+        <div class="card"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+          <div style="flex:1">
+            <div class="titleRow"><h3>Passwords kept in a locked vault</h3><span class="like">like LastPass</span></div>
+            <p class="plain">Client logins are stored in a sealed digital safe. Staff can <em>use</em> a password to log in without ever seeing or copying it, and you decide exactly who can access each one.</p>
+            <p class="tech"><span class="tag">How</span>AES-256 authenticated encryption (Fernet); keys live only in environment variables, never in the database; key rotation &amp; tamper detection; per-member sharing with optional hide-password; browser-extension autofill.</p>
+          </div>
+        </div>
+
+        <div class="card"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 5v6c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5l-8-3Z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <div style="flex:1">
+            <div class="titleRow"><h3>Client sites checked &amp; guarded 24/7</h3><span class="like">like WP managers</span></div>
+            <p class="plain">Digivault constantly inspects each site for known weaknesses and missing protections, watches for tampering, and warns before certificates expire — like a guard doing regular rounds.</p>
+            <p class="tech"><span class="tag">How</span>Plugin/theme vulnerability scanning; HTTP security-header grading (HSTS, CSP, X-Frame-Options…) with fixes; third-party script tamper/change detection; SSL &amp; domain expiry monitoring.</p>
+          </div>
+        </div>
+
+        <div class="card"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="11" r="3"/><path d="M12 2 4 5v6c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5l-8-3Z"/></svg></div>
+          <div style="flex:1">
+            <div class="titleRow"><h3>Only the right people get in</h3><span class="like">2-step login</span></div>
+            <p class="plain">Everyone signs in with a password <em>plus</em> a one-time code from their phone, and each person sees only what their role allows. One client's data can never leak into another's.</p>
+            <p class="tech"><span class="tag">How</span>Short-lived JWT sessions with refresh-token rotation; two-factor auth (TOTP) + backup codes; role-based &amp; custom per-member permissions; strict multi-tenant data isolation.</p>
+          </div>
+        </div>
+
+        <div class="card"><div class="ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H5.2L4 18V4Z"/><path d="M8 9h8M8 12h5"/></svg></div>
+          <div style="flex:1">
+            <div class="titleRow"><h3>Locked-down system, full paper trail</h3><span class="like">accountability</span></div>
+            <p class="plain">Everything runs over secure connections, abuse is blocked automatically, and every important action is recorded in a tamper-proof log — so nothing happens in the dark.</p>
+            <p class="tech"><span class="tag">How</span>Enforced HTTPS/HSTS; secure cookies; API rate-limiting / throttling; immutable audit log of every significant action.</p>
+          </div>
+        </div>
+
+      </div>
+      <div class="badgeRow" style="margin-top:16px">
+        <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-9"/></svg> AES-256 encryption</span>
+        <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-9"/></svg> 2FA / TOTP</span>
+        <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-9"/></svg> Vulnerability &amp; header scans</span>
+        <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-9"/></svg> Multi-tenant isolation</span>
+        <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5 9-9"/></svg> Audit logging</span>
+      </div>
+    </div>
+    <div class="foot"><span>Confidential — Digivault management overview</span><span>04 / 04</span></div>
+  </section>
+
+</div>
+
+<div class="hint">Use ← → arrow keys (or click the dots) to navigate · Press <b>P</b>-friendly: Ctrl/Cmd+P to export PDF</div>
+
+<!-- nav overlay -->
+<div style="position:fixed; left:0; right:0; bottom:26px; display:flex; justify-content:center; gap:18px; align-items:center; z-index:40;">
+  <div class="arrows"><button id="prev" aria-label="Previous">‹</button></div>
+  <div class="dots" id="dots"></div>
+  <div class="arrows"><button id="next" aria-label="Next">›</button></div>
+</div>
+
+<script>
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const dotsWrap = document.getElementById('dots');
+  let i = 0;
+  slides.forEach((_, idx) => {
+    const d = document.createElement('button');
+    d.className = 'dot' + (idx === 0 ? ' active' : '');
+    d.addEventListener('click', () => go(idx));
+    dotsWrap.appendChild(d);
+  });
+  const dots = Array.from(dotsWrap.children);
+  function go(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, idx) => s.classList.toggle('active', idx === i));
+    dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
+  }
+  document.getElementById('next').onclick = () => go(i + 1);
+  document.getElementById('prev').onclick = () => go(i - 1);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown') go(i + 1);
+    if (e.key === 'ArrowLeft'  || e.key === 'PageUp')   go(i - 1);
+    if (e.key === 'Home') go(0);
+    if (e.key === 'End') go(slides.length - 1);
+  });
+</script>
+</body>
+</html>
