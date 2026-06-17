@@ -28,7 +28,13 @@ from apps.common.permissions import IsTeamMember
 
 logger = logging.getLogger(__name__)
 
-ROLE_LEVELS = {"viewer": 1, "developer": 2, "editor": 2, "seo": 2, "manager": 3, "owner": 4}
+ROLE_LEVELS = {"viewer": 1, "developer": 2, "custom": 2, "editor": 2, "seo": 2, "manager": 3, "owner": 4}
+
+# Feature keys a "custom" member's access can be limited to. Mirrors the nav.
+CUSTOM_FEATURE_KEYS = {
+    "websites", "clients", "monitors", "status_pages",
+    "alerts", "reports", "renewals", "credentials", "activity_log",
+}
 
 
 def _my_level(user, team):
@@ -176,7 +182,16 @@ class TeamMemberDetailView(APIView):
 
         old_role = target.role
         target.role = new_role
-        target.save(update_fields=["role", "updated_at"])
+        # feature_access only applies to the custom role; sanitize to known keys
+        # and clear it for every other role.
+        if new_role == "custom":
+            raw = request.data.get("feature_access") or []
+            if not isinstance(raw, list):
+                return Response({"detail": "feature_access must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+            target.feature_access = [k for k in raw if k in CUSTOM_FEATURE_KEYS]
+        else:
+            target.feature_access = []
+        target.save(update_fields=["role", "feature_access", "updated_at"])
         AuditService.log(
             actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_ROLE_CHANGED,
             team=team,

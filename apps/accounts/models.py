@@ -133,11 +133,13 @@ class TeamMembership(BaseModel):
         OWNER = "owner", "Owner"
         MANAGER = "manager", "Manager"
         DEVELOPER = "developer", "Developer"
-        # Member-level roles (same privilege tier as Developer) for departments
-        # like SEO — limited access, no team/settings management.
+        VIEWER = "viewer", "Viewer"
+        # Per-member feature access — allowed sections live in `feature_access`.
+        CUSTOM = "custom", "Custom"
+        # Legacy member-level roles — no longer offered in the UI, kept so any
+        # existing memberships stay valid.
         EDITOR = "editor", "Editor"
         SEO = "seo", "SEO"
-        VIEWER = "viewer", "Viewer"
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="memberships"
@@ -148,6 +150,9 @@ class TeamMembership(BaseModel):
     role = models.CharField(
         max_length=20, choices=Role.choices, default=Role.DEVELOPER
     )
+    # When role == "custom", the list of feature keys this member may access
+    # (e.g. ["websites", "reports"]). Ignored for every other role.
+    feature_access = models.JSONField(default=list, blank=True)
 
     class Meta:
         unique_together = [("user", "team")]

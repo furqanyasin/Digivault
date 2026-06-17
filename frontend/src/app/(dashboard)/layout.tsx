@@ -8,23 +8,27 @@ import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Team, User } from "@/lib/api";
 import { GlobalSearch } from "@/components/global-search";
+import { FeatureGuard } from "@/components/feature-guard";
 
+// `feature` maps a nav item to a custom-access key; `always` items are shown to
+// everyone (incl. custom members). Items with neither and managerOnly are
+// management-only and hidden from custom members.
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/clients", label: "Clients", icon: Building2 },
-  { href: "/websites", label: "Websites", icon: Globe },
-  { href: "/monitors", label: "Monitors", icon: Activity },
-  { href: "/renewals", label: "Renewal Center", icon: CalendarClock, managerOnly: true },
-  { href: "/status-pages", label: "Status Pages", icon: MonitorCheck },
-  { href: "/alerts", label: "Alerts", icon: Bell },
-  { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/credentials", label: "Credentials", icon: Key },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, always: true },
+  { href: "/clients", label: "Clients", icon: Building2, feature: "clients" },
+  { href: "/websites", label: "Websites", icon: Globe, feature: "websites" },
+  { href: "/monitors", label: "Monitors", icon: Activity, feature: "monitors" },
+  { href: "/renewals", label: "Renewal Center", icon: CalendarClock, managerOnly: true, feature: "renewals" },
+  { href: "/status-pages", label: "Status Pages", icon: MonitorCheck, feature: "status_pages" },
+  { href: "/alerts", label: "Alerts", icon: Bell, feature: "alerts" },
+  { href: "/reports", label: "Reports", icon: FileText, feature: "reports" },
+  { href: "/credentials", label: "Credentials", icon: Key, feature: "credentials" },
   // Team, Renewal Center and Settings are owner/manager-only. Developers manage
   // their own security in Account and see their own actions in the Activity Log
   // (the backend scopes the log per-user for non-managers).
   { href: "/team", label: "Team", icon: Users, managerOnly: true },
-  { href: "/logs", label: "Activity Log", icon: ClipboardList },
-  { href: "/account", label: "My Account", icon: UserCircle },
+  { href: "/logs", label: "Activity Log", icon: ClipboardList, feature: "activity_log" },
+  { href: "/account", label: "My Account", icon: UserCircle, always: true },
   { href: "/settings", label: "Settings", icon: Settings, managerOnly: true },
 ];
 
@@ -37,7 +41,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const activeTeam = teams.find((t) => t.id === user?.active_team) ?? teams[0] ?? null;
   const isManager = activeTeam?.my_role === "owner" || activeTeam?.my_role === "manager";
-  const visibleNavItems = navItems.filter((item) => !item.managerOnly || isManager);
+  const isCustom = activeTeam?.my_role === "custom";
+  const myFeatures = activeTeam?.my_features ?? [];
+  const visibleNavItems = navItems.filter((item) => {
+    // Custom members see only "always" items + their granted features.
+    if (isCustom) return item.always || (item.feature ? myFeatures.includes(item.feature) : false);
+    return !item.managerOnly || isManager;
+  });
 
   return (
     <div className="flex min-h-screen">
@@ -79,6 +89,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto">
+        {isCustom && <FeatureGuard features={myFeatures} />}
         {children}
       </main>
 

@@ -33,6 +33,7 @@ class RolePermission(BasePermission):
         "viewer": 1,
         # Member-level roles share the developer tier.
         "developer": 2,
+        "custom": 2,
         "editor": 2,
         "seo": 2,
         "manager": 3,
