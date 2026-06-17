@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   Lock, ExternalLink, Pencil, Trash2, Plus,
-  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server, Share2,
+  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server, Share2, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -887,6 +887,7 @@ export function CredentialsVaultClient({
   myRole: string;
   teamId?: string | null;
 }) {
+  const { toast } = useToast();
   const canWrite = myRole === "manager" || myRole === "owner";
 
   const [credentials, setCredentials] = useState(initialCredentials);
@@ -895,6 +896,33 @@ export function CredentialsVaultClient({
   const [deleteTarget, setDeleteTarget] = useState<Credential | null>(null);
   const [addSection, setAddSection] = useState<Section | null>(null);
   const [shareTarget, setShareTarget] = useState<Credential | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const res = await fetch("/api/credentials/import", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast({
+          title: "Import complete",
+          description: `${data.created ?? 0} added, ${data.updated ?? 0} updated, ${data.skipped ?? 0} skipped.`,
+        });
+        setTimeout(() => window.location.reload(), 900);
+      } else {
+        toast({ variant: "destructive", title: "Import failed", description: data?.detail ?? "Check the CSV and try again." });
+      }
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    } finally {
+      setImporting(false);
+      e.target.value = "";
+    }
+  }
 
   const websiteCreds = useMemo(() => credentials.filter((c) => c.website_id !== null), [credentials]);
   const hostingCreds = useMemo(() => credentials.filter((c) => c.website_id === null), [credentials]);
@@ -951,9 +979,17 @@ export function CredentialsVaultClient({
           </p>
         </div>
         {canWrite && (
-          <Button onClick={() => setAddSection("hosting")}>
-            <Plus className="h-4 w-4 mr-1.5" />New item
-          </Button>
+          <div className="flex items-center gap-2">
+            <label className="cursor-pointer">
+              <input type="file" accept=".csv" className="hidden" onChange={handleImportCsv} disabled={importing} />
+              <Button variant="outline" asChild>
+                <span><Upload className="h-4 w-4 mr-1.5" />{importing ? "Importing…" : "Import CSV"}</span>
+              </Button>
+            </label>
+            <Button onClick={() => setAddSection("hosting")}>
+              <Plus className="h-4 w-4 mr-1.5" />New item
+            </Button>
+          </div>
         )}
       </div>
 
