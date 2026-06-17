@@ -24,6 +24,7 @@ import { DomainExtras } from "@/components/domain-extras";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
 import { TrackingTab } from "@/components/tracking-tab";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
+import { HealthScoreInfo } from "@/components/health-score-info";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 async function getData(token: string, id: string) {
@@ -272,6 +273,14 @@ export default async function WebsiteDetailPage({
 
         {/* ── Overview ── */}
         <TabsContent value="overview" className="space-y-6">
+          <HealthScoreInfo
+            healthScore={website.health_score ?? 100}
+            status={website.status}
+            pendingChanges={pendingChanges}
+            domainInfo={domainInfo}
+            vulns={vulns}
+            websiteId={id}
+          />
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
