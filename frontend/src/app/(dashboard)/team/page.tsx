@@ -136,43 +136,6 @@ export default async function TeamPage() {
           initialResetRequests={resetRequests}
         />
       )}
-
-      {/* Other teams */}
-      {teams.length > 1 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Your Teams ({teams.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Name</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Slug</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Plan</th>
-                  <th className="text-left px-4 py-2 font-medium text-muted-foreground">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teams.map((team) => (
-                  <tr key={team.id} className="border-b last:border-0">
-                    <td className="px-4 py-2 font-medium">{team.name}</td>
-                    <td className="px-4 py-2 font-mono text-xs">{team.slug}</td>
-                    <td className="px-4 py-2 capitalize">{team.plan}</td>
-                    <td className="px-4 py-2">
-                      {team.id === user?.active_team ? (
-                        <Badge variant="success">Active</Badge>
-                      ) : (
-                        <Badge variant="secondary">Other</Badge>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

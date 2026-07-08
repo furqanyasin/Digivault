@@ -82,7 +82,8 @@ export function TeamManagementClient({
   const [addForm, setAddForm] = useState({ name: "", email: "", password: "", role: "developer" as Role });
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState("");
-  const [addSuccess, setAddSuccess] = useState("");
+  const [addResult, setAddResult] = useState<{ msg: string; link?: string; emailSent: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Password reset state
   const [resetRequests, setResetRequests] = useState<PasswordResetReq[]>(initialResetRequests);
@@ -99,7 +100,8 @@ export function TeamManagementClient({
     e.preventDefault();
     setAddLoading(true);
     setAddError("");
-    setAddSuccess("");
+    setAddResult(null);
+    setCopied(false);
     try {
       const res = await fetch(`/api/teams/${teamId}/users`, {
         method: "POST",
@@ -111,12 +113,26 @@ export function TeamManagementClient({
         setAddError(data?.detail ?? `Error ${res.status}`);
         return;
       }
-      setAddSuccess(`${addForm.name || addForm.email} has been added to the team.`);
+      setAddResult({
+        msg: `${addForm.name || addForm.email} has been added to the team.`,
+        link: data?.set_password_url,
+        emailSent: Boolean(data?.email_sent),
+      });
       setAddForm({ name: "", email: "", password: "", role: "developer" });
       setShowAddForm(false);
       refresh();
     } finally {
       setAddLoading(false);
+    }
+  }
+
+  async function copyLink(link: string) {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — the link is visible for manual copy */
     }
   }
 
@@ -248,11 +264,29 @@ export function TeamManagementClient({
               </form>
             </CardContent>
           )}
-          {addSuccess && !showAddForm && (
-            <CardContent>
+          {addResult && !showAddForm && (
+            <CardContent className="space-y-3">
               <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">
-                {addSuccess}
+                {addResult.msg}
               </p>
+              {addResult.link && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 space-y-1.5">
+                  <p className="text-sm text-amber-800">
+                    {addResult.emailSent
+                      ? "A set-password email was sent. You can also share this link with them directly:"
+                      : "The set-password email could not be sent (check SMTP). Share this link with the new member so they can log in:"}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 min-w-0 truncate text-xs bg-background border rounded px-2 py-1">
+                      {addResult.link}
+                    </code>
+                    <Button type="button" size="sm" variant="outline" onClick={() => copyLink(addResult.link!)}>
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-amber-700">Link valid for 7 days.</p>
+                </div>
+              )}
             </CardContent>
           )}
         </Card>

@@ -109,6 +109,10 @@ def test_create_user_blank_password_emails_set_password_link(auth_client, team):
     pr = PasswordResetRequest.objects.get(user=u)
     assert pr.status == PasswordResetRequest.Status.APPROVED
     assert pr.reset_token
+    # The set-password link is returned to the admin so onboarding never depends
+    # on email delivery (SMTP may be unconfigured/down).
+    assert pr.reset_token in resp.data["set_password_url"]
+    assert "email_sent" in resp.data
 
 
 @pytest.mark.django_db
