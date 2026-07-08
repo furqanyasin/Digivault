@@ -45,6 +45,36 @@ def _my_level(user, team):
         return 0, None
 
 
+def _issue_set_password_link(user, actor):
+    """Create an APPROVED password-reset token for `user` and return the
+    frontend set-password URL. Used to onboard anyone without a usable password
+    — a brand-new account, or an existing one that never finished setup."""
+    reset_token = secrets.token_urlsafe(48)
+    PasswordResetRequest.objects.create(
+        user=user,
+        status=PasswordResetRequest.Status.APPROVED,
+        reset_token=reset_token,
+        approved_by=actor,
+        approved_at=timezone.now(),
+        expires_at=timezone.now() + timedelta(days=7),
+    )
+    return f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
+
+
+def _send_account_email(subject, body, recipient):
+    """Send an onboarding email. Returns True if it was delivered, False on
+    failure (logged, never raised) so onboarding can fall back to the link."""
+    try:
+        return bool(send_mail(
+            subject=subject, message=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[recipient], fail_silently=False,
+        ))
+    except Exception as exc:
+        logger.error("Failed to send account email to %s: %s", recipient, exc)
+        return False
+
+
 class RegisterView(APIView):
     """POST /api/v1/auth/register/"""
 
@@ -489,7 +519,7 @@ class TeamCreateUserView(APIView):
 
         existing_user = User.objects.filter(email__iexact=email).first()
         if existing_user:
-            # User account exists (e.g. previously removed from team) — just add the membership
+            # User account exists (e.g. previously removed from team) — add the membership.
             membership = TeamMembership.objects.create(user=existing_user, team=team, role=role)
             if not existing_user.active_team:
                 User.objects.filter(pk=existing_user.pk).update(active_team=team)
@@ -499,10 +529,31 @@ class TeamCreateUserView(APIView):
                 description=f"{existing_user.email} added to team as {role} (existing account)",
                 resource_type="team_membership",
             )
-            return Response(
-                {"detail": f"{existing_user.email} added to team as {role}.", "id": str(membership.pk)},
-                status=status.HTTP_201_CREATED,
-            )
+            resp_data = {"detail": f"{existing_user.email} added to team as {role}.", "id": str(membership.pk)}
+            if existing_user.has_usable_password():
+                # Fully-active account — they log in with their current password;
+                # there is no set-password email to send (and re-sending one would
+                # be a hijack vector for a live account).
+                resp_data["already_active"] = True
+            else:
+                # Account exists but was never fully onboarded (no usable password,
+                # e.g. invited earlier while SMTP was down). Re-issue a fresh
+                # set-password link and email it so they can finally log in.
+                first_name = existing_user.first_name or existing_user.email.split("@")[0]
+                set_password_url = _issue_set_password_link(existing_user, request.user)
+                email_body = (
+                    f"Hi {first_name},\n\n"
+                    f"You've been added to {team.name} on Digivault as {role} by {request.user.email}.\n\n"
+                    f"Email: {existing_user.email}\n\n"
+                    f"Set your password (link valid for 7 days):\n{set_password_url}\n\n"
+                    f"After setting your password you'll be guided through two-factor "
+                    f"authentication setup.\n"
+                )
+                resp_data["email_sent"] = _send_account_email(
+                    "Your Digivault account has been created", email_body, existing_user.email,
+                )
+                resp_data["set_password_url"] = set_password_url
+            return Response(resp_data, status=status.HTTP_201_CREATED)
 
         parts = name.split(" ", 1)
         first_name = parts[0]
@@ -536,16 +587,7 @@ class TeamCreateUserView(APIView):
             )
             user.set_unusable_password()
             user.save(update_fields=["password"])
-            reset_token = secrets.token_urlsafe(48)
-            PasswordResetRequest.objects.create(
-                user=user,
-                status=PasswordResetRequest.Status.APPROVED,
-                reset_token=reset_token,
-                approved_by=request.user,
-                approved_at=timezone.now(),
-                expires_at=timezone.now() + timedelta(days=7),
-            )
-            set_password_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
+            set_password_url = _issue_set_password_link(user, request.user)
             email_body = (
                 f"Hi {first_name},\n\n"
                 f"An account has been created for you on Digivault by {request.user.email}.\n\n"
@@ -560,18 +602,9 @@ class TeamCreateUserView(APIView):
         if not user.active_team:
             User.objects.filter(pk=user.pk).update(active_team=team)
 
-        email_sent = False
-        try:
-            sent = send_mail(
-                subject="Your Digivault account has been created",
-                message=email_body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-            email_sent = bool(sent)
-        except Exception as exc:
-            logger.error("Failed to send new-user email to %s: %s", email, exc)
+        email_sent = _send_account_email(
+            "Your Digivault account has been created", email_body, email,
+        )
 
         resp_data = TeamMembershipSerializer(membership).data
         resp_data["email_sent"] = email_sent
