@@ -114,7 +114,9 @@ export function TeamManagementClient({
         return;
       }
       setAddResult({
-        msg: `${addForm.name || addForm.email} has been added to the team.`,
+        msg: data?.already_active
+          ? `${addForm.name || addForm.email} was added — they already have an account and can log in with their existing password.`
+          : `${addForm.name || addForm.email} has been added to the team.`,
         link: data?.set_password_url,
         emailSent: Boolean(data?.email_sent),
       });

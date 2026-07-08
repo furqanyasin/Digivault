@@ -127,3 +127,43 @@ def test_create_user_with_password_sets_must_change(auth_client, team):
     assert u.must_change_password is True
     assert u.check_password("AdminSet123!")
     assert not PasswordResetRequest.objects.filter(user=u).exists()
+
+
+@pytest.mark.django_db
+def test_re_add_existing_unonboarded_user_reissues_set_password_link(auth_client, team):
+    # A user that exists but never finished onboarding (no usable password),
+    # e.g. invited earlier while SMTP was down and later removed from the team.
+    stale = User.objects.create_user(email="stale@example.com", password=None)
+    stale.set_unusable_password()
+    stale.save(update_fields=["password"])
+
+    resp = auth_client.post(
+        f"/api/v1/auth/teams/{team.id}/users/",
+        {"name": "Stale User", "email": "stale@example.com", "role": "developer"},
+        format="json",
+    )
+    assert resp.status_code == 201
+    # A fresh set-password link is issued and returned so they can finally log in.
+    pr = PasswordResetRequest.objects.filter(user=stale).latest("created_at")
+    assert pr.status == PasswordResetRequest.Status.APPROVED
+    assert pr.reset_token in resp.data["set_password_url"]
+    assert "email_sent" in resp.data
+    assert TeamMembership.objects.filter(user=stale, team=team).exists()
+
+
+@pytest.mark.django_db
+def test_re_add_existing_active_user_sends_no_link(auth_client, team):
+    # A fully-active account (usable password) just gets team membership — no
+    # set-password email, and no reset token (which would be a hijack vector).
+    active = User.objects.create_user(email="active@example.com", password="RealPass1!")
+
+    resp = auth_client.post(
+        f"/api/v1/auth/teams/{team.id}/users/",
+        {"name": "Active User", "email": "active@example.com", "role": "developer"},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert resp.data.get("already_active") is True
+    assert "set_password_url" not in resp.data
+    assert not PasswordResetRequest.objects.filter(user=active).exists()
+    assert TeamMembership.objects.filter(user=active, team=team).exists()
