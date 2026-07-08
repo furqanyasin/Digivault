@@ -508,6 +508,7 @@ class TeamCreateUserView(APIView):
         first_name = parts[0]
         last_name = parts[1] if len(parts) > 1 else ""
 
+        set_password_url = None
         if password:
             # Path B — admin set a temporary password; force change on first login.
             try:
@@ -559,18 +560,28 @@ class TeamCreateUserView(APIView):
         if not user.active_team:
             User.objects.filter(pk=user.pk).update(active_team=team)
 
+        email_sent = False
         try:
-            send_mail(
+            sent = send_mail(
                 subject="Your Digivault account has been created",
                 message=email_body,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
-                fail_silently=True,
+                fail_silently=False,
             )
+            email_sent = bool(sent)
         except Exception as exc:
             logger.error("Failed to send new-user email to %s: %s", email, exc)
 
-        return Response(TeamMembershipSerializer(membership).data, status=status.HTTP_201_CREATED)
+        resp_data = TeamMembershipSerializer(membership).data
+        resp_data["email_sent"] = email_sent
+        # For the no-password path the member cannot log in until they set a
+        # password. Return the set-password link to the admin so onboarding never
+        # depends on email delivery (e.g. if SMTP is unconfigured/down).
+        if set_password_url:
+            resp_data["set_password_url"] = set_password_url
+
+        return Response(resp_data, status=status.HTTP_201_CREATED)
 
 
 class PasswordResetRequestView(APIView):
