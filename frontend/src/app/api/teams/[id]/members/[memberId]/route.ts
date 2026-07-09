@@ -24,11 +24,13 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   return NextResponse.json(envelope?.data ?? envelope, { status: upstream.status });
 }
 
-export async function DELETE(_req: NextRequest, { params }: Ctx) {
+export async function DELETE(req: NextRequest, { params }: Ctx) {
   const token = await getToken();
   if (!token) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
   const { id, memberId } = await params;
-  const upstream = await fetch(`${API_BASE}/api/v1/auth/teams/${id}/members/${memberId}/`, {
+  const permanent = req.nextUrl.searchParams.get("permanent") === "true";
+  const suffix = permanent ? "?permanent=true" : "";
+  const upstream = await fetch(`${API_BASE}/api/v1/auth/teams/${id}/members/${memberId}/${suffix}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });

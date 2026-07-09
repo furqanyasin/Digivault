@@ -244,15 +244,41 @@ class TeamMemberDetailView(APIView):
         if ROLE_LEVELS[target.role] > my_level:
             return Response({"detail": "Cannot remove a member with a higher role."}, status=status.HTTP_403_FORBIDDEN)
 
-        removed_email = target.user.email
+        removed_user = target.user
+        removed_email = removed_user.email
         removed_role = target.role
+        permanent = str(request.query_params.get("permanent", "")).lower() in ("1", "true", "yes")
         target.delete()
+
+        remaining = TeamMembership.objects.filter(user=removed_user)
+        outcome = "removed from the team"
+        if remaining.exists():
+            # Still belongs to other teams — never touch the account, but make
+            # sure active_team no longer points at the team they just left
+            # (TeamScopedMixin trusts active_team alone for data isolation).
+            if removed_user.active_team_id == team.pk:
+                User.objects.filter(pk=removed_user.pk).update(
+                    active_team=remaining.first().team
+                )
+        elif removed_user.is_superuser or removed_user.is_staff:
+            User.objects.filter(pk=removed_user.pk).update(active_team=None)
+        elif permanent:
+            removed_user.delete()
+            outcome = "permanently deleted"
+        else:
+            # No team left — deactivate so the account can no longer log in.
+            # Re-adding them to a team reactivates it.
+            User.objects.filter(pk=removed_user.pk).update(
+                is_active=False, active_team=None
+            )
+            outcome = "removed and account deactivated"
+
         AuditService.log(
             actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_REMOVED,
             team=team,
-            description=f"Removed {removed_email} ({removed_role}) from the team",
+            description=f"{removed_email} ({removed_role}) {outcome}",
             resource_type="team_membership", resource_id=str(pk),
-            metadata={"role": removed_role},
+            metadata={"role": removed_role, "permanent": permanent},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -521,8 +547,15 @@ class TeamCreateUserView(APIView):
         if existing_user:
             # User account exists (e.g. previously removed from team) — add the membership.
             membership = TeamMembership.objects.create(user=existing_user, team=team, role=role)
+            user_updates = {}
             if not existing_user.active_team:
-                User.objects.filter(pk=existing_user.pk).update(active_team=team)
+                user_updates["active_team"] = team
+            if not existing_user.is_active:
+                # Account was deactivated when removed from its last team — revive it.
+                user_updates["is_active"] = True
+            if user_updates:
+                User.objects.filter(pk=existing_user.pk).update(**user_updates)
+                existing_user.refresh_from_db()
             AuditService.log(
                 actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_JOINED,
                 team=team,
@@ -531,10 +564,23 @@ class TeamCreateUserView(APIView):
             )
             resp_data = {"detail": f"{existing_user.email} added to team as {role}.", "id": str(membership.pk)}
             if existing_user.has_usable_password():
-                # Fully-active account — they log in with their current password;
-                # there is no set-password email to send (and re-sending one would
-                # be a hijack vector for a live account).
+                # Fully-active account — they log in with their current password.
+                # Still email them a reset link in case they've forgotten it, but
+                # never return that link in the response: exposing it to the admin
+                # would be a hijack vector for a live account.
                 resp_data["already_active"] = True
+                first_name = existing_user.first_name or existing_user.email.split("@")[0]
+                reset_url = _issue_set_password_link(existing_user, request.user)
+                email_body = (
+                    f"Hi {first_name},\n\n"
+                    f"You've been added to {team.name} on Digivault as {role} by {request.user.email}.\n\n"
+                    f"Log in with your existing password at: {settings.FRONTEND_URL}/login\n\n"
+                    f"Forgot your password? Use this link to set a new one "
+                    f"(valid for 7 days):\n{reset_url}\n"
+                )
+                resp_data["email_sent"] = _send_account_email(
+                    f"You've been added to {team.name} on Digivault", email_body, existing_user.email,
+                )
             else:
                 # Account exists but was never fully onboarded (no usable password,
                 # e.g. invited earlier while SMTP was down). Re-issue a fresh

@@ -152,9 +152,13 @@ def test_re_add_existing_unonboarded_user_reissues_set_password_link(auth_client
 
 
 @pytest.mark.django_db
-def test_re_add_existing_active_user_sends_no_link(auth_client, team):
-    # A fully-active account (usable password) just gets team membership — no
-    # set-password email, and no reset token (which would be a hijack vector).
+def test_re_add_existing_active_user_emails_reset_link_but_hides_it(auth_client, team):
+    # A fully-active account (usable password) gets team membership plus an
+    # email containing a password-reset link (they may not remember their
+    # password). The link must NEVER appear in the API response — that would
+    # let an admin hijack a live account by re-adding its email.
+    from django.core import mail
+
     active = User.objects.create_user(email="active@example.com", password="RealPass1!")
 
     resp = auth_client.post(
@@ -165,5 +169,13 @@ def test_re_add_existing_active_user_sends_no_link(auth_client, team):
     assert resp.status_code == 201
     assert resp.data.get("already_active") is True
     assert "set_password_url" not in resp.data
-    assert not PasswordResetRequest.objects.filter(user=active).exists()
+    assert "email_sent" in resp.data
     assert TeamMembership.objects.filter(user=active, team=team).exists()
+
+    # A reset link was issued and emailed to the member only.
+    pr = PasswordResetRequest.objects.get(user=active)
+    assert pr.status == PasswordResetRequest.Status.APPROVED
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == ["active@example.com"]
+    assert pr.reset_token in mail.outbox[0].body
+    assert pr.reset_token not in str(resp.data)
