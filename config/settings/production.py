@@ -1,7 +1,21 @@
+from django.core.exceptions import ImproperlyConfigured
+
 from .base import *  # noqa: F401, F403
 from .base import env
 
 DEBUG = False
+
+# Email must be a real SMTP relay in production. The consolemail:// fallback
+# makes send_mail() report success while discarding every onboarding /
+# password-reset email — this once broke member onboarding silently.
+_email_url = env("EMAIL_URL", default="")
+if not _email_url or _email_url.startswith("consolemail"):
+    raise ImproperlyConfigured(
+        "EMAIL_URL must be set to a real SMTP URL in .env.production, e.g. "
+        "smtp+tls://LOGIN%40smtp-brevo.com:SMTP_KEY@smtp-relay.brevo.com:587 — "
+        "the consolemail:// default silently discards onboarding and "
+        "password-reset emails."
+    )
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS") + ["127.0.0.1", "localhost"]
 
