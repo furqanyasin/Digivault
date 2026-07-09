@@ -17,6 +17,17 @@ if [ ! -f .env.production ]; then
   exit 1
 fi
 
+# Email pre-flight: without a real SMTP EMAIL_URL, onboarding and password-reset
+# emails are silently discarded (and the API now refuses to boot without one).
+EMAIL_LINE=$(grep -E '^EMAIL_URL=' .env.production || true)
+if [ -z "$EMAIL_LINE" ] || echo "$EMAIL_LINE" | grep -qE 'consolemail|REPLACE_'; then
+  echo "ERROR: EMAIL_URL in .env.production is missing or still a placeholder." >&2
+  echo "Set it to the Brevo SMTP relay (see .env.production.example):" >&2
+  echo "  EMAIL_URL=smtp+tls://LOGIN%40smtp-brevo.com:SMTP_KEY@smtp-relay.brevo.com:587" >&2
+  echo "Also set DEFAULT_FROM_EMAIL to a sender on a Brevo-authenticated domain." >&2
+  exit 1
+fi
+
 echo "==> Pulling latest main"
 git pull origin main
 
