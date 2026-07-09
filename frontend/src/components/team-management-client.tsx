@@ -115,7 +115,11 @@ export function TeamManagementClient({
       }
       setAddResult({
         msg: data?.already_active
-          ? `${addForm.name || addForm.email} was added — they already have an account and can log in with their existing password.`
+          ? `${addForm.name || addForm.email} was added — they already have an account and can log in with their existing password. ${
+              data?.email_sent
+                ? "We've emailed them a notification that includes a password-reset link in case they've forgotten it."
+                : "The notification email could not be sent (check SMTP) — if they've forgotten their password, ask them to use “Forgot password” on the login page."
+            }`
           : `${addForm.name || addForm.email} has been added to the team.`,
         link: data?.set_password_url,
         emailSent: Boolean(data?.email_sent),
@@ -157,8 +161,11 @@ export function TeamManagementClient({
   }
 
   async function handleRemoveMember(memberId: string) {
-    if (!confirm("Remove this member from the team?")) return;
-    await fetch(`/api/teams/${teamId}/members/${memberId}`, { method: "DELETE" });
+    if (!confirm("Remove this member from the team?\n\nIf this is their only team, their account is deactivated (they can no longer log in). Re-adding them later reactivates it.")) return;
+    const permanent = confirm(
+      "Also permanently DELETE their account?\n\nOK = delete the account forever (cannot be undone).\nCancel = just remove from the team (account kept, deactivated)."
+    );
+    await fetch(`/api/teams/${teamId}/members/${memberId}${permanent ? "?permanent=true" : ""}`, { method: "DELETE" });
     refresh();
   }
 
