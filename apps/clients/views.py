@@ -14,7 +14,6 @@ from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.clients.models import Client
 from apps.clients.serializers import ClientLookupSerializer, ClientSerializer
-from apps.clients.services import push_status_to_clickup, sync_client_from_clickup
 
 logger = logging.getLogger(__name__)
 
@@ -31,20 +30,6 @@ _HOSTING_NORMALIZE = {
     "shopify": "shopify",
 }
 
-_MIGRATION_STATUS_MAP = {
-    "no - we didn't do": "not_done",
-    "no we didn't do": "not_done",
-    "yes - from wpengin to siteground": "done_to_siteground",
-    "yes - from wpengine to siteground": "done_to_siteground",
-    "n/a": "not_applicable",
-    "not applicable": "not_applicable",
-}
-
-_MIGRATION_CONFIRM_MAP = {
-    "yes, we can do migration": "can_do",
-    "no, we can't": "cannot",
-}
-
 _PPC_MAP = {
     "yes": "yes",
     "no": "no",
@@ -59,16 +44,13 @@ _HOSTING_LABELS = {
     "bluehost": "Bluehost", "godaddy": "GoDaddy", "squarespace": "Squarespace",
     "wix": "Wix", "shopify": "Shopify", "other": "Other",
 }
-_MIGRATION_LABELS = {
-    "not_done": "No - We didn't do",
-    "done_to_siteground": "Yes - From WPEngine to SiteGround",
-    "not_applicable": "N/A",
-}
-_CSM_LABELS = {"can_do": "Yes, We can do Migration", "cannot": "No, We can't"}
 _PPC_LABELS = {"yes": "Yes", "no": "No"}
+_TIER_LABELS = {"gold": "Gold", "silver": "Silver", "bronze": "Bronze"}
+_ACCESS_LEVEL_LABELS = {
+    "full_admin": "Full admin", "delegate": "Delegate access", "none": "No access",
+}
+_STATUS_CODES = {"active", "paused", "offboarded"}
 
-_MIGRATION_CODES = set(_MIGRATION_LABELS)
-_CSM_CODES = {"can_do", "cannot"}
 _PPC_CODES = {"yes", "no"}
 
 
@@ -79,28 +61,43 @@ def _parse_hosting(raw: str) -> str:
     return _HOSTING_NORMALIZE.get(r, "")
 
 
-def _parse_migration(raw: str) -> str:
-    r = raw.lower().strip()
-    if not r:
-        return ""
-    if r in _MIGRATION_CODES:
-        return r
-    # Legacy ClickUp exports: unknown-but-present text defaulted to "not_done".
-    return _MIGRATION_STATUS_MAP.get(r, "not_done")
-
-
-def _parse_confirm(raw: str) -> str:
-    r = raw.lower().strip()
-    if r in _CSM_CODES:
-        return r
-    return _MIGRATION_CONFIRM_MAP.get(r, "")
-
-
 def _parse_ppc(raw: str) -> str:
     r = raw.lower().strip()
     if r in _PPC_CODES:
         return r
     return "yes" if r.startswith("yes") else ("no" if r.startswith("no") else "")
+
+
+def _parse_status(raw: str) -> str:
+    r = raw.lower().strip()
+    if r in _STATUS_CODES:
+        return r
+    if r == "inactive":  # legacy exports
+        return "offboarded"
+    return "active"
+
+
+def _parse_tier(raw: str) -> str:
+    r = raw.lower().strip()
+    if r in _TIER_LABELS:
+        return r
+    # Legacy support-tier exports
+    return {"premium": "gold", "standard": "silver", "basic": "bronze"}.get(r, "")
+
+
+def _parse_access_level(raw: str) -> str:
+    r = raw.lower().strip()
+    if r in _ACCESS_LEVEL_LABELS:
+        return r
+    for code, label in _ACCESS_LEVEL_LABELS.items():
+        if r == label.lower():
+            return code
+    return ""
+
+
+def _parse_departments(raw: str) -> list:
+    parts = [p.strip().lower() for p in (raw or "").split(",")]
+    return [p for p in parts if p in Client.DEPARTMENTS]
 
 
 def _parse_date(raw: str):
@@ -118,20 +115,21 @@ def _parse_date(raw: str):
 
 # Canonical CSV columns — shared by the export, the sample, and the importer.
 EXPORT_HEADERS = [
-    "Task ID",
-    "Task Name",
+    "Client Name",
     "Websites URL (short text)",
+    "Status",
+    "Tier",
     "Hosting Platform (drop down)",
+    "Hosting Platform (Other)",
     "Hosting Renewal Date",
-    "Contract Renewal Date",
+    "Domain Renewal Date",
     "Domain Access",
+    "Website Access Level",
+    "Departments",
     "Website Built by Digi",
     "Website Maintained by Digi",
-    "Migration Status (drop down)",
-    "Confirmation from CSM for Migration (drop down)",
     "Are we running PPC Ads (drop down)",
     "Notes",
-    "Comments (short text)",
 ]
 
 
@@ -210,8 +208,16 @@ class ClientDetailView(generics.RetrieveUpdateAPIView):
         return Client.objects.for_team(_team(self.request))
 
     def perform_update(self, serializer):
+        old_status = serializer.instance.status
         client = serializer.save()
         _sync_hosting_to_websites(client)
+        if client.status != old_status:
+            AuditService.log_request(
+                self.request, ActivityLog.Action.CLIENT_STATUS_CHANGED,
+                description=f"Changed client '{client.name}' status to {client.status}",
+                resource_type="client", resource_id=client.pk,
+                metadata={"status": client.status},
+            )
         AuditService.log_request(
             self.request, ActivityLog.Action.CLIENT_UPDATED,
             description=f"Updated client '{client.name}'",
@@ -230,8 +236,6 @@ class ClientActivateView(APIView):
         except Client.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
         Client.objects.filter(pk=pk).update(status=Client.Status.ACTIVE)
-        client.status = Client.Status.ACTIVE
-        push_status_to_clickup(client)
         AuditService.log_request(
             request, ActivityLog.Action.CLIENT_STATUS_CHANGED,
             description=f"Activated client '{client.name}'",
@@ -242,7 +246,7 @@ class ClientActivateView(APIView):
 
 
 class ClientDeactivateView(APIView):
-    """POST /api/v1/clients/<pk>/deactivate/"""
+    """POST /api/v1/clients/<pk>/deactivate/ — marks the client offboarded."""
 
     permission_classes = [permissions.IsAuthenticated]
 
@@ -251,60 +255,14 @@ class ClientDeactivateView(APIView):
             client = Client.objects.for_team(_team(request)).get(pk=pk)
         except Client.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        Client.objects.filter(pk=pk).update(status=Client.Status.INACTIVE)
-        client.status = Client.Status.INACTIVE
-        push_status_to_clickup(client)
+        Client.objects.filter(pk=pk).update(status=Client.Status.OFFBOARDED)
         AuditService.log_request(
             request, ActivityLog.Action.CLIENT_STATUS_CHANGED,
-            description=f"Deactivated client '{client.name}'",
+            description=f"Offboarded client '{client.name}'",
             resource_type="client", resource_id=client.pk,
-            metadata={"status": "inactive"},
+            metadata={"status": "offboarded"},
         )
-        return Response({"detail": "Client deactivated (not deleted)."})
-
-
-class ClientSyncClickUpView(APIView):
-    """POST /api/v1/clients/<pk>/sync/"""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            client = Client.objects.for_team(_team(request)).get(pk=pk)
-        except Client.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        ok = sync_client_from_clickup(client)
-        if not ok:
-            return Response({"detail": "Sync failed. Check CLICKUP_API_TOKEN and task ID."}, status=status.HTTP_502_BAD_GATEWAY)
-        client.refresh_from_db()
-        AuditService.log_request(
-            request, ActivityLog.Action.CLIENT_SYNCED,
-            description=f"Synced client '{client.name}' from ClickUp",
-            resource_type="client", resource_id=client.pk,
-        )
-        return Response(ClientSerializer(client).data)
-
-
-class ClientSyncAllView(APIView):
-    """POST /api/v1/clients/sync-all/ — sync every client that has a ClickUp task ID."""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        clients = Client.objects.for_team(_team(request)).exclude(clickup_task_id="")
-        synced, failed = 0, 0
-        for client in clients:
-            if sync_client_from_clickup(client):
-                synced += 1
-            else:
-                failed += 1
-        if synced:
-            AuditService.log_request(
-                request, ActivityLog.Action.CLIENT_SYNCED,
-                description=f"Synced {synced} client(s) from ClickUp",
-                resource_type="client", metadata={"synced": synced, "failed": failed},
-            )
-        return Response({"synced": synced, "failed": failed})
+        return Response({"detail": "Client offboarded (not deleted)."})
 
 
 class ClientSearchView(APIView):
@@ -333,7 +291,7 @@ class ClientSearchView(APIView):
 
 
 class ClientImportView(APIView):
-    """POST /api/v1/clients/import/ — import from ClickUp CSV export."""
+    """POST /api/v1/clients/import/ — import clients from a CSV export."""
 
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
@@ -358,19 +316,19 @@ class ClientImportView(APIView):
         errors = []
 
         for i, row in enumerate(reader, start=2):
-            task_id = (row.get("Task ID") or "").strip()
-            name = (row.get("Task Name") or "").strip()
+            # "Client Name" is the current header; "Task Name" is the legacy
+            # ClickUp-export header, still accepted for backward compatibility.
+            name = ((row.get("Client Name") or row.get("Task Name")) or "").strip()
             if not name:
                 skipped += 1
                 continue
 
             website_url = (row.get("Websites URL (short text)") or "").strip()
             hosting = _parse_hosting(row.get("Hosting Platform (drop down)") or "")
-            migration_status = _parse_migration(row.get("Migration Status (drop down)") or "")
-            csm_confirm = _parse_confirm(row.get("Confirmation from CSM for Migration (drop down)") or "")
+            hosting_other = (row.get("Hosting Platform (Other)") or "").strip()
             ppc = _parse_ppc(row.get("Are we running PPC Ads (drop down)") or "")
             hosting_renewal_date = _parse_date(row.get("Hosting Renewal Date") or "")
-            contract_renewal_date = _parse_date(row.get("Contract Renewal Date") or "")
+            domain_renewal_date = _parse_date(row.get("Domain Renewal Date") or "")
 
             # "Domain Access" is the current sample header; the long
             # "Where we have the domain access (drop down)" is the legacy
@@ -380,7 +338,6 @@ class ClientImportView(APIView):
                 or row.get("Where we have the domain access (drop down)")
                 or ""
             ).strip()
-            comments = (row.get("Comments (short text)") or "").strip()
             notes = (row.get("Notes") or "").strip()
 
             raw_built = (row.get("Website Built by Digi") or row.get("Website built by Digi  (drop down)") or "").strip()
@@ -392,29 +349,25 @@ class ClientImportView(APIView):
             defaults = {
                 "name": name,
                 "website_url": website_url,
+                "status": _parse_status(row.get("Status") or ""),
+                "tier": _parse_tier(row.get("Tier") or ""),
                 "hosting_platform": hosting,
+                "hosting_platform_other": hosting_other,
                 "hosting_renewal_date": hosting_renewal_date,
-                "contract_renewal_date": contract_renewal_date,
-                "migration_status": migration_status,
-                "csm_migration_confirmation": csm_confirm,
+                "domain_renewal_date": domain_renewal_date,
                 "running_ppc_ads": ppc,
                 "domain_access_location": domain_access,
-                "comments": comments,
+                "website_access_level": _parse_access_level(row.get("Website Access Level") or ""),
+                "departments": _parse_departments(row.get("Departments") or ""),
                 "notes": notes,
                 "website_built_by_digi": built_by_digi,
                 "website_maintained_by_digi": maintained_by_digi,
             }
 
-            if task_id:
-                obj, was_created = Client.objects.update_or_create(
-                    team=team, clickup_task_id=task_id,
-                    defaults=defaults,
-                )
-            else:
-                obj, was_created = Client.objects.update_or_create(
-                    team=team, name=name,
-                    defaults=defaults,
-                )
+            obj, was_created = Client.objects.update_or_create(
+                team=team, name=name,
+                defaults=defaults,
+            )
 
             if was_created:
                 created += 1
@@ -451,20 +404,21 @@ class ClientExportView(APIView):
         writer.writerow(EXPORT_HEADERS)
         for c in clients:
             writer.writerow([
-                c.clickup_task_id,
                 c.name,
                 c.website_url,
+                c.status,
+                _TIER_LABELS.get(c.tier, ""),
                 _HOSTING_LABELS.get(c.hosting_platform, c.hosting_platform or ""),
+                c.hosting_platform_other,
                 c.hosting_renewal_date.isoformat() if c.hosting_renewal_date else "",
-                c.contract_renewal_date.isoformat() if c.contract_renewal_date else "",
+                c.domain_renewal_date.isoformat() if c.domain_renewal_date else "",
                 c.domain_access_location,
+                _ACCESS_LEVEL_LABELS.get(c.website_access_level, ""),
+                ",".join(c.departments or []),
                 c.website_built_by_digi,
                 c.website_maintained_by_digi,
-                _MIGRATION_LABELS.get(c.migration_status, ""),
-                _CSM_LABELS.get(c.csm_migration_confirmation, ""),
                 _PPC_LABELS.get(c.running_ppc_ads, ""),
                 c.notes,
-                c.comments,
             ])
 
         AuditService.log_request(
