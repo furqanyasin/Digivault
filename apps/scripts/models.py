@@ -261,11 +261,25 @@ class DetectedForm(BaseModel):
         Derived from detection type, identifiers, action, and the set of field
         names so that re-sends of the same form update in place while distinct
         forms on one page (including action-less div forms) stay separate.
+
+        Volatile fields — nonces, honeypots, captcha tokens, hex-named
+        anti-spam fields — rotate per page load and are excluded, otherwise
+        every visit would mint a "new" form and counts inflate.
         """
         import hashlib
+        import re
 
+        volatile = re.compile(
+            r"(nonce|honeypot|^hp-|^_wpcf7|^g-recaptcha|^h-captcha|^ct_|^ak_)",
+            re.IGNORECASE,
+        )
+        hexname = re.compile(r"^[0-9a-f]{12,}$", re.IGNORECASE)
         field_names = sorted(
-            (f.get("name", "") or "") for f in form_data.get("fields", [])
+            name
+            for name in (
+                (f.get("name", "") or "") for f in form_data.get("fields", [])
+            )
+            if not (volatile.search(name) or hexname.match(name))
         )
         basis = "|".join([
             form_data.get("detection_type", DetectedForm.DetectionType.NATIVE),
