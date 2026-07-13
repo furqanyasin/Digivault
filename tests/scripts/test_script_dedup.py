@@ -1,6 +1,9 @@
 """Tests for apps.scripts.dedup — merging cache-buster duplicate Script rows."""
 
+from datetime import timedelta
+
 import pytest
+from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
@@ -18,15 +21,23 @@ def website(db):
     return Website.objects.create(team=team, name="Dedup Site", domain="dedup.io")
 
 
-def _make_script(website, src_url, **kwargs):
+def _make_script(website, src_url, created_offset_s=0, **kwargs):
     # Bypass ingest: simulate legacy rows that predate normalized_url by
     # writing an identity value the merge is expected to overwrite.
-    return Script.objects.create(
+    script = Script.objects.create(
         website=website,
         src_url=src_url,
         normalized_url=src_url,
         **kwargs,
     )
+    if created_offset_s:
+        # auto_now_add can give two rows the same microsecond; "earliest
+        # wins" needs unambiguous ordering.
+        offset_time = timezone.now() + timedelta(seconds=created_offset_s)
+        Script.objects.filter(pk=script.pk).update(
+            created_at=offset_time, last_seen_at=offset_time
+        )
+    return script
 
 
 class TestMergeDuplicateScripts:
@@ -34,6 +45,7 @@ class TestMergeDuplicateScripts:
         a = _make_script(website, "https://cdn.x.com/w.js?ver=1.0",
                          seen_on_pages=["https://site.com/a"])
         _make_script(website, "https://cdn.x.com/w.js?ver=2.0",
+                     created_offset_s=60,
                      seen_on_pages=["https://site.com/b"],
                      review_status=Script.ReviewStatus.APPROVED)
 
@@ -49,7 +61,7 @@ class TestMergeDuplicateScripts:
 
     def test_repoints_script_changes(self, website):
         keeper = _make_script(website, "https://cdn.x.com/w.js?ver=1.0")
-        dup = _make_script(website, "https://cdn.x.com/w.js?ver=2.0")
+        dup = _make_script(website, "https://cdn.x.com/w.js?ver=2.0", created_offset_s=60)
         change = ScriptChange.objects.create(
             website=website, script=dup, change_type="added",
             severity="medium", description="x",
