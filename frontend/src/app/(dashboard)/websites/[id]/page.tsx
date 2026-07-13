@@ -257,7 +257,7 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="scripts">Scripts ({displayScripts.length})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
-          <TabsTrigger value="forms">Forms ({forms.length})</TabsTrigger>
+          <TabsTrigger value="forms">Forms ({forms.filter((f) => f.is_managed !== false).length})</TabsTrigger>
           <TabsTrigger value="tracking">Tracking</TabsTrigger>
           <TabsTrigger value="access">Access & Domain</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>

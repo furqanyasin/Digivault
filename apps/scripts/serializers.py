@@ -113,15 +113,23 @@ class ScriptSerializer(BaseModelSerializer):
 
 
 class DetectedFormSerializer(BaseModelSerializer):
+    # Embedded (cross-origin iframe) forms belong to a third party — their
+    # submissions can't be verified from the page, so the UI counts only
+    # managed (native / div-based) forms.
+    is_managed = serializers.SerializerMethodField()
+
     class Meta:
         model = DetectedForm
         fields = (
             "id", "page_url", "form_id", "form_name",
             "form_action", "form_method", "fields",
-            "detection_type", "provider",
+            "detection_type", "provider", "is_managed",
             "first_seen_at", "last_seen_at",
         )
         read_only_fields = fields
+
+    def get_is_managed(self, obj) -> bool:
+        return obj.detection_type != DetectedForm.DetectionType.EMBEDDED
 
 
 class ScriptChangeSerializer(BaseModelSerializer):

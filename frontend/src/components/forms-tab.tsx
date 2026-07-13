@@ -83,14 +83,42 @@ export function FormsTab({ forms }: Props) {
     }
   }
   const uniqueForms = Array.from(bySignature.values());
-  const pageCount = new Set(forms.map((f) => f.page_url)).size;
+  // Only WordPress-managed forms count — embedded third-party iframes can't
+  // have their submissions verified from the page.
+  const managedForms = uniqueForms.filter((f) => f.is_managed !== false);
+  const embeddedForms = uniqueForms.filter((f) => f.is_managed === false);
+  const pageCount = new Set(
+    forms.filter((f) => f.is_managed !== false).map((f) => f.page_url)
+  ).size;
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        {uniqueForms.length} form{uniqueForms.length !== 1 ? "s" : ""} detected across{" "}
+        {managedForms.length} managed form{managedForms.length !== 1 ? "s" : ""} detected across{" "}
         {pageCount} page{pageCount !== 1 ? "s" : ""}
       </p>
+      <FormsTable forms={managedForms} />
+      {embeddedForms.length > 0 && (
+        <details className="border rounded-lg">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium flex items-center gap-2">
+            <ChevronRight className="h-4 w-4 inline [details[open]_&]:hidden" />
+            <ChevronDown className="h-4 w-4 hidden [details[open]_&]:inline" />
+            Third-party embedded forms ({embeddedForms.length})
+            <span className="font-normal text-muted-foreground">
+              — managed by a third party; submissions can&apos;t be verified from the page
+            </span>
+          </summary>
+          <div className="px-2 pb-2">
+            <FormsTable forms={embeddedForms} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function FormsTable({ forms }: { forms: DetectedForm[] }) {
+  return (
       <Table>
         <TableHeader>
           <TableRow>
@@ -103,7 +131,7 @@ export function FormsTab({ forms }: Props) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {uniqueForms.map((form) => (
+          {forms.map((form) => (
             <TableRow key={form.id}>
               <TableCell className="align-top">
                 <div className="font-mono text-xs text-muted-foreground truncate max-w-[180px]" title={form.page_url}>
@@ -144,6 +172,5 @@ export function FormsTab({ forms }: Props) {
           ))}
         </TableBody>
       </Table>
-    </div>
   );
 }
