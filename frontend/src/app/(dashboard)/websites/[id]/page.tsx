@@ -22,7 +22,6 @@ import { SecurityHeadersPanel } from "@/components/security-headers-panel";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { DomainExtras } from "@/components/domain-extras";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
-import { TrackingTab } from "@/components/tracking-tab";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { HealthScoreInfo } from "@/components/health-score-info";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
@@ -131,7 +130,9 @@ export default async function WebsiteDetailPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { id } = await params;
-  const { tab = "overview" } = await searchParams;
+  const { tab: rawTab = "overview" } = await searchParams;
+  // The Tracking tab merged into Scripts — keep old deep links working.
+  const tab = rawTab === "tracking" ? "scripts" : rawTab;
   const token = await getAccessToken();
   const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport } = await getData(token ?? "", id);
 
@@ -167,6 +168,13 @@ export default async function WebsiteDetailPage({
   // visible so they can be actioned.
   const displayScripts = activeScripts.filter(
     (s) => s.provider !== "unknown" || s.review_status === "pending"
+  );
+  // Scripts tab additionally shows inactive scripts (with an Inactive badge)
+  // so a tracking code that stopped loading is visible, not silently gone.
+  const scriptsForTab = scripts.filter(
+    (s) =>
+      !isInternalStr(s.src_url) &&
+      (s.provider !== "unknown" || s.review_status === "pending")
   );
   // Plugins tab: needs digilaticsvps scripts to detect WP plugins
   const allActiveScripts = scripts.filter((s) => s.is_active);
@@ -268,7 +276,6 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="scripts">Scripts ({displayScripts.length})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
           <TabsTrigger value="forms">Forms ({forms.filter((f) => f.is_managed !== false).length})</TabsTrigger>
-          <TabsTrigger value="tracking">Tracking</TabsTrigger>
           <TabsTrigger value="access">Access & Domain</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="changelog">Change Log ({visibleChanges.length})</TabsTrigger>
@@ -347,10 +354,10 @@ export default async function WebsiteDetailPage({
         <TabsContent value="scripts">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Active Scripts ({displayScripts.length})</CardTitle>
+              <CardTitle className="text-base">Scripts ({displayScripts.length} active)</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <ScriptsTab scripts={displayScripts} websiteId={id} />
+              <ScriptsTab scripts={scriptsForTab} websiteId={id} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -622,18 +629,6 @@ export default async function WebsiteDetailPage({
             <CardContent className="px-4 pb-4 space-y-6">
               <SecurityHeadersPanel websiteId={id} report={headerReport} />
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── Tracking ── */}
-        <TabsContent value="tracking">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Tracking Codes</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <TrackingTab scripts={scripts.filter((s) => !isInternalStr(s.src_url))} />
             </CardContent>
           </Card>
         </TabsContent>
