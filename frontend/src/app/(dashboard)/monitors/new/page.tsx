@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,8 @@ const INTERVALS = [
 
 export default function NewMonitorPage() {
   const router = useRouter();
+  // Set when arriving from a website's Uptime tab — links the monitor to it.
+  const websiteId = useSearchParams().get("website");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -55,6 +57,7 @@ export default function NewMonitorPage() {
         retry_count: parseInt(retryCount),
         notes,
       };
+      if (websiteId) body.website = websiteId;
       if (monitorType === "http") {
         body.expected_status_code = parseInt(expectedStatus);
         body.keyword = keyword;

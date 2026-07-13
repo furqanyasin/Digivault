@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { Shield, Globe, Bell, Key, Users, LayoutDashboard, Activity, MonitorCheck, Building2, Settings, ClipboardList, FileText, CalendarClock, UserCircle } from "lucide-react";
+import { Shield, Globe, Bell, Key, Users, LayoutDashboard, MonitorCheck, Building2, Settings, ClipboardList, FileText, CalendarClock, UserCircle } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TeamSwitcher } from "@/components/team-switcher";
@@ -18,7 +18,8 @@ const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, always: true },
   { href: "/clients", label: "Clients", icon: Building2, feature: "clients" },
   { href: "/websites", label: "Websites", icon: Globe, feature: "websites" },
-  { href: "/monitors", label: "Monitors", icon: Activity, feature: "monitors" },
+  // Monitors merged into each website's Uptime tab; /monitors stays routable
+  // for monitor create/edit deep links.
   { href: "/renewals", label: "Renewal Center", icon: CalendarClock, managerOnly: true, feature: "renewals" },
   { href: "/status-pages", label: "Status Pages", icon: MonitorCheck, feature: "status_pages" },
   { href: "/alerts", label: "Alerts", icon: Bell, feature: "alerts" },

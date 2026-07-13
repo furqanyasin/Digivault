@@ -28,6 +28,13 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
     serializer_class = MonitorSerializer
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        website_id = self.request.query_params.get("website", "").strip()
+        if website_id:
+            qs = qs.filter(website_id=website_id)
+        return qs
+
     def perform_create(self, serializer):
         monitor = serializer.save(team=self.request.user.active_team)
         AuditService.log_request(

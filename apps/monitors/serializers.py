@@ -67,6 +67,7 @@ class MonitorSerializer(BaseModelSerializer):
             "recent_statuses",
             "tags",
             "notes",
+            "website",
             "created_at",
             "updated_at",
         )

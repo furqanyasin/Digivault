@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings, Server, Bell } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, Script, ScriptChange, DomainInfo, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState, SecurityHeaderReport } from "@/lib/api";
+import type { Website, Script, ScriptChange, DomainInfo, Monitor, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState, SecurityHeaderReport } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -23,6 +23,7 @@ import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { DomainExtras } from "@/components/domain-extras";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
+import { UptimeTab } from "@/components/uptime-tab";
 import { HealthScoreInfo } from "@/components/health-score-info";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
@@ -30,7 +31,7 @@ async function getData(token: string, id: string) {
   // All tab data is fetched up front so the tabs can switch instantly on the
   // client (no per-tab server navigation). Runs in parallel; the instant
   // loading skeleton (loading.tsx) covers the initial wait.
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -46,6 +47,7 @@ async function getData(token: string, id: string) {
     api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
     api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
     api.get<SecurityHeaderReport>(`/api/v1/websites/${id}/security-headers/`, token),
+    api.get<Monitor[]>(`/api/v1/monitors/?website=${id}`, token),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -63,6 +65,7 @@ async function getData(token: string, id: string) {
     scanState: scanState.status === "fulfilled" ? scanState.value : null,
     seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
     headerReport: headerReport.status === "fulfilled" ? headerReport.value : null,
+    monitors: monitors.status === "fulfilled" ? monitors.value : [],
   };
 }
 
@@ -134,7 +137,7 @@ export default async function WebsiteDetailPage({
   // The Tracking tab merged into Scripts — keep old deep links working.
   const tab = rawTab === "tracking" ? "scripts" : rawTab;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -276,6 +279,7 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="scripts">Scripts ({displayScripts.length})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
           <TabsTrigger value="forms">Forms ({forms.filter((f) => f.is_managed !== false).length})</TabsTrigger>
+          <TabsTrigger value="uptime">Uptime {monitors.length > 0 ? `(${monitors.length})` : ""}</TabsTrigger>
           <TabsTrigger value="access">Access & Domain</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="changelog">Change Log ({visibleChanges.length})</TabsTrigger>
@@ -630,6 +634,18 @@ export default async function WebsiteDetailPage({
             <CardContent className="px-4 pb-4 space-y-6">
               <SecurityHeadersPanel websiteId={id} report={headerReport} />
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Uptime ── */}
+        <TabsContent value="uptime">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Uptime & Downtime</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <UptimeTab monitors={monitors} websiteId={id} />
             </CardContent>
           </Card>
         </TabsContent>
