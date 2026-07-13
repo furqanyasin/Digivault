@@ -19,6 +19,7 @@ from django.utils import timezone
 from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.diff_engine import DiffEngine
 from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
+from apps.scripts.normalize import normalize_page_url, normalize_script_url
 from apps.websites.models import Website
 
 # ---------------------------------------------------------------------------
@@ -153,7 +154,8 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
         logger.warning("process_ingest_payload: unknown site_id %s", site_id)
         return
 
-    page_url: str = payload["page_url"]
+    # Normalized so /contact, /contact/ and /contact?utm=… are one page.
+    page_url: str = normalize_page_url(payload["page_url"])
     scripts_data: list[dict] = payload.get("scripts", [])
 
     def _is_trackable(s: dict) -> bool:
@@ -210,12 +212,12 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
 
             # Mark scripts not seen in this snapshot as inactive
             # (only for scripts scoped globally — page-specific is handled separately)
-            current_urls = {s["src"] for s in trackable_current}
+            current_urls = {normalize_script_url(s["src"]) for s in trackable_current}
             Script.objects.filter(
                 website=website,
                 scope=Script.Scope.GLOBAL,
                 is_active=True,
-            ).exclude(src_url__in=current_urls).update(is_active=False)
+            ).exclude(normalized_url__in=current_urls).update(is_active=False)
 
             # Deactivate noise scripts and auto-acknowledge their changes.
             if all_noise_pks:
@@ -230,9 +232,23 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
             for change in changes:
                 script_obj = None
                 if change.src_url:
+                    # DiffEngine emits normalized URLs in src_url.
                     script_obj = Script.objects.filter(
-                        website=website, src_url=change.src_url
+                        website=website, normalized_url=change.src_url
                     ).first()
+                # Site-wide dedupe: the diff runs per page, so one genuinely
+                # new global script would otherwise log an event per page.
+                dup_q = ScriptChange.objects.filter(
+                    website=website,
+                    change_type=change.change_type,
+                    acknowledged_at__isnull=True,
+                )
+                if script_obj:
+                    dup_q = dup_q.filter(script=script_obj)
+                else:
+                    dup_q = dup_q.filter(description=change.description)
+                if dup_q.exists():
+                    continue
                 ScriptChange.objects.create(
                     website=website,
                     script=script_obj,
@@ -285,8 +301,9 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
 
     script, created = Script.objects.get_or_create(
         website=website,
-        src_url=src,
+        normalized_url=normalize_script_url(src),
         defaults={
+            "src_url": src,
             "src_domain": domain,
             "provider": classification.provider,
             "category": classification.category,
@@ -308,6 +325,7 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
             seen.append(page_url)
         Script.objects.filter(pk=script.pk).update(
             is_active=True,
+            src_url=src,
             src_domain=domain,
             provider=classification.provider,
             category=classification.category,
