@@ -87,6 +87,10 @@ class Website(BaseModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    # Shared secret for one-click wp-admin login via the Digivault Connect
+    # WordPress plugin. Empty = SSO not set up for this site. Rotating it
+    # invalidates all previously issued links.
+    wp_sso_secret = models.CharField(max_length=64, blank=True, default="")
 
     objects = TeamScopedQuerySet.as_manager()
 

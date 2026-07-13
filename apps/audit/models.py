@@ -79,6 +79,8 @@ class ActivityLog(BaseModel):
         # Websites (extended)
         WEBSITE_UPDATED = "website.updated", "Website updated"
         WEBSITE_SNIPPET_REGENERATED = "website.snippet_regenerated", "Snippet regenerated"
+        WEBSITE_WP_LOGIN = "website.wp_login", "WP admin login link issued"
+        WEBSITE_WP_SSO_SECRET_ROTATED = "website.wp_sso_secret_rotated", "WP SSO secret rotated"
         # Domains / performance
         DOMAIN_REFRESHED = "domain.refreshed", "Domain info refreshed"
         PERFORMANCE_CHECK_RUN = "performance.check_run", "Performance check run"

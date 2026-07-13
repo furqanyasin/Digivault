@@ -104,6 +104,7 @@ export interface Website {
   notification_channel_name: string | null;
   uptime_notification_channel: string | null;
   uptime_notification_channel_name: string | null;
+  wp_sso_configured: boolean;
   status_page: { slug: string; name: string; status: string; monitor_count: number } | null;
   created_at: string;
   updated_at: string;

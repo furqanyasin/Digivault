@@ -25,6 +25,7 @@ import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { UptimeTab } from "@/components/uptime-tab";
 import { WebsiteAssignments } from "@/components/website-assignments";
+import { WpLoginButton } from "@/components/wp-login-button";
 import { HealthScoreInfo } from "@/components/health-score-info";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
@@ -527,6 +528,9 @@ export default async function WebsiteDetailPage({
                     initialUptimeChannelId={website.uptime_notification_channel}
                     statusPage={website.status_page}
                   />
+                  <div className="border-t mt-4 pt-4">
+                    <WpLoginButton websiteId={id} configured={website.wp_sso_configured} />
+                  </div>
                   <div className="border-t mt-4 pt-4">
                     <WebsiteAssignments websiteId={id} />
                   </div>

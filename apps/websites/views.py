@@ -165,6 +165,90 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             return WebsiteCreateSerializer
         return WebsiteSerializer
 
+    # Digivault role → WordPress role for one-click wp-admin login.
+    _WP_ROLE_MAP = {
+        "owner": "administrator",
+        "manager": "administrator",
+        "developer": "editor",
+    }
+
+    @action(detail=True, methods=["post"], url_path="wp-sso-secret")
+    def wp_sso_secret(self, request, pk=None):
+        """Generate (or rotate) the shared secret for the Digivault Connect
+        WordPress plugin. Managers/owners only. Rotating invalidates all
+        previously issued login links."""
+        import secrets as _secrets
+
+        website = self.get_object()
+        team = request.user.active_team
+        if _user_role(request.user, team) not in _MANAGER_ROLES:
+            return Response(
+                {"detail": "Only managers can manage the WP login secret."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        secret = _secrets.token_urlsafe(32)
+        Website.objects.filter(pk=website.pk).update(wp_sso_secret=secret)
+        AuditService.log_request(
+            request, ActivityLog.Action.WEBSITE_WP_SSO_SECRET_ROTATED,
+            description=f"Generated WP SSO secret for '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+            metadata={"website_id": str(website.pk)},
+        )
+        return Response({"secret": secret})
+
+    @action(detail=True, methods=["post"], url_path="wp-login")
+    def wp_login(self, request, pk=None):
+        """Issue a signed, single-use, 2-minute wp-admin login URL for the
+        current user, role-mapped from their team role."""
+        import base64
+        import hashlib
+        import hmac as _hmac
+        import json as _json
+        import time
+        import uuid
+
+        website = self.get_object()
+        team = request.user.active_team
+
+        wp_role = self._WP_ROLE_MAP.get(_user_role(request.user, team))
+        if wp_role is None:
+            return Response(
+                {"detail": "Your role does not permit WP admin login."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not website.wp_sso_secret:
+            return Response(
+                {"detail": "WP login is not set up for this website yet."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        payload = {
+            "email": request.user.email,
+            "name": f"{request.user.first_name} {request.user.last_name}".strip()
+            or request.user.email,
+            "role": wp_role,
+            "exp": int(time.time()) + 120,
+            "jti": uuid.uuid4().hex,
+        }
+        raw = _json.dumps(payload, separators=(",", ":")).encode()
+        payload_b64 = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        sig = _hmac.new(
+            website.wp_sso_secret.encode(), payload_b64.encode(), hashlib.sha256
+        ).hexdigest()
+
+        domain = website.domain
+        if not domain.startswith(("http://", "https://")):
+            domain = f"https://{domain}"
+        url = f"{domain.rstrip('/')}/wp-json/digivault/v1/sso?p={payload_b64}&s={sig}"
+
+        AuditService.log_request(
+            request, ActivityLog.Action.WEBSITE_WP_LOGIN,
+            description=f"Issued wp-admin login link for '{website.domain}' as {wp_role}",
+            resource_type="website", resource_id=website.pk,
+            metadata={"website_id": str(website.pk), "wp_role": wp_role},
+        )
+        return Response({"url": url, "expires_in": 120, "wp_role": wp_role})
+
     @action(detail=True, methods=["get", "put"], url_path="assignments")
     def assignments(self, request, pk=None):
         """GET: users assigned to this website. PUT {"user_ids": [...]}:
