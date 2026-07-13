@@ -14,7 +14,7 @@ export function WpLoginButton({
   const [isConfigured, setIsConfigured] = useState(configured);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [secret, setSecret] = useState("");
+  const [snippet, setSnippet] = useState("");
   const [copied, setCopied] = useState(false);
 
   async function login() {
@@ -41,10 +41,10 @@ export function WpLoginButton({
       const res = await fetch(`/api/websites/${websiteId}/wp-sso-secret`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data?.detail ?? "Could not generate a secret.");
+        setError(data?.detail ?? "Could not generate the login snippet.");
         return;
       }
-      setSecret(data.secret);
+      setSnippet(data.snippet);
       setIsConfigured(true);
     } finally {
       setBusy(false);
@@ -65,7 +65,7 @@ export function WpLoginButton({
             Log in to wp-admin
           </Button>
           <Button size="sm" variant="outline" onClick={generateSecret} disabled={busy}>
-            Rotate secret
+            Rotate & re-copy snippet
           </Button>
         </div>
       ) : (
@@ -75,19 +75,21 @@ export function WpLoginButton({
         </Button>
       )}
 
-      {secret && (
-        <div className="rounded-md border bg-muted/40 p-3 space-y-1.5">
-          <p className="text-xs text-muted-foreground">
-            Paste this into the site&apos;s <strong>Digivault Connect</strong> plugin
-            (Settings → Digivault Connect), then save. Shown once — rotating replaces it.
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="font-mono text-xs break-all flex-1">{secret}</code>
+      {snippet && (
+        <div className="rounded-md border bg-muted/40 p-3 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Add this as a <strong>PHP snippet</strong> in the same{" "}
+              <strong>WPCode / Code Snippets</strong> tool you used for the tracking
+              script (set it to run site-wide, then activate). No plugin to install —
+              rotating replaces it.
+            </p>
             <Button
               size="sm"
               variant="ghost"
+              className="shrink-0"
               onClick={() => {
-                navigator.clipboard.writeText(secret);
+                navigator.clipboard.writeText(snippet);
                 setCopied(true);
                 setTimeout(() => setCopied(false), 1500);
               }}
@@ -95,12 +97,15 @@ export function WpLoginButton({
               {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
             </Button>
           </div>
+          <pre className="max-h-48 overflow-auto rounded bg-background border p-2 text-[11px] leading-snug font-mono">
+            {snippet}
+          </pre>
         </div>
       )}
 
       <p className="text-xs text-muted-foreground">
         Opens wp-admin in a new tab using a single-use, role-mapped link — no shared
-        passwords. Requires the Digivault Connect plugin on the site.
+        passwords. Requires the one-time PHP snippet above on the site.
       </p>
       {error && <p className="text-xs text-red-600">{error}</p>}
     </div>

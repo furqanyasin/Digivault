@@ -75,6 +75,10 @@ class TestSecretRotation:
         assert len(resp.data["secret"]) > 30
         website.refresh_from_db()
         assert website.wp_sso_secret == resp.data["secret"]
+        # The response includes a ready-to-paste PHP snippet with the secret in it.
+        assert "register_rest_route" in resp.data["snippet"]
+        assert resp.data["secret"] in resp.data["snippet"]
+        assert "digivault/v1" in resp.data["snippet"]
 
     def test_developer_cannot_rotate(self, developer, team, website):
         resp = _client(developer, team).post(f"/api/v1/websites/{website.id}/wp-sso-secret/")

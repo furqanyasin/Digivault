@@ -214,6 +214,15 @@ class Website(BaseModel):
         )
 
     @property
+    def wp_sso_snippet(self) -> str:
+        """PHP code snippet enabling one-click wp-admin login, with this site's
+        secret baked in. Empty until a secret is generated. Pasted into the
+        same WPCode/Code Snippets tool used for the tracking script — no plugin."""
+        from apps.websites.wp_sso_snippet import build_wp_sso_snippet
+
+        return build_wp_sso_snippet(self.wp_sso_secret)
+
+    @property
     def snippet_instructions(self) -> dict:
         """Return platform-specific installation instructions."""
         instructions = {

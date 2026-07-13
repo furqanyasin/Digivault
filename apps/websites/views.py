@@ -188,13 +188,16 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             )
         secret = _secrets.token_urlsafe(32)
         Website.objects.filter(pk=website.pk).update(wp_sso_secret=secret)
+        website.wp_sso_secret = secret
         AuditService.log_request(
             request, ActivityLog.Action.WEBSITE_WP_SSO_SECRET_ROTATED,
             description=f"Generated WP SSO secret for '{website.domain}'",
             resource_type="website", resource_id=website.pk,
             metadata={"website_id": str(website.pk)},
         )
-        return Response({"secret": secret})
+        # The user pastes `snippet` into WPCode/Code Snippets (same tool as the
+        # tracking script); the raw secret is returned only for reference.
+        return Response({"secret": secret, "snippet": website.wp_sso_snippet})
 
     @action(detail=True, methods=["post"], url_path="wp-login")
     def wp_login(self, request, pk=None):
