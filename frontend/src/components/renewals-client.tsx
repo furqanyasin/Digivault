@@ -17,7 +17,7 @@ interface ClientRow {
   name: string;
   website_url: string;
   hosting_renewal_date: string | null;
-  contract_renewal_date: string | null;
+  domain_renewal_date: string | null;
 }
 
 interface RenewalRow {
@@ -125,7 +125,7 @@ export function RenewalsClient() {
   const [domains, setDomains] = useState<RenewalRow[]>([]);
   const [ssl, setSsl] = useState<RenewalRow[]>([]);
   const [hosting, setHosting] = useState<RenewalRow[]>([]);
-  const [contracts, setContracts] = useState<RenewalRow[]>([]);
+  const [clientDomains, setClientDomains] = useState<RenewalRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
@@ -194,14 +194,14 @@ export function RenewalsClient() {
           days: daysUntil(c.hosting_renewal_date),
         });
       }
-      setContracts(
+      setClientDomains(
         clients
-          .filter((c) => c.contract_renewal_date)
+          .filter((c) => c.domain_renewal_date)
           .map((c) => ({
-            key: `contract-${c.id}`,
+            key: `client-domain-${c.id}`,
             label: c.name,
             sub: c.website_url,
-            days: daysUntil(c.contract_renewal_date),
+            days: daysUntil(c.domain_renewal_date),
           }))
       );
     }
@@ -226,7 +226,7 @@ export function RenewalsClient() {
             Renewal Center
           </h1>
           <p className="text-muted-foreground mt-1">
-            Domains, SSL, hosting, and contracts — sorted by urgency.
+            Domains, SSL, and hosting — sorted by urgency.
           </p>
         </div>
         <button
@@ -245,7 +245,7 @@ export function RenewalsClient() {
           <RenewalSection title="Domains" icon={Globe} rows={domains} />
           <RenewalSection title="SSL Certificates" icon={ShieldCheck} rows={ssl} />
           <RenewalSection title="Hosting" icon={Server} rows={hosting} />
-          <RenewalSection title="Contracts" icon={FileSignature} rows={contracts} />
+          <RenewalSection title="Client Domain Renewals" icon={FileSignature} rows={clientDomains} />
         </div>
       )}
     </div>
