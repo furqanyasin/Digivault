@@ -80,12 +80,22 @@ const SEV_STRIPE: Record<string, string> = {
   low:      "border-l-blue-400",
 };
 
+// Query params that identify WHICH tag this is (GTM container, Google Ads
+// conversion ID, reCAPTCHA site key) — kept in the shortened display so
+// e.g. gtag/js?id=AW-123456789 stays distinguishable. Everything else is
+// cache-buster noise and dropped.
+const IDENTIFYING_PARAMS = ["id", "client", "render", "tid", "cx", "l"];
+
 function smartUrl(url: string): string {
   try {
-    const u = new URL(url);
+    const u = new URL(url.startsWith("//") ? `https:${url}` : url);
     const parts = u.pathname.split("/").filter(Boolean);
     const filename = parts[parts.length - 1] ?? "";
-    return `${u.hostname}${filename ? `/${filename}` : ""}`;
+    const kept = IDENTIFYING_PARAMS
+      .filter((p) => u.searchParams.has(p))
+      .map((p) => `${p}=${u.searchParams.get(p)}`);
+    const query = kept.length ? `?${kept.join("&")}` : "";
+    return `${u.hostname}${filename ? `/${filename}` : ""}${query}`;
   } catch {
     return url.length > 55 ? url.slice(0, 52) + "…" : url;
   }
