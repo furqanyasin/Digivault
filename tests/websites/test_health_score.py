@@ -38,6 +38,7 @@ class TestHealthScore:
         script = Script.objects.create(
             website=site, src_url="https://x.com/a.js", src_domain="x.com",
             provider="unknown", category="unknown", location="head", scope="GLOBAL",
+            review_status=Script.ReviewStatus.APPROVED,
         )
         ScriptChange.objects.create(
             website=site, script=script,
@@ -53,6 +54,7 @@ class TestHealthScore:
         script = Script.objects.create(
             website=site, src_url="https://x.com/a.js", src_domain="x.com",
             provider="unknown", category="unknown", location="head", scope="GLOBAL",
+            review_status=Script.ReviewStatus.APPROVED,
         )
         for i in range(5):
             ScriptChange.objects.create(
@@ -70,6 +72,7 @@ class TestHealthScore:
         script = Script.objects.create(
             website=site, src_url="https://x.com/a.js", src_domain="x.com",
             provider="unknown", category="unknown", location="head", scope="GLOBAL",
+            review_status=Script.ReviewStatus.APPROVED,
         )
         ScriptChange.objects.create(
             website=site, script=script,
@@ -104,6 +107,7 @@ class TestHealthScore:
         script = Script.objects.create(
             website=site, src_url="https://x.com/a.js", src_domain="x.com",
             provider="unknown", category="unknown", location="head", scope="GLOBAL",
+            review_status=Script.ReviewStatus.APPROVED,
         )
         for i in range(3):
             ScriptChange.objects.create(
@@ -128,3 +132,44 @@ class TestHealthScore:
         site.recalculate_health_score()
         site.refresh_from_db()
         assert site.health_score >= 0
+
+
+@pytest.mark.django_db
+class TestPendingReviewDeduction:
+    def _script(self, site, n, **kwargs):
+        return Script.objects.create(
+            website=site, src_url=f"https://ext{n}.com/a.js", src_domain=f"ext{n}.com",
+            provider="unknown", category="unknown", location="head", scope="GLOBAL",
+            **kwargs,
+        )
+
+    def test_pending_active_scripts_deduct_2_each(self, site):
+        for n in range(3):
+            self._script(site, n)  # review_status defaults to pending
+        site.recalculate_health_score()
+        site.refresh_from_db()
+        assert site.health_score == 94  # 100 - 3*2
+
+    def test_deduction_capped_at_10(self, site):
+        for n in range(8):
+            self._script(site, n)
+        site.recalculate_health_score()
+        site.refresh_from_db()
+        assert site.health_score == 90  # 8*2=16 capped at 10
+
+    def test_approving_restores_score(self, site):
+        s = self._script(site, 0)
+        site.recalculate_health_score()
+        site.refresh_from_db()
+        assert site.health_score == 98
+
+        Script.objects.filter(pk=s.pk).update(review_status=Script.ReviewStatus.APPROVED)
+        site.recalculate_health_score()
+        site.refresh_from_db()
+        assert site.health_score == 100
+
+    def test_inactive_pending_scripts_not_counted(self, site):
+        self._script(site, 0, is_active=False)
+        site.recalculate_health_score()
+        site.refresh_from_db()
+        assert site.health_score == 100

@@ -169,6 +169,19 @@ class Website(BaseModel):
         except Exception:
             pass
 
+        # Unreviewed active scripts: approving (or blocking/ignoring) a script
+        # is how the score is earned back — review is part of site hygiene.
+        from apps.scripts.models import Script
+
+        pending_review = (
+            Script.objects.filter(
+                website=self, is_active=True, review_status=Script.ReviewStatus.PENDING
+            )
+            .exclude(src_domain__in=internal)
+            .count()
+        )
+        deductions += min(pending_review * 2, 10)
+
         score = max(0, min(100, 100 - deductions))
         Website.objects.filter(pk=self.pk).update(health_score=score)
 
