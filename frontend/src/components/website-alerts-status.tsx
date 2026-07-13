@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bell, ExternalLink } from "lucide-react";
+import { Activity, Bell, ExternalLink } from "lucide-react";
 
 interface Channel { id: string; name: string; channel_type: string }
 interface StatusPageSummary { slug: string; name: string; status: string; monitor_count: number }
@@ -13,18 +13,52 @@ const STATUS_STYLE: Record<string, string> = {
   outage: "text-red-600",
 };
 
+function ChannelSelect({
+  value,
+  channels,
+  emptyLabel,
+  onChange,
+  saved,
+}: {
+  value: string;
+  channels: Channel[];
+  emptyLabel: string;
+  onChange: (v: string) => void;
+  saved: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="border rounded-md px-2 py-1 text-sm bg-background min-w-[14rem]"
+      >
+        <option value="">{emptyLabel}</option>
+        {channels.map((c) => (
+          <option key={c.id} value={c.id}>{c.name} ({c.channel_type})</option>
+        ))}
+      </select>
+      {saved && <span className="text-xs text-emerald-600">Saved</span>}
+    </div>
+  );
+}
+
 export function WebsiteAlertsStatus({
   websiteId,
   initialChannelId,
+  initialUptimeChannelId,
   statusPage,
 }: {
   websiteId: string;
   initialChannelId: string | null;
+  initialUptimeChannelId?: string | null;
   statusPage: StatusPageSummary | null;
 }) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [channelId, setChannelId] = useState<string>(initialChannelId ?? "");
+  const [uptimeChannelId, setUptimeChannelId] = useState<string>(initialUptimeChannelId ?? "");
   const [saved, setSaved] = useState(false);
+  const [uptimeSaved, setUptimeSaved] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -36,41 +70,64 @@ export function WebsiteAlertsStatus({
     })();
   }, []);
 
-  async function changeChannel(value: string) {
-    setChannelId(value);
-    setSaved(false);
+  async function patchWebsite(body: Record<string, string | null>): Promise<boolean> {
     const res = await fetch(`/api/websites/${websiteId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ notification_channel: value || null }),
+      body: JSON.stringify(body),
     });
-    if (res.ok) setSaved(true);
+    return res.ok;
+  }
+
+  async function changeChannel(value: string) {
+    setChannelId(value);
+    setSaved(false);
+    if (await patchWebsite({ notification_channel: value || null })) setSaved(true);
+  }
+
+  async function changeUptimeChannel(value: string) {
+    setUptimeChannelId(value);
+    setUptimeSaved(false);
+    if (await patchWebsite({ uptime_notification_channel: value || null })) setUptimeSaved(true);
   }
 
   return (
     <div className="space-y-4">
-      {/* Alert channel */}
+      {/* General alert channel */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Bell className="h-4 w-4 text-muted-foreground" />
-          Alert channel
+          Website alert channel
         </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={channelId}
-            onChange={(e) => changeChannel(e.target.value)}
-            className="border rounded-md px-2 py-1 text-sm bg-background min-w-[14rem]"
-          >
-            <option value="">Team default channels</option>
-            {channels.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} ({c.channel_type})</option>
-            ))}
-          </select>
-          {saved && <span className="text-xs text-emerald-600">Saved</span>}
-        </div>
+        <ChannelSelect
+          value={channelId}
+          channels={channels}
+          emptyLabel="Team default channels"
+          onChange={changeChannel}
+          saved={saved}
+        />
         <p className="text-xs text-muted-foreground">
-          All of this site&apos;s alerts (uptime, domain/SSL/hosting expiry, SEO) go to this
+          Script, domain/SSL/hosting expiry, and SEO alerts for this site go to this
           channel. Leave on &ldquo;Team default&rdquo; to use the team&apos;s active channels.
+        </p>
+      </div>
+
+      {/* Uptime / downtime channel */}
+      <div className="space-y-1.5 border-t pt-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          Uptime alert channel
+        </div>
+        <ChannelSelect
+          value={uptimeChannelId}
+          channels={channels}
+          emptyLabel="Same as website channel"
+          onChange={changeUptimeChannel}
+          saved={uptimeSaved}
+        />
+        <p className="text-xs text-muted-foreground">
+          Downtime and recovery alerts route here, separately from other website
+          notifications. Leave unset to use the website alert channel.
         </p>
       </div>
 

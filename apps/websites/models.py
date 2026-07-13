@@ -78,6 +78,15 @@ class Website(BaseModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    # Downtime/uptime alerts get their own channel so they can route separately
+    # from general website alerts. When unset, uptime falls back to
+    # notification_channel (then team defaults).
+    uptime_notification_channel = models.ForeignKey(
+        "monitors.NotificationChannel",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
 
     objects = TeamScopedQuerySet.as_manager()
 

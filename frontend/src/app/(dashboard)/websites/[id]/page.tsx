@@ -505,6 +505,7 @@ export default async function WebsiteDetailPage({
                   <WebsiteAlertsStatus
                     websiteId={id}
                     initialChannelId={website.notification_channel}
+                    initialUptimeChannelId={website.uptime_notification_channel}
                     statusPage={website.status_page}
                   />
                 </CardContent>
