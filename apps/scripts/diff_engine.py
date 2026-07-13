@@ -12,6 +12,7 @@ from typing import Any
 
 from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.models import ScriptChange
+from apps.scripts.normalize import normalize_script_url
 
 
 @dataclass(frozen=True)
@@ -63,8 +64,14 @@ class DiffEngine:
             - inline_hash (str, optional)
             - wp_plugin (str, optional)
         """
-        prev_map: dict[str, dict] = {s["src"]: s for s in previous if s.get("src")}
-        curr_map: dict[str, dict] = {s["src"]: s for s in current if s.get("src")}
+        # Keyed on normalized URLs so cache-buster rotation (?ver=, ?nonce=)
+        # never registers as an add/remove. Values keep the raw script dicts.
+        prev_map: dict[str, dict] = {
+            normalize_script_url(s["src"]): s for s in previous if s.get("src")
+        }
+        curr_map: dict[str, dict] = {
+            normalize_script_url(s["src"]): s for s in current if s.get("src")
+        }
 
         prev_urls = set(prev_map)
         curr_urls = set(curr_map)
