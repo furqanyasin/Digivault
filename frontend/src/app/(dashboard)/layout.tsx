@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import type { Team, User } from "@/lib/api";
 import { GlobalSearch } from "@/components/global-search";
 import { FeatureGuard } from "@/components/feature-guard";
+import { HeatmapTracker } from "@/components/heatmap-tracker";
 
 // `feature` maps a nav item to a custom-access key; `always` items are shown to
 // everyone (incl. custom members). Items with neither and managerOnly are
@@ -93,6 +94,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {children}
       </main>
 
+      <HeatmapTracker isManager={isManager} />
       <ChatWidget />
     </div>
   );
