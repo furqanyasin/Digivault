@@ -11,7 +11,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember, RolePermission
-from apps.websites.models import Website
+from apps.websites.models import Website, WebsiteAssignment
 from apps.audit.services import AuditService
 from apps.audit.models import ActivityLog
 from apps.site_health.models import SiteScanState
@@ -88,6 +88,39 @@ def _extract_script_urls(html: str) -> list[str]:
     return urls
 
 
+_MANAGER_ROLES = {"owner", "manager"}
+
+
+def _user_role(user, team) -> str:
+    from apps.accounts.models import TeamMembership
+
+    try:
+        return TeamMembership.objects.get(user=user, team=team).role
+    except TeamMembership.DoesNotExist:
+        return "viewer"
+
+
+def _restrict_to_assignments(qs, request):
+    """Non-managers with at least one website assignment see only those sites.
+
+    Managers/owners — and members with no assignments at all (backwards
+    compatible default) — see the whole team.
+    """
+    team = request.user.active_team
+    if team is None:
+        return qs
+    if _user_role(request.user, team) in _MANAGER_ROLES:
+        return qs
+    assigned_ids = list(
+        WebsiteAssignment.objects.filter(
+            user=request.user, website__team=team
+        ).values_list("website_id", flat=True)
+    )
+    if not assigned_ids:
+        return qs
+    return qs.filter(pk__in=assigned_ids)
+
+
 class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     """
     /api/v1/websites/
@@ -102,7 +135,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     def get_queryset(self):
         from apps.scripts.tasks import _internal_hosts
 
-        qs = super().get_queryset()
+        qs = _restrict_to_assignments(super().get_queryset(), self.request)
         # Exclude Digivault's own infra scripts (the tracking snippet etc.) so the
         # dashboard counts match the website detail page, which hides them.
         internal_q = Q()
@@ -131,6 +164,73 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         if self.action == "create":
             return WebsiteCreateSerializer
         return WebsiteSerializer
+
+    @action(detail=True, methods=["get", "put"], url_path="assignments")
+    def assignments(self, request, pk=None):
+        """GET: users assigned to this website. PUT {"user_ids": [...]}:
+        replace the assignment set (managers/owners only)."""
+        website = self.get_object()
+        team = request.user.active_team
+
+        if request.method == "PUT":
+            if _user_role(request.user, team) not in _MANAGER_ROLES:
+                return Response(
+                    {"detail": "Only managers can change website assignments."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            from apps.accounts.models import TeamMembership
+
+            user_ids = request.data.get("user_ids")
+            if not isinstance(user_ids, list):
+                return Response(
+                    {"detail": "user_ids must be a list."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            member_ids = set(
+                str(uid)
+                for uid in TeamMembership.objects.filter(team=team).values_list(
+                    "user_id", flat=True
+                )
+            )
+            invalid = [uid for uid in user_ids if str(uid) not in member_ids]
+            if invalid:
+                return Response(
+                    {"detail": "Some users are not members of this team."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            WebsiteAssignment.objects.filter(website=website).exclude(
+                user_id__in=user_ids
+            ).delete()
+            for uid in user_ids:
+                WebsiteAssignment.objects.get_or_create(
+                    website=website, user_id=uid,
+                    defaults={"assigned_by": request.user},
+                )
+            AuditService.log_request(
+                request, ActivityLog.Action.WEBSITE_UPDATED,
+                description=f"Updated user assignments on '{website.domain}' ({len(user_ids)} user(s))",
+                resource_type="website", resource_id=website.pk,
+                metadata={"website_id": str(website.pk), "assigned_user_ids": [str(u) for u in user_ids]},
+            )
+
+        from apps.accounts.models import TeamMembership
+
+        def _user_row(user):
+            return {
+                "user_id": str(user.id),
+                "email": user.email,
+                "name": f"{user.first_name} {user.last_name}".strip() or user.email,
+            }
+
+        rows = WebsiteAssignment.objects.filter(website=website).select_related("user")
+        memberships = TeamMembership.objects.filter(team=team).select_related("user")
+        return Response({
+            "assigned": [_user_row(a.user) for a in rows],
+            "members": [
+                {**_user_row(m.user), "role": m.role} for m in memberships
+            ],
+            "can_edit": _user_role(request.user, team) in _MANAGER_ROLES,
+        })
 
     def list(self, request, *args, **kwargs):
         # Self-heal status/health for the listed sites so the dashboard reflects

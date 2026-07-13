@@ -244,3 +244,33 @@ class Website(BaseModel):
             ),
             "snippet": self.snippet_html,
         }
+
+
+class WebsiteAssignment(BaseModel):
+    """Assigns a team member to a website.
+
+    Once a non-manager user has at least one assignment in a team, they only
+    see their assigned websites — enforced in WebsiteViewSet.get_queryset,
+    not just hidden in the UI. Owners/managers always see everything.
+    """
+
+    website = models.ForeignKey(
+        Website, on_delete=models.CASCADE, related_name="assignments"
+    )
+    user = models.ForeignKey(
+        "accounts.User", on_delete=models.CASCADE, related_name="website_assignments"
+    )
+    assigned_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        unique_together = [("website", "user")]
+        ordering = ["website", "user"]
+
+    def __str__(self) -> str:
+        return f"{self.user} → {self.website}"
