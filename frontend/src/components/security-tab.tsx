@@ -4,13 +4,43 @@ import { useState } from "react";
 import { ShieldAlert, ShieldCheck, RefreshCw, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { VulnerabilityReport, SiteScanState } from "@/lib/api";
+import type { Script, VulnerabilityReport, SiteScanState } from "@/lib/api";
 import { fmtDateTime } from "@/lib/utils";
 
 interface Props {
   websiteId: string;
   vulns: VulnerabilityReport[];
   scanState: SiteScanState | null;
+  scripts?: Script[];
+}
+
+// Known WordPress security plugin slugs (matched against /wp-content/plugins/<slug>/)
+// and their display names. Detection is passive — the snippet already reports
+// these script URLs; no extra collection needed.
+const SECURITY_PLUGINS: Record<string, string> = {
+  "wordfence": "Wordfence",
+  "sucuri-scanner": "Sucuri Security",
+  "better-wp-security": "Solid Security (iThemes)",
+  "all-in-one-wp-security-and-firewall": "All-In-One Security",
+  "wp-cerber": "WP Cerber",
+  "malcare-security": "MalCare",
+  "wp-security-audit-log": "WP Activity Log",
+  "wps-hide-login": "WPS Hide Login",
+  "limit-login-attempts-reloaded": "Limit Login Attempts",
+  "jetpack": "Jetpack (Protect)",
+};
+
+function detectSecurityPlugins(scripts: Script[]): { slug: string; name: string; wpPlugin: string }[] {
+  const found = new Map<string, { slug: string; name: string; wpPlugin: string }>();
+  for (const s of scripts) {
+    const m = s.src_url.match(/\/wp-content\/plugins\/([^/]+)\//);
+    const slug = m?.[1] ?? (s.wp_plugin || "");
+    const key = slug.toLowerCase();
+    if (key && SECURITY_PLUGINS[key] && !found.has(key)) {
+      found.set(key, { slug: key, name: SECURITY_PLUGINS[key], wpPlugin: s.wp_plugin });
+    }
+  }
+  return Array.from(found.values());
 }
 
 const SEV_CONFIG: Record<string, { label: string; className: string }> = {
@@ -26,7 +56,8 @@ const TYPE_LABEL: Record<string, string> = {
   core:   "WP Core",
 };
 
-export function SecurityTab({ websiteId, vulns, scanState }: Props) {
+export function SecurityTab({ websiteId, vulns, scanState, scripts = [] }: Props) {
+  const securityPlugins = detectSecurityPlugins(scripts);
   const [scanning, setScanning] = useState(false);
   const [state, setState] = useState<SiteScanState | null>(scanState);
   const [localVulns, setLocalVulns] = useState<VulnerabilityReport[]>(vulns);
@@ -103,6 +134,31 @@ export function SecurityTab({ websiteId, vulns, scanState }: Props) {
           )}
           Run Scan
         </Button>
+      </div>
+
+      {/* Security plugins detected from page scripts */}
+      <div className="rounded-lg border px-4 py-3">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+          Security plugins
+        </div>
+        {securityPlugins.length === 0 ? (
+          <p className="text-xs text-muted-foreground mt-1">
+            No security plugin detected from page scripts yet. Wordfence, Sucuri and
+            similar plugins appear here automatically once their scripts load on a page.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2 mt-2">
+            {securityPlugins.map((p) => (
+              <span
+                key={p.slug}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-medium bg-emerald-50 text-emerald-800 border-emerald-200"
+              >
+                <ShieldCheck className="h-3 w-3" /> {p.name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Summary badges */}

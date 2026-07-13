@@ -278,6 +278,7 @@ class AcknowledgeChangeView(APIView):
             request, ActivityLog.Action.WEBSITE_CHANGE_ACKNOWLEDGED,
             description=f"Acknowledged script change on '{change.website.domain}'",
             resource_type="script_change", resource_id=change.pk,
+            metadata={"website_id": str(change.website_id)},
         )
 
         # Recalculate website status immediately so the dashboard reflects
@@ -354,7 +355,7 @@ class ScriptReviewView(APIView):
             request, ActivityLog.Action.SCRIPT_REVIEWED,
             description=f"Marked script '{script.src_url}' as {review_status}",
             resource_type="script", resource_id=script.pk,
-            metadata={"review_status": review_status},
+            metadata={"review_status": review_status, "website_id": str(website_pk)},
         )
 
         # Triaging a script (approve/block/ignore) resolves the open changes that
@@ -431,7 +432,8 @@ class BulkScriptReviewView(APIView):
                 request, ActivityLog.Action.SCRIPT_REVIEWED,
                 description=f"Marked {updated} script(s) as {review_status}",
                 resource_type="website", resource_id=website_pk,
-                metadata={"review_status": review_status, "count": updated},
+                metadata={"review_status": review_status, "count": updated,
+                          "website_id": str(website_pk)},
             )
         return Response({"updated": updated})
 

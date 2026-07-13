@@ -135,6 +135,8 @@ class DetectedFormSerializer(BaseModelSerializer):
 class ScriptChangeSerializer(BaseModelSerializer):
     script = ScriptSerializer(read_only=True)
     is_acknowledged = serializers.ReadOnlyField()
+    # Who resolved the change — shown in the per-site change log.
+    acknowledged_by_email = serializers.SerializerMethodField()
 
     class Meta:
         model = ScriptChange
@@ -149,6 +151,10 @@ class ScriptChangeSerializer(BaseModelSerializer):
             "is_acknowledged",
             "acknowledged_at",
             "acknowledged_by",
+            "acknowledged_by_email",
             "created_at",
         )
         read_only_fields = fields
+
+    def get_acknowledged_by_email(self, obj) -> str | None:
+        return obj.acknowledged_by.email if obj.acknowledged_by_id else None

@@ -140,6 +140,7 @@ export interface ScriptChange {
   is_acknowledged: boolean;
   acknowledged_at: string | null;
   acknowledged_by: string | null;
+  acknowledged_by_email: string | null;
   created_at: string;
 }
 

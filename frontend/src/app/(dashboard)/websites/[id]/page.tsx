@@ -27,11 +27,20 @@ import { UptimeTab } from "@/components/uptime-tab";
 import { HealthScoreInfo } from "@/components/health-score-info";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
+interface SiteActivityEntry {
+  id: string;
+  actor_email?: string | null;
+  actor_name?: string | null;
+  action: string;
+  description: string;
+  created_at: string;
+}
+
 async function getData(token: string, id: string) {
   // All tab data is fetched up front so the tabs can switch instantly on the
   // client (no per-tab server navigation). Runs in parallel; the instant
   // loading skeleton (loading.tsx) covers the initial wait.
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -48,6 +57,7 @@ async function getData(token: string, id: string) {
     api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
     api.get<SecurityHeaderReport>(`/api/v1/websites/${id}/security-headers/`, token),
     api.get<Monitor[]>(`/api/v1/monitors/?website=${id}`, token),
+    api.get<SiteActivityEntry[] | { results: SiteActivityEntry[] }>(`/api/v1/logs/?website_id=${id}`, token),
   ]);
   return {
     website: website.status === "fulfilled" ? website.value : null,
@@ -66,6 +76,10 @@ async function getData(token: string, id: string) {
     seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
     headerReport: headerReport.status === "fulfilled" ? headerReport.value : null,
     monitors: monitors.status === "fulfilled" ? monitors.value : [],
+    siteActivity:
+      siteActivity.status === "fulfilled"
+        ? (Array.isArray(siteActivity.value) ? siteActivity.value : siteActivity.value?.results ?? [])
+        : [],
   };
 }
 
@@ -137,7 +151,7 @@ export default async function WebsiteDetailPage({
   // The Tracking tab merged into Scripts — keep old deep links working.
   const tab = rawTab === "tracking" ? "scripts" : rawTab;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors } = await getData(token ?? "", id);
+  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -581,6 +595,11 @@ export default async function WebsiteDetailPage({
                           {change.is_acknowledged ? (
                             <span className="flex items-center gap-1 text-xs text-emerald-600">
                               <CheckCircle className="h-3 w-3" /> Acknowledged
+                              {change.acknowledged_by_email && (
+                                <span className="text-muted-foreground">
+                                  by {change.acknowledged_by_email.split("@")[0]}
+                                </span>
+                              )}
                             </span>
                           ) : (
                             <span className="text-xs text-amber-600">Pending</span>
@@ -594,6 +613,32 @@ export default async function WebsiteDetailPage({
               )}
             </CardContent>
           </Card>
+
+          {/* Who did what on this site — the human side of the change log. */}
+          {siteActivity.length > 0 && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-base">User Activity ({siteActivity.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableBody>
+                    {siteActivity.slice(0, 15).map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="text-sm font-medium whitespace-nowrap">
+                          {entry.actor_name || entry.actor_email || "System"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{entry.description}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap text-right">
+                          {fmtDateTime(entry.created_at)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
 
@@ -633,7 +678,7 @@ export default async function WebsiteDetailPage({
             </CardHeader>
             <CardContent className="px-4 pb-4 space-y-6">
               <SecurityHeadersPanel websiteId={id} report={headerReport} />
-              <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} />
+              <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} scripts={allActiveScripts} />
             </CardContent>
           </Card>
         </TabsContent>
