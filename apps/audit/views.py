@@ -39,14 +39,23 @@ def _scoped_logs(request):
 
 
 def _apply_filters(qs, request):
-    """Shared query-param filters: action, resource_type, start/end, q (text)."""
+    """Shared query-param filters: action, resource_type, website_id, start/end, q."""
     params = request.query_params
     action = params.get("action")
     resource_type = params.get("resource_type")
+    website_id = params.get("website_id")
     start = params.get("start")
     end = params.get("end")
     q = params.get("q")
 
+    if website_id:
+        # Website-scoped actions carry the id either as the resource itself or
+        # in metadata (script reviews, change acknowledgements).
+        from django.db.models import Q
+
+        qs = qs.filter(
+            Q(resource_id=website_id) | Q(metadata__website_id=website_id)
+        )
     if action:
         qs = qs.filter(action=action)
     if resource_type:

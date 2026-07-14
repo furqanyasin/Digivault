@@ -80,3 +80,40 @@ class TestDiffEngine:
         changes = DiffEngine.diff(prev, [])
         assert len(changes) == 2
         assert all(c.change_type == ScriptChange.ChangeType.REMOVED for c in changes)
+
+
+class TestNormalizedDiffing:
+    """ver bumps and cache-buster rotation must not fake add/remove events."""
+
+    def test_ver_bump_produces_no_changes(self):
+        prev = [{"src": "https://example-cdn.com/widget.js?ver=1.0", "location": "head",
+                 "is_async": False, "is_defer": False, "is_inline": False}]
+        curr = [{"src": "https://example-cdn.com/widget.js?ver=2.0", "location": "head",
+                 "is_async": False, "is_defer": False, "is_inline": False}]
+        assert DiffEngine.diff(prev, curr) == []
+
+    def test_gtm_container_swap_still_detected(self):
+        prev = [{"src": "https://www.googletagmanager.com/gtag/js?id=GTM-AAA", "location": "head",
+                 "is_async": True, "is_defer": False, "is_inline": False}]
+        curr = [{"src": "https://www.googletagmanager.com/gtag/js?id=GTM-BBB", "location": "head",
+                 "is_async": True, "is_defer": False, "is_inline": False}]
+        changes = DiffEngine.diff(prev, curr)
+        assert len(changes) == 1
+        assert changes[0].change_type == "url_changed"
+
+    def test_volatile_param_duplicates_collapse(self):
+        curr = [
+            {"src": "https://example-cdn.com/widget.js?ver=1.0", "location": "head",
+             "is_async": False, "is_defer": False, "is_inline": False},
+            {"src": "https://example-cdn.com/widget.js?ver=2.0", "location": "head",
+             "is_async": False, "is_defer": False, "is_inline": False},
+        ]
+        changes = DiffEngine.diff([], curr)
+        assert len(changes) == 1
+        assert changes[0].change_type == "added"
+
+    def test_change_result_carries_normalized_url(self):
+        curr = [{"src": "https://example-cdn.com/widget.js?ver=1.0", "location": "head",
+                 "is_async": False, "is_defer": False, "is_inline": False}]
+        changes = DiffEngine.diff([], curr)
+        assert changes[0].src_url == "https://example-cdn.com/widget.js"

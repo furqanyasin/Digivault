@@ -26,7 +26,11 @@ def test_set_custom_role_sanitizes_features(auth_client, team, member):
 
 
 @pytest.mark.django_db
-def test_switching_off_custom_clears_features(auth_client, team, member):
+def test_role_change_applies_default_preset(auth_client, team, member):
+    """Changing role without feature_access seeds that role's default preset
+    (feature access now applies to every role, not just custom)."""
+    from apps.accounts.features import default_features
+
     member.role = "custom"
     member.feature_access = ["websites"]
     member.save()
@@ -39,7 +43,21 @@ def test_switching_off_custom_clears_features(auth_client, team, member):
     assert resp.status_code == 200, resp.data
     member.refresh_from_db()
     assert member.role == "developer"
-    assert member.feature_access == []
+    assert set(member.feature_access) == set(default_features("developer"))
+
+
+@pytest.mark.django_db
+def test_feature_access_editable_for_non_custom_role(auth_client, team, member):
+    """A non-custom member's feature_access can be overridden directly."""
+    resp = auth_client.patch(
+        f"/api/v1/auth/teams/{team.id}/members/{member.id}/",
+        {"role": "developer", "feature_access": ["websites", "alerts"]},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    member.refresh_from_db()
+    assert member.role == "developer"
+    assert set(member.feature_access) == {"websites", "alerts"}
 
 
 @pytest.mark.django_db

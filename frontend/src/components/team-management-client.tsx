@@ -144,7 +144,9 @@ export function TeamManagementClient({
 
   async function handleRoleChange(memberId: string, newRole: Role, featureAccess?: string[]) {
     const body: Record<string, unknown> = { role: newRole };
-    if (newRole === "custom") body.feature_access = featureAccess ?? [];
+    // Omit feature_access on a plain role change so the backend applies that
+    // role's default preset; send it only when toggling a specific chip.
+    if (featureAccess !== undefined) body.feature_access = featureAccess;
     await fetch(`/api/teams/${teamId}/members/${memberId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -154,10 +156,11 @@ export function TeamManagementClient({
   }
 
   async function handleToggleFeature(member: TeamMember, key: string) {
-    const current = new Set(member.feature_access ?? []);
+    // Toggle against the member's effective set, keeping their current role.
+    const current = new Set(member.effective_features ?? member.feature_access ?? []);
     if (current.has(key)) current.delete(key);
     else current.add(key);
-    await handleRoleChange(member.id, "custom", Array.from(current));
+    await handleRoleChange(member.id, member.role as Role, Array.from(current));
   }
 
   async function handleRemoveMember(memberId: string) {
@@ -348,10 +351,10 @@ export function TeamManagementClient({
                               ))}
                             </SelectContent>
                           </Select>
-                          {member.role === "custom" && (
+                          {(
                             <div className="flex flex-wrap gap-1 max-w-[340px]">
                               {FEATURES.map((f) => {
-                                const on = (member.feature_access ?? []).includes(f.key);
+                                const on = (member.effective_features ?? member.feature_access ?? []).includes(f.key);
                                 return (
                                   <button
                                     key={f.key}

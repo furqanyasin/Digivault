@@ -16,11 +16,15 @@ export async function GET(req: NextRequest) {
     headers: { Authorization: `Bearer ${token}` },
   });
   const json = await upstream.json().catch(() => ({}));
+  // The clients list endpoint is unpaginated (pagination_class = None), so it
+  // returns the full array under `data` with an empty `meta`. Derive the count
+  // from the array — meta.count is never set.
+  const list = Array.isArray(json?.data) ? json.data : [];
   return NextResponse.json({
-    clients: json?.data ?? [],
-    count: json?.meta?.count ?? 0,
-    next: json?.meta?.next ?? null,
-    previous: json?.meta?.previous ?? null,
+    clients: list,
+    count: list.length,
+    next: null,
+    previous: null,
   }, { status: upstream.status });
 }
 

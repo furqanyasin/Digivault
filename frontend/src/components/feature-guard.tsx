@@ -23,11 +23,11 @@ const MANAGER_ONLY = new Set(["team", "settings"]);
 const ALWAYS = new Set(["", "dashboard", "account"]);
 
 /**
- * Client-side guard for "custom" members: redirects them away from any section
- * their feature_access doesn't include. Frontend-only enforcement (the API is
- * not restricted) — render only when the active role is "custom".
+ * Client-side guard for non-owner members: redirects them away from any
+ * section their feature_access doesn't include. Managers keep access to the
+ * manager-only areas (Team, Settings). Frontend-only enforcement.
  */
-export function FeatureGuard({ features }: { features: string[] }) {
+export function FeatureGuard({ features, isManager = false }: { features: string[]; isManager?: boolean }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -35,14 +35,14 @@ export function FeatureGuard({ features }: { features: string[] }) {
     const seg = (pathname.split("/")[1] ?? "").toLowerCase();
     if (ALWAYS.has(seg)) return;
     if (MANAGER_ONLY.has(seg)) {
-      router.replace("/dashboard");
+      if (!isManager) router.replace("/dashboard");
       return;
     }
     const feature = ROUTE_FEATURE[seg];
     if (feature && !features.includes(feature)) {
       router.replace("/dashboard");
     }
-  }, [pathname, features, router]);
+  }, [pathname, features, router, isManager]);
 
   return null;
 }

@@ -113,13 +113,14 @@ class PublicStatusPageSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField()
 
     def get_incidents(self, obj):
-        # Unresolved incidents + those resolved within the last 7 days.
+        # Unresolved incidents + everything created within the last 14 days, so
+        # the public "Past Incidents" history mirrors a hosted status page.
         from django.utils import timezone
 
-        cutoff = timezone.now() - timezone.timedelta(days=7)
+        cutoff = timezone.now() - timezone.timedelta(days=14)
         qs = obj.incidents.filter(
-            models.Q(resolved_at__isnull=True) | models.Q(resolved_at__gte=cutoff)
-        )
+            models.Q(resolved_at__isnull=True) | models.Q(created_at__gte=cutoff)
+        ).order_by("-created_at")
         return StatusPageIncidentSerializer(qs, many=True).data
 
     def get_maintenance(self, obj):

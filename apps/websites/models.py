@@ -78,6 +78,19 @@ class Website(BaseModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
+    # Downtime/uptime alerts get their own channel so they can route separately
+    # from general website alerts. When unset, uptime falls back to
+    # notification_channel (then team defaults).
+    uptime_notification_channel = models.ForeignKey(
+        "monitors.NotificationChannel",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    # Shared secret for one-click wp-admin login via the Digivault Connect
+    # WordPress plugin. Empty = SSO not set up for this site. Rotating it
+    # invalidates all previously issued links.
+    wp_sso_secret = models.CharField(max_length=64, blank=True, default="")
 
     objects = TeamScopedQuerySet.as_manager()
 
@@ -169,6 +182,19 @@ class Website(BaseModel):
         except Exception:
             pass
 
+        # Unreviewed active scripts: approving (or blocking/ignoring) a script
+        # is how the score is earned back — review is part of site hygiene.
+        from apps.scripts.models import Script
+
+        pending_review = (
+            Script.objects.filter(
+                website=self, is_active=True, review_status=Script.ReviewStatus.PENDING
+            )
+            .exclude(src_domain__in=internal)
+            .count()
+        )
+        deductions += min(pending_review * 2, 10)
+
         score = max(0, min(100, 100 - deductions))
         Website.objects.filter(pk=self.pk).update(health_score=score)
 
@@ -186,6 +212,15 @@ class Website(BaseModel):
             f'<script async src="{cdn_base}/s.js" '
             f'data-site="{self.site_id}"></script>'
         )
+
+    @property
+    def wp_sso_snippet(self) -> str:
+        """PHP code snippet enabling one-click wp-admin login, with this site's
+        secret baked in. Empty until a secret is generated. Pasted into the
+        same WPCode/Code Snippets tool used for the tracking script — no plugin."""
+        from apps.websites.wp_sso_snippet import build_wp_sso_snippet
+
+        return build_wp_sso_snippet(self.wp_sso_secret)
 
     @property
     def snippet_instructions(self) -> dict:
@@ -222,3 +257,33 @@ class Website(BaseModel):
             ),
             "snippet": self.snippet_html,
         }
+
+
+class WebsiteAssignment(BaseModel):
+    """Assigns a team member to a website.
+
+    Once a non-manager user has at least one assignment in a team, they only
+    see their assigned websites — enforced in WebsiteViewSet.get_queryset,
+    not just hidden in the UI. Owners/managers always see everything.
+    """
+
+    website = models.ForeignKey(
+        Website, on_delete=models.CASCADE, related_name="assignments"
+    )
+    user = models.ForeignKey(
+        "accounts.User", on_delete=models.CASCADE, related_name="website_assignments"
+    )
+    assigned_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        unique_together = [("website", "user")]
+        ordering = ["website", "user"]
+
+    def __str__(self) -> str:
+        return f"{self.user} → {self.website}"

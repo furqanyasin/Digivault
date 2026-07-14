@@ -20,26 +20,32 @@ class BlankableDateField(serializers.DateField):
 class ClientSerializer(BaseModelSerializer):
     domain = serializers.CharField(read_only=True)
     assigned_websites_count = serializers.SerializerMethodField()
+    name = serializers.CharField(max_length=200, allow_blank=False)
     hosting_renewal_date = BlankableDateField(required=False, allow_null=True)
-    contract_renewal_date = BlankableDateField(required=False, allow_null=True)
+    domain_renewal_date = BlankableDateField(required=False, allow_null=True)
+    departments = serializers.ListField(
+        child=serializers.ChoiceField(choices=Client.DEPARTMENTS),
+        required=False,
+        default=list,
+    )
 
     class Meta:
         model = Client
         fields = (
-            "id", "name", "website_url", "domain", "status",
-            "hosting_platform", "hosting_renewal_date",
-            "domain_access_location", "migration_status",
-            "csm_migration_confirmation", "running_ppc_ads",
+            "id", "name", "website_url", "domain", "status", "tier",
+            "hosting_platform", "hosting_platform_other",
+            "hosting_renewal_date", "domain_renewal_date",
+            "domain_access_location", "website_access_level",
+            "departments", "running_ppc_ads",
             "website_built_by_digi", "website_maintained_by_digi",
-            "notes", "comments",
-            "assigned_to", "monthly_revenue", "support_tier",
-            "contract_renewal_date", "assigned_websites_count",
-            "clickup_task_id", "clickup_synced_at",
+            "notes", "notify_desktop", "notify_email",
+            "assigned_to", "monthly_revenue",
+            "assigned_websites_count",
             "created_at", "updated_at",
         )
         read_only_fields = (
             "id", "domain", "assigned_websites_count",
-            "clickup_synced_at", "created_at", "updated_at",
+            "created_at", "updated_at",
         )
 
     def get_assigned_websites_count(self, obj) -> int:
@@ -52,15 +58,16 @@ class ClientLookupSerializer(serializers.Serializer):
     name = serializers.CharField()
     website_url = serializers.CharField()
     status = serializers.CharField()
+    tier = serializers.CharField()
     hosting_platform = serializers.CharField()
+    hosting_platform_other = serializers.CharField()
     domain_access_location = serializers.CharField()
+    website_access_level = serializers.CharField()
     running_ppc_ads = serializers.CharField()
     website_built_by_digi = serializers.CharField()
     website_maintained_by_digi = serializers.CharField()
-    migration_status = serializers.CharField()
-    csm_migration_confirmation = serializers.CharField()
     hosting_renewal_date = serializers.DateField(allow_null=True)
-    comments = serializers.CharField()
+    domain_renewal_date = serializers.DateField(allow_null=True)
     notes = serializers.CharField()
     has_access = serializers.SerializerMethodField()
     access_summary = serializers.SerializerMethodField()
@@ -69,8 +76,8 @@ class ClientLookupSerializer(serializers.Serializer):
         return bool(obj.domain_access_location and obj.status == "active")
 
     def get_access_summary(self, obj) -> str:
-        if obj.status == "inactive":
-            return "Client is inactive."
+        if obj.status != "active":
+            return f"Client is {obj.status}."
         if obj.domain_access_location:
             return f"Yes — access via {obj.domain_access_location}"
         return "No access location recorded."

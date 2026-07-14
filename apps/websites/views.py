@@ -11,7 +11,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember, RolePermission
-from apps.websites.models import Website
+from apps.websites.models import Website, WebsiteAssignment
 from apps.audit.services import AuditService
 from apps.audit.models import ActivityLog
 from apps.site_health.models import SiteScanState
@@ -88,6 +88,39 @@ def _extract_script_urls(html: str) -> list[str]:
     return urls
 
 
+_MANAGER_ROLES = {"owner", "manager"}
+
+
+def _user_role(user, team) -> str:
+    from apps.accounts.models import TeamMembership
+
+    try:
+        return TeamMembership.objects.get(user=user, team=team).role
+    except TeamMembership.DoesNotExist:
+        return "viewer"
+
+
+def _restrict_to_assignments(qs, request):
+    """Non-managers with at least one website assignment see only those sites.
+
+    Managers/owners — and members with no assignments at all (backwards
+    compatible default) — see the whole team.
+    """
+    team = request.user.active_team
+    if team is None:
+        return qs
+    if _user_role(request.user, team) in _MANAGER_ROLES:
+        return qs
+    assigned_ids = list(
+        WebsiteAssignment.objects.filter(
+            user=request.user, website__team=team
+        ).values_list("website_id", flat=True)
+    )
+    if not assigned_ids:
+        return qs
+    return qs.filter(pk__in=assigned_ids)
+
+
 class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     """
     /api/v1/websites/
@@ -102,7 +135,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     def get_queryset(self):
         from apps.scripts.tasks import _internal_hosts
 
-        qs = super().get_queryset()
+        qs = _restrict_to_assignments(super().get_queryset(), self.request)
         # Exclude Digivault's own infra scripts (the tracking snippet etc.) so the
         # dashboard counts match the website detail page, which hides them.
         internal_q = Q()
@@ -131,6 +164,160 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         if self.action == "create":
             return WebsiteCreateSerializer
         return WebsiteSerializer
+
+    # Digivault role → WordPress role for one-click wp-admin login.
+    _WP_ROLE_MAP = {
+        "owner": "administrator",
+        "manager": "administrator",
+        "developer": "editor",
+    }
+
+    @action(detail=True, methods=["post"], url_path="wp-sso-secret")
+    def wp_sso_secret(self, request, pk=None):
+        """Generate (or rotate) the shared secret for the Digivault Connect
+        WordPress plugin. Managers/owners only. Rotating invalidates all
+        previously issued login links."""
+        import secrets as _secrets
+
+        website = self.get_object()
+        team = request.user.active_team
+        if _user_role(request.user, team) not in _MANAGER_ROLES:
+            return Response(
+                {"detail": "Only managers can manage the WP login secret."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        secret = _secrets.token_urlsafe(32)
+        Website.objects.filter(pk=website.pk).update(wp_sso_secret=secret)
+        website.wp_sso_secret = secret
+        AuditService.log_request(
+            request, ActivityLog.Action.WEBSITE_WP_SSO_SECRET_ROTATED,
+            description=f"Generated WP SSO secret for '{website.domain}'",
+            resource_type="website", resource_id=website.pk,
+            metadata={"website_id": str(website.pk)},
+        )
+        # The user pastes `snippet` into WPCode/Code Snippets (same tool as the
+        # tracking script); the raw secret is returned only for reference.
+        return Response({"secret": secret, "snippet": website.wp_sso_snippet})
+
+    @action(detail=True, methods=["post"], url_path="wp-login")
+    def wp_login(self, request, pk=None):
+        """Issue a signed, single-use, 2-minute wp-admin login URL for the
+        current user, role-mapped from their team role."""
+        import base64
+        import hashlib
+        import hmac as _hmac
+        import json as _json
+        import time
+        import uuid
+
+        website = self.get_object()
+        team = request.user.active_team
+
+        wp_role = self._WP_ROLE_MAP.get(_user_role(request.user, team))
+        if wp_role is None:
+            return Response(
+                {"detail": "Your role does not permit WP admin login."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if not website.wp_sso_secret:
+            return Response(
+                {"detail": "WP login is not set up for this website yet."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        payload = {
+            "email": request.user.email,
+            "name": f"{request.user.first_name} {request.user.last_name}".strip()
+            or request.user.email,
+            "role": wp_role,
+            "exp": int(time.time()) + 120,
+            "jti": uuid.uuid4().hex,
+        }
+        raw = _json.dumps(payload, separators=(",", ":")).encode()
+        payload_b64 = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        sig = _hmac.new(
+            website.wp_sso_secret.encode(), payload_b64.encode(), hashlib.sha256
+        ).hexdigest()
+
+        domain = website.domain
+        if not domain.startswith(("http://", "https://")):
+            domain = f"https://{domain}"
+        url = f"{domain.rstrip('/')}/wp-json/digivault/v1/sso?p={payload_b64}&s={sig}"
+
+        AuditService.log_request(
+            request, ActivityLog.Action.WEBSITE_WP_LOGIN,
+            description=f"Issued wp-admin login link for '{website.domain}' as {wp_role}",
+            resource_type="website", resource_id=website.pk,
+            metadata={"website_id": str(website.pk), "wp_role": wp_role},
+        )
+        return Response({"url": url, "expires_in": 120, "wp_role": wp_role})
+
+    @action(detail=True, methods=["get", "put"], url_path="assignments")
+    def assignments(self, request, pk=None):
+        """GET: users assigned to this website. PUT {"user_ids": [...]}:
+        replace the assignment set (managers/owners only)."""
+        website = self.get_object()
+        team = request.user.active_team
+
+        if request.method == "PUT":
+            if _user_role(request.user, team) not in _MANAGER_ROLES:
+                return Response(
+                    {"detail": "Only managers can change website assignments."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            from apps.accounts.models import TeamMembership
+
+            user_ids = request.data.get("user_ids")
+            if not isinstance(user_ids, list):
+                return Response(
+                    {"detail": "user_ids must be a list."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            member_ids = set(
+                str(uid)
+                for uid in TeamMembership.objects.filter(team=team).values_list(
+                    "user_id", flat=True
+                )
+            )
+            invalid = [uid for uid in user_ids if str(uid) not in member_ids]
+            if invalid:
+                return Response(
+                    {"detail": "Some users are not members of this team."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            WebsiteAssignment.objects.filter(website=website).exclude(
+                user_id__in=user_ids
+            ).delete()
+            for uid in user_ids:
+                WebsiteAssignment.objects.get_or_create(
+                    website=website, user_id=uid,
+                    defaults={"assigned_by": request.user},
+                )
+            AuditService.log_request(
+                request, ActivityLog.Action.WEBSITE_UPDATED,
+                description=f"Updated user assignments on '{website.domain}' ({len(user_ids)} user(s))",
+                resource_type="website", resource_id=website.pk,
+                metadata={"website_id": str(website.pk), "assigned_user_ids": [str(u) for u in user_ids]},
+            )
+
+        from apps.accounts.models import TeamMembership
+
+        def _user_row(user):
+            return {
+                "user_id": str(user.id),
+                "email": user.email,
+                "name": f"{user.first_name} {user.last_name}".strip() or user.email,
+            }
+
+        rows = WebsiteAssignment.objects.filter(website=website).select_related("user")
+        memberships = TeamMembership.objects.filter(team=team).select_related("user")
+        return Response({
+            "assigned": [_user_row(a.user) for a in rows],
+            "members": [
+                {**_user_row(m.user), "role": m.role} for m in memberships
+            ],
+            "can_edit": _user_role(request.user, team) in _MANAGER_ROLES,
+        })
 
     def list(self, request, *args, **kwargs):
         # Self-heal status/health for the listed sites so the dashboard reflects

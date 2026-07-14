@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  Search, Upload, RefreshCw, Plus, ExternalLink,
+  Search, Upload, Plus, ExternalLink,
   CheckCircle2, XCircle, ChevronDown, ChevronUp, Download,
   ChevronLeft, ChevronRight,
 } from "lucide-react";
@@ -34,7 +34,8 @@ interface LookupResult {
   website_built_by_digi: string;
   website_maintained_by_digi: string;
   domain_access_location: string;
-  migration_status: string;
+  website_access_level: string;
+  tier: string;
 }
 
 interface Props {
@@ -50,7 +51,7 @@ export function ClientsClient({ initialClients }: Props) {
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
   const [loading, setLoading] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState<"" | "active" | "inactive">("");
+  const [statusFilter, setStatusFilter] = useState<"" | "active" | "paused" | "offboarded">("");
 
   // Lookup (CSM quick-answer)
   const [lookupQuery, setLookupQuery] = useState("");
@@ -63,9 +64,6 @@ export function ClientsClient({ initialClients }: Props) {
   const [importMsg, setImportMsg] = useState("");
   const [exporting, setExporting] = useState(false);
 
-  // Sync all
-  const [syncing, setSyncing] = useState(false);
-  const [syncMsg, setSyncMsg] = useState("");
 
   const fetchClients = useCallback(async (p: number, ps: number, q: string, s: string) => {
     setLoading(true);
@@ -87,6 +85,9 @@ export function ClientsClient({ initialClients }: Props) {
   }, [page, pageSize, statusFilter, fetchClients]);
 
   const totalPages = Math.ceil(count / pageSize);
+  // The API returns the full (unpaginated) list, so slice for the current page
+  // here — this is what makes the "Per page" control actually paginate.
+  const pageClients = clients.slice((page - 1) * pageSize, page * pageSize);
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
@@ -129,18 +130,18 @@ export function ClientsClient({ initialClients }: Props) {
   // can be edited and re-imported without remapping.
   function handleDownloadSample() {
     const headers = [
-      "Task ID", "Task Name", "Websites URL (short text)", "Hosting Platform (drop down)",
-      "Hosting Renewal Date", "Contract Renewal Date", "Domain Access", "Website Built by Digi",
-      "Website Maintained by Digi", "Migration Status (drop down)",
-      "Confirmation from CSM for Migration (drop down)",
-      "Are we running PPC Ads (drop down)", "Notes", "Comments (short text)",
+      "Client Name", "Websites URL (short text)", "Status", "Tier",
+      "Hosting Platform (drop down)", "Hosting Platform (Other)",
+      "Hosting Renewal Date", "Domain Renewal Date", "Domain Access",
+      "Website Access Level", "Departments", "Website Built by Digi",
+      "Website Maintained by Digi", "Are we running PPC Ads (drop down)", "Notes",
     ];
     const example = [
-      "86evnnba3", "Example Client Ltd", "https://example.com", "SiteGround",
-      "2027-03-15", "2027-06-30", "Khurram GoDaddy Account", "Yes",
-      "Yes", "No - We didn't do",
-      "Yes, We can do Migration", "No",
-      "Internal note about this client", "Renewal due in March",
+      "Example Client Ltd", "https://example.com", "active", "Gold",
+      "SiteGround", "",
+      "2027-03-15", "2027-06-30", "Khurram GoDaddy Account",
+      "Delegate access", "seo,ads", "Yes",
+      "Yes", "No", "Internal note about this client",
     ];
     const csv = [headers, example].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -169,20 +170,7 @@ export function ClientsClient({ initialClients }: Props) {
     }
   }
 
-  async function handleSyncAll() {
-    setSyncing(true);
-    setSyncMsg("");
-    try {
-      const res = await fetch("/api/clients/sync-all", { method: "POST" });
-      const data = await res.json();
-      setSyncMsg(`Synced: ${data.synced ?? 0} ok, ${data.failed ?? 0} failed.`);
-      fetchClients(page, pageSize, "", statusFilter);
-    } finally {
-      setSyncing(false);
-    }
-  }
-
-  function handleStatusFilter(s: "" | "active" | "inactive") {
+  function handleStatusFilter(s: "" | "active" | "paused" | "offboarded") {
     setStatusFilter(s);
     setPage(1);
   }
@@ -207,10 +195,6 @@ export function ClientsClient({ initialClients }: Props) {
           <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
             <Download className="h-4 w-4 mr-1" />{exporting ? "Exporting…" : "Export CSV"}
           </Button>
-          <Button variant="outline" size="sm" onClick={handleSyncAll} disabled={syncing}>
-            <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Syncing…" : "Sync ClickUp"}
-          </Button>
           <Button size="sm" asChild>
             <Link href="/clients/new"><Plus className="h-4 w-4 mr-1" />Add client</Link>
           </Button>
@@ -219,9 +203,6 @@ export function ClientsClient({ initialClients }: Props) {
 
       {importMsg && (
         <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">{importMsg}</p>
-      )}
-      {syncMsg && (
-        <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-3 py-2">{syncMsg}</p>
       )}
 
       {/* CSM Lookup */}
@@ -280,7 +261,7 @@ export function ClientsClient({ initialClients }: Props) {
                     <LookupRow label="Hosting" value={(HOSTING_LABELS[r.hosting_platform] ?? r.hosting_platform) || "—"} />
                     <LookupRow label="Built by Digi" value={r.website_built_by_digi || "—"} />
                     <LookupRow label="Maintained by Digi" value={r.website_maintained_by_digi || "—"} />
-                    <LookupRow label="Migration" value={r.migration_status || "—"} />
+                    <LookupRow label="Access level" value={r.website_access_level || "—"} />
                   </div>
                   <div className="text-right">
                     <Link href={`/clients/${r.id}`} className="text-xs underline text-muted-foreground hover:text-foreground">
@@ -297,7 +278,7 @@ export function ClientsClient({ initialClients }: Props) {
       {/* Filters */}
       <div className="flex gap-2 flex-wrap items-center">
         <div className="flex rounded-md border overflow-hidden text-sm">
-          {(["", "active", "inactive"] as const).map((s) => (
+          {(["", "active", "paused", "offboarded"] as const).map((s) => (
             <button
               key={s}
               type="button"
@@ -350,8 +331,8 @@ export function ClientsClient({ initialClients }: Props) {
                   <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No clients found.</TableCell>
                 </TableRow>
               )}
-              {!loading && clients.map((c) => (
-                <TableRow key={c.id} className={c.status === "inactive" ? "opacity-50" : ""}>
+              {!loading && pageClients.map((c) => (
+                <TableRow key={c.id} className={c.status === "offboarded" ? "opacity-50" : ""}>
                   <TableCell>
                     <div className="font-medium text-sm">{c.name}</div>
                     <a
@@ -370,9 +351,13 @@ export function ClientsClient({ initialClients }: Props) {
                   <TableCell className="text-sm">{c.website_built_by_digi || "—"}</TableCell>
                   <TableCell className="text-sm">{c.website_maintained_by_digi || "—"}</TableCell>
                   <TableCell>
-                    <Badge variant={c.status === "active" ? "success" : "secondary"} className="capitalize">
+                    <Badge
+                      variant={c.status === "active" ? "success" : c.status === "paused" ? "warning" : "secondary"}
+                      className="capitalize"
+                    >
                       {c.status}
                     </Badge>
+                    {c.tier && <Badge variant="outline" className="capitalize ml-1">{c.tier}</Badge>}
                   </TableCell>
                   <TableCell>
                     <Link href={`/clients/${c.id}`} className="text-xs text-muted-foreground hover:text-foreground underline">

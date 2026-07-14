@@ -65,12 +65,13 @@ def test_import_reads_renewal_date_and_notes(auth_client):
 def test_export_round_trips_through_import(auth_client, team):
     Client.objects.create(
         team=team, name="Roundtrip Co", website_url="https://rt.io",
-        hosting_platform="wpengine", migration_status="not_applicable",
-        csm_migration_confirmation="can_do", running_ppc_ads="yes",
+        status="paused", tier="gold",
+        hosting_platform="wpengine", running_ppc_ads="yes",
         domain_access_location="Acct X", website_built_by_digi="Yes",
-        website_maintained_by_digi="No", notes="N1", comments="C1",
+        website_maintained_by_digi="No", notes="N1",
+        website_access_level="delegate", departments=["seo", "dev"],
         hosting_renewal_date=datetime.date(2027, 3, 15),
-        contract_renewal_date=datetime.date(2027, 6, 30),
+        domain_renewal_date=datetime.date(2027, 6, 30),
     )
     export = auth_client.get("/api/v1/clients/export/")
     assert export.status_code == 200
@@ -89,11 +90,13 @@ def test_export_round_trips_through_import(auth_client, team):
     assert resp.status_code == 200
     c = Client.objects.get(name="Roundtrip Co")
     assert c.hosting_platform == "wpengine"
-    assert c.migration_status == "not_applicable"
-    assert c.csm_migration_confirmation == "can_do"
+    assert c.status == "paused"
+    assert c.tier == "gold"
+    assert c.website_access_level == "delegate"
+    assert c.departments == ["seo", "dev"]
     assert c.running_ppc_ads == "yes"
     assert c.hosting_renewal_date == datetime.date(2027, 3, 15)
-    assert c.contract_renewal_date == datetime.date(2027, 6, 30)
+    assert c.domain_renewal_date == datetime.date(2027, 6, 30)
 
 
 @pytest.mark.django_db

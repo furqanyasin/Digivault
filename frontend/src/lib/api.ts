@@ -102,6 +102,9 @@ export interface Website {
   last_seen_at: string | null;
   notification_channel: string | null;
   notification_channel_name: string | null;
+  uptime_notification_channel: string | null;
+  uptime_notification_channel_name: string | null;
+  wp_sso_configured: boolean;
   status_page: { slug: string; name: string; status: string; monitor_count: number } | null;
   created_at: string;
   updated_at: string;
@@ -138,6 +141,7 @@ export interface ScriptChange {
   is_acknowledged: boolean;
   acknowledged_at: string | null;
   acknowledged_by: string | null;
+  acknowledged_by_email: string | null;
   created_at: string;
 }
 
@@ -225,6 +229,7 @@ export interface TeamMember {
   };
   role: string;
   feature_access: string[];
+  effective_features: string[];
   totp_enabled: boolean;
   created_at: string;
 }
@@ -326,6 +331,7 @@ export interface DetectedForm {
   form_method: string;
   detection_type: "native" | "dom" | "embedded";
   provider: string;
+  is_managed: boolean;
   fields: { name: string; type: string; label: string; required: boolean }[];
   first_seen_at: string;
   last_seen_at: string;
@@ -458,6 +464,8 @@ export interface StatusPageMonitor {
 export interface UptimeBar {
   date: string;
   status: "up" | "down" | "degraded" | "no-data";
+  down_minutes: number;
+  degraded_minutes: number;
 }
 
 export interface PublicMonitor {
@@ -470,14 +478,38 @@ export interface PublicMonitor {
   last_response_time: number | null;
 }
 
+export interface PublicIncident {
+  id: string;
+  title: string;
+  body: string;
+  status: "investigating" | "identified" | "monitoring" | "resolved";
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export interface PublicMaintenance {
+  id: string;
+  title: string;
+  message: string;
+  scheduled_start: string;
+  scheduled_end: string;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface PublicStatusPage {
   id: string;
   name: string;
   slug: string;
   description: string;
   allow_indexing: boolean;
+  logo_url: string;
+  brand_color: string;
   overall_status: "operational" | "degraded" | "outage";
   monitors: PublicMonitor[];
+  incidents: PublicIncident[];
+  maintenance: PublicMaintenance[];
   updated_at: string;
 }
 

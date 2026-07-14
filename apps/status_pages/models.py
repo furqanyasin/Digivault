@@ -153,6 +153,7 @@ class StatusPageMonitor(models.Model):
                 checked_at__lt=day_end,
             )
             total = checks.count()
+            down = degraded = 0
             if total == 0:
                 status = "no-data"
             else:
@@ -164,5 +165,13 @@ class StatusPageMonitor(models.Model):
                     status = "degraded"
                 else:
                     status = "up"
-            result.append({"date": day_start.date().isoformat(), "status": status})
+            # Approximate downtime for the day: each failed check covers roughly
+            # one check-interval's worth of minutes. Powers the bar tooltip.
+            interval_min = (self.monitor.check_interval or 300) / 60
+            result.append({
+                "date": day_start.date().isoformat(),
+                "status": status,
+                "down_minutes": round(down * interval_min),
+                "degraded_minutes": round(degraded * interval_min),
+            })
         return result

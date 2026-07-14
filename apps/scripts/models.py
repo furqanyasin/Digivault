@@ -57,6 +57,9 @@ class Script(BaseModel):
         related_name="scripts",
     )
     src_url = models.TextField()
+    # Identity URL: src_url minus volatile cache-buster params (?ver=, ?nonce=).
+    # Uniqueness and diffing key on this; src_url keeps the latest raw form.
+    normalized_url = models.TextField(blank=True, default="", db_index=True)
     src_domain = models.CharField(max_length=255, blank=True, db_index=True)
     provider = models.CharField(max_length=100, default="unknown", db_index=True)
     category = models.CharField(
@@ -98,11 +101,18 @@ class Script(BaseModel):
 
     class Meta:
         ordering = ["provider", "src_domain"]
-        unique_together = [("website", "src_url")]
+        unique_together = [("website", "normalized_url")]
         indexes = [
             models.Index(fields=["website", "is_active", "category"]),
             models.Index(fields=["website", "provider"]),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.normalized_url and self.src_url:
+            from apps.scripts.normalize import normalize_script_url
+
+            self.normalized_url = normalize_script_url(self.src_url)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.provider} — {self.src_domain} ({self.website})"
@@ -251,11 +261,25 @@ class DetectedForm(BaseModel):
         Derived from detection type, identifiers, action, and the set of field
         names so that re-sends of the same form update in place while distinct
         forms on one page (including action-less div forms) stay separate.
+
+        Volatile fields — nonces, honeypots, captcha tokens, hex-named
+        anti-spam fields — rotate per page load and are excluded, otherwise
+        every visit would mint a "new" form and counts inflate.
         """
         import hashlib
+        import re
 
+        volatile = re.compile(
+            r"(nonce|honeypot|^hp-|^_wpcf7|^g-recaptcha|^h-captcha|^ct_|^ak_)",
+            re.IGNORECASE,
+        )
+        hexname = re.compile(r"^[0-9a-f]{12,}$", re.IGNORECASE)
         field_names = sorted(
-            (f.get("name", "") or "") for f in form_data.get("fields", [])
+            name
+            for name in (
+                (f.get("name", "") or "") for f in form_data.get("fields", [])
+            )
+            if not (volatile.search(name) or hexname.match(name))
         )
         basis = "|".join([
             form_data.get("detection_type", DetectedForm.DetectionType.NATIVE),

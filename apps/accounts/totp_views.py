@@ -317,6 +317,18 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # Local-development bypass: skip the 2FA gate entirely and issue tokens.
+        # Gated behind a setting that is ONLY true in config.settings.development
+        # (DEBUG). Never enabled in production settings.
+        if getattr(settings, "ALLOW_2FA_BYPASS", False):
+            AuditService.log(
+                actor=user, action=ActivityLog.Action.AUTH_LOGIN,
+                team=user.active_team,
+                description="Logged in (dev 2FA bypass)",
+                ip_address=_get_ip(request),
+            )
+            return Response(_issue_tokens(user))
+
         # Store a short-lived pre-auth session key
         session_key = secrets.token_hex(32)
         cache.set(f"preauth:{session_key}", str(user.pk), timeout=_SESSION_TTL)

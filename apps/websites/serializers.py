@@ -10,6 +10,9 @@ class WebsiteSerializer(BaseModelSerializer):
     unknown_script_count = serializers.SerializerMethodField()
     client_name = serializers.SerializerMethodField()
     notification_channel_name = serializers.SerializerMethodField()
+    uptime_notification_channel_name = serializers.SerializerMethodField()
+    # Never expose the secret itself — only whether SSO is set up.
+    wp_sso_configured = serializers.SerializerMethodField()
     status_page = serializers.SerializerMethodField()
 
     class Meta:
@@ -32,6 +35,9 @@ class WebsiteSerializer(BaseModelSerializer):
             "client_name",
             "notification_channel",
             "notification_channel_name",
+            "uptime_notification_channel",
+            "uptime_notification_channel_name",
+            "wp_sso_configured",
             "status_page",
             "created_at",
             "updated_at",
@@ -50,7 +56,17 @@ class WebsiteSerializer(BaseModelSerializer):
     def get_notification_channel_name(self, obj) -> str | None:
         return obj.notification_channel.name if obj.notification_channel_id else None
 
-    def validate_notification_channel(self, value):
+    def get_uptime_notification_channel_name(self, obj) -> str | None:
+        return (
+            obj.uptime_notification_channel.name
+            if obj.uptime_notification_channel_id
+            else None
+        )
+
+    def get_wp_sso_configured(self, obj) -> bool:
+        return bool(obj.wp_sso_secret)
+
+    def _validate_team_channel(self, value):
         if value is None:
             return value
         request = self.context.get("request")
@@ -58,6 +74,12 @@ class WebsiteSerializer(BaseModelSerializer):
         if team is not None and value.team_id != team.id:
             raise serializers.ValidationError("Channel does not belong to your team.")
         return value
+
+    def validate_notification_channel(self, value):
+        return self._validate_team_channel(value)
+
+    def validate_uptime_notification_channel(self, value):
+        return self._validate_team_channel(value)
 
     def get_status_page(self, obj) -> dict | None:
         # Only compute on the detail view — avoids an N+1 on the dashboard list.

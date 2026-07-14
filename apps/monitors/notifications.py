@@ -189,13 +189,20 @@ def notify_status_change(monitor: "Monitor", old_status: str, new_status: str) -
 
     channels = {}  # id -> channel, deduped
 
-    # The website's own channel covers all status changes by default.
+    # The website's own channel covers all status changes by default. A
+    # dedicated uptime channel wins over the general website channel so
+    # downtime alerts route separately from content/script alerts.
     if monitor.website_id:
-        for ch in resolve_channels(monitor.website):
-            # Only the website's explicitly-set channel auto-fires here; the
-            # team-wide fallback is intentionally not used for uptime noise.
-            if monitor.website.notification_channel_id and ch.is_active:
-                channels[ch.id] = ch
+        website = monitor.website
+        uptime_ch = website.uptime_notification_channel
+        if uptime_ch is not None and uptime_ch.is_active:
+            channels[uptime_ch.id] = uptime_ch
+        elif website.notification_channel_id:
+            for ch in resolve_channels(website):
+                # Only the website's explicitly-set channel auto-fires here; the
+                # team-wide fallback is intentionally not used for uptime noise.
+                if ch.is_active:
+                    channels[ch.id] = ch
 
     # Explicit per-monitor rules (extra channels / fine-grained events).
     rules = MonitorNotificationRule.objects.filter(
