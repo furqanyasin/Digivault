@@ -31,6 +31,7 @@ const navItems = [
   // (the backend scopes the log per-user for non-managers).
   { href: "/team", label: "Team", icon: "team", managerOnly: true },
   { href: "/logs", label: "Activity Log", icon: "logs", feature: "activity_log" },
+  { href: "/heatmap", label: "Heatmap", icon: "heatmap", always: true },
   { href: "/account", label: "My Account", icon: "account", always: true },
   { href: "/settings", label: "Settings", icon: "settings", managerOnly: true },
 ];
