@@ -9,6 +9,13 @@ export function LogoutButton() {
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    // Tell the browser extension to drop its stored tokens too, so signing out
+    // of the portal signs out of the extension. No-op if it isn't installed.
+    try {
+      window.postMessage({ type: "DIGIVAULT_EXTENSION_LOGOUT" }, window.location.origin);
+    } catch {
+      /* best-effort */
+    }
     router.push("/login");
     router.refresh();
   }

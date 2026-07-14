@@ -523,6 +523,48 @@
 
   attachSaveCapture();
   checkPendingSave();
+  checkPendingAutofill();
+
+  // ----------------------------------------------------------------
+  // Pending autofill — when the user clicks "Open" in the popup, the
+  // credential id is stashed in session storage and the site opened in a new
+  // tab. On arrival we reveal that credential and fill the login form, retrying
+  // briefly because the form may render after document_idle.
+  // ----------------------------------------------------------------
+
+  function checkPendingAutofill() {
+    safeSendMessage({ type: 'GET_PENDING_AUTOFILL' }, (pending) => {
+      if (!pending || !pending.credentialId) return;
+
+      const wantHost = (pending.host || '').replace(/^www\./, '');
+      const here = location.hostname.replace(/^www\./, '');
+      // Only honor it on the intended host (guards against opening elsewhere).
+      if (wantHost && here !== wantHost) return;
+
+      let attempts = 0;
+      const maxAttempts = 20; // ~10s at 500ms
+      const timer = setInterval(() => {
+        attempts += 1;
+        const pairs = findLoginPairs();
+        if (pairs.length) {
+          clearInterval(timer);
+          safeSendMessage(
+            { type: 'REVEAL_CREDENTIAL', credentialId: pending.credentialId },
+            (creds) => {
+              if (creds && !creds.error) {
+                fillField(pairs[0].username, creds.username);
+                fillField(pairs[0].password, creds.password);
+              }
+            }
+          );
+          safeSendMessage({ type: 'CLEAR_PENDING_AUTOFILL' }, () => {});
+        } else if (attempts >= maxAttempts) {
+          clearInterval(timer);
+          safeSendMessage({ type: 'CLEAR_PENDING_AUTOFILL' }, () => {});
+        }
+      }, 500);
+    });
+  }
 
   // ----------------------------------------------------------------
   // Web → Extension SSO: pick up tokens posted by the login page
@@ -530,10 +572,14 @@
 
   window.addEventListener('message', (e) => {
     if (e.origin !== window.location.origin) return;
-    if (e.data?.type !== 'DIGIVAULT_EXTENSION_AUTH') return;
-    const { access, refresh, email } = e.data;
-    if (!access || !refresh) return;
-    safeSendMessage({ type: 'WEB_AUTH_SYNC', access, refresh, email: email || '' }, () => {});
+    if (e.data?.type === 'DIGIVAULT_EXTENSION_AUTH') {
+      const { access, refresh, email } = e.data;
+      if (!access || !refresh) return;
+      safeSendMessage({ type: 'WEB_AUTH_SYNC', access, refresh, email: email || '' }, () => {});
+    } else if (e.data?.type === 'DIGIVAULT_EXTENSION_LOGOUT') {
+      // Portal signed out → clear the extension's stored session too.
+      safeSendMessage({ type: 'WEB_AUTH_LOGOUT' }, () => {});
+    }
   });
 
   // ----------------------------------------------------------------

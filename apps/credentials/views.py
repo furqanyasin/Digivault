@@ -287,22 +287,15 @@ class CredentialAccessLogView(generics.ListAPIView):
 class ExtensionCredentialLookupView(generics.ListAPIView):
     """GET /api/extension/credentials/?domain=<domain>
 
-    Returns credential metadata for all credentials belonging to websites
-    in the user's active team whose domain matches the query param.
-    Never returns plaintext — callers must use the /reveal/ endpoint.
+    With a `domain` param, returns credential metadata for the user's active
+    team whose website domain or login_url matches that host. Without a domain
+    (or with `?all=1`), returns every credential visible to the user — this
+    backs the extension's "All items" tab so the user can open any site
+    directly. Never returns plaintext — callers must use the /reveal/ endpoint.
     """
 
     serializer_class = CredentialSerializer
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
-
-    def list(self, request, *args, **kwargs):
-        domain = request.query_params.get("domain", "").strip()
-        if not domain:
-            return Response(
-                {"error": "domain parameter is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        return super().list(request, *args, **kwargs)
 
     def get_queryset(self):
         from django.db.models import Q
@@ -310,9 +303,13 @@ class ExtensionCredentialLookupView(generics.ListAPIView):
         team = self.request.user.active_team
         if team is None:
             return Credential.objects.none()
+
+        visible = Credential.objects.visible_to(self.request.user).filter(team=team)
+
         domain = self.request.query_params.get("domain", "").strip().lower()
         if not domain:
-            return Credential.objects.none()
+            # No domain → full vault (newest first), for the "All items" tab.
+            return visible.order_by("-updated_at")
 
         bare = domain.removeprefix("www.")
         # Match a website-linked credential by the website's domain (with/without
@@ -326,12 +323,7 @@ class ExtensionCredentialLookupView(generics.ListAPIView):
             | Q(login_url__icontains=f"//{bare}")
             | Q(login_url__icontains=f"//www.{bare}")
         )
-        return (
-            Credential.objects.visible_to(self.request.user)
-            .filter(team=team)
-            .filter(match)
-            .distinct()
-        )
+        return visible.filter(match).distinct()
 
 
 class ExtensionCredentialSaveView(APIView):

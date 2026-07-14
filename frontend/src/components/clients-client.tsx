@@ -22,6 +22,10 @@ const HOSTING_LABELS: Record<string, string> = {
   wix: "Wix", shopify: "Shopify", other: "Other", "": "—",
 };
 
+const ACCESS_LEVEL_TABLE_LABELS: Record<string, string> = {
+  full_admin: "Full admin", delegate: "Delegate", none: "No access",
+};
+
 interface LookupResult {
   id: string;
   name: string;
@@ -132,16 +136,18 @@ export function ClientsClient({ initialClients }: Props) {
     const headers = [
       "Client Name", "Websites URL (short text)", "Status", "Tier",
       "Hosting Platform (drop down)", "Hosting Platform (Other)",
-      "Hosting Renewal Date", "Domain Renewal Date", "Domain Access",
-      "Website Access Level", "Departments", "Website Built by Digi",
-      "Website Maintained by Digi", "Are we running PPC Ads (drop down)", "Notes",
+      "Website Access Level", "Domain Access",
+      "Hosting Renewal Date", "Domain Renewal Date",
+      "Website Built by Digi", "Website Maintained by Digi", "Departments",
+      "Desktop Notifications", "Email Notifications", "Notes",
     ];
     const example = [
       "Example Client Ltd", "https://example.com", "active", "Gold",
       "SiteGround", "",
-      "2027-03-15", "2027-06-30", "Khurram GoDaddy Account",
-      "Delegate access", "seo,ads", "Yes",
-      "Yes", "No", "Internal note about this client",
+      "Delegate access", "Khurram GoDaddy Account",
+      "2027-03-15", "2027-06-30",
+      "Yes", "No", "seo,ads",
+      "Yes", "Yes", "Internal note about this client",
     ];
     const csv = [headers, example].map((r) => r.map((v) => `"${v}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -314,6 +320,7 @@ export function ClientsClient({ initialClients }: Props) {
                 <TableHead>Client</TableHead>
                 <TableHead>Hosting</TableHead>
                 <TableHead>Domain Access</TableHead>
+                <TableHead>Website Access</TableHead>
                 <TableHead>Built by Digi</TableHead>
                 <TableHead>Maintained by Digi</TableHead>
                 <TableHead>Status</TableHead>
@@ -323,12 +330,12 @@ export function ClientsClient({ initialClients }: Props) {
             <TableBody>
               {loading && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Loading…</TableCell>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">Loading…</TableCell>
                 </TableRow>
               )}
               {!loading && clients.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No clients found.</TableCell>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">No clients found.</TableCell>
                 </TableRow>
               )}
               {!loading && pageClients.map((c) => (
@@ -347,6 +354,20 @@ export function ClientsClient({ initialClients }: Props) {
                   <TableCell className="text-sm">{(HOSTING_LABELS[c.hosting_platform] ?? c.hosting_platform) || "—"}</TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">
                     {c.domain_access_location || "—"}
+                  </TableCell>
+                  <TableCell>
+                    {c.website_access_level ? (
+                      <Badge
+                        variant={
+                          c.website_access_level === "full_admin" ? "success" :
+                          c.website_access_level === "delegate" ? "warning" : "secondary"
+                        }
+                      >
+                        {ACCESS_LEVEL_TABLE_LABELS[c.website_access_level] ?? c.website_access_level}
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">{c.website_built_by_digi || "—"}</TableCell>
                   <TableCell className="text-sm">{c.website_maintained_by_digi || "—"}</TableCell>

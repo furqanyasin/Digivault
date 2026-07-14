@@ -17,6 +17,7 @@ class ReportSerializer(BaseModelSerializer):
             "period_start",
             "period_end",
             "report_format",
+            "sections",
             "status",
             "download_url",
             "error",
@@ -40,4 +41,10 @@ class ReportGenerateSerializer(serializers.Serializer):
     period_end = serializers.DateField()
     report_format = serializers.ChoiceField(
         choices=Report.Format.values, default=Report.Format.PDF
+    )
+    # Section keys to include; empty/omitted means all sections.
+    sections = serializers.ListField(
+        child=serializers.ChoiceField(choices=list(Report.SECTION_KEYS)),
+        required=False,
+        default=list,
     )

@@ -12,7 +12,6 @@ const ROUTE_FEATURE: Record<string, string> = {
   renewals: "renewals",
   "status-pages": "status_pages",
   alerts: "alerts",
-  reports: "reports",
   credentials: "credentials",
   logs: "activity_log",
 };

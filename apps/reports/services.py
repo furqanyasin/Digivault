@@ -12,19 +12,28 @@ from apps.reports.models import Report
 
 
 def generate_report(
-    website, period_start: date, period_end: date, report_format: str = Report.Format.PDF
+    website,
+    period_start: date,
+    period_end: date,
+    report_format: str = Report.Format.PDF,
+    sections: list | None = None,
 ) -> Report:
-    """Create a Report, render it, and save the file. Returns the Report."""
+    """Create a Report, render it, and save the file. Returns the Report.
+
+    `sections` limits which report sections are included (Report.SECTION_KEYS);
+    None/empty means all sections.
+    """
     report = Report.objects.create(
         team=website.team,
         website=website,
         period_start=period_start,
         period_end=period_end,
         report_format=report_format,
+        sections=sections or [],
         status=Report.Status.PENDING,
     )
     try:
-        data = ReportBuilder.gather(website, period_start, period_end)
+        data = ReportBuilder.gather(website, period_start, period_end, sections=sections)
         if report_format == Report.Format.CSV:
             content = ReportBuilder.render_csv(data).encode("utf-8")
             ext = "csv"

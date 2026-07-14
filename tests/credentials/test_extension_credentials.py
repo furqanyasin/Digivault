@@ -56,10 +56,21 @@ class TestExtensionCredentialsLookup:
         resp = client.get("/api/extension/credentials/", {"domain": "ecsite.io"})
         assert resp.status_code == 401
 
-    def test_missing_domain_returns_400(self, owner, team):
+    def test_missing_domain_returns_full_vault(self, owner, team, website, credential):
+        """No domain param → the whole team vault (backs the 'All items' tab)."""
         client = _auth_client(owner)
         resp = client.get("/api/extension/credentials/")
-        assert resp.status_code == 400
+        assert resp.status_code == 200
+        data = json.loads(resp.content)["data"]
+        assert len(data) == 1
+        assert data[0]["label"] == "WordPress Admin"
+
+    def test_missing_domain_still_excludes_password(self, owner, team, website, credential):
+        client = _auth_client(owner)
+        resp = client.get("/api/extension/credentials/")
+        item = json.loads(resp.content)["data"][0]
+        assert "password" not in item
+        assert "username" not in item
 
     def test_returns_credentials_for_matching_domain(self, owner, team, website, credential):
         client = _auth_client(owner)

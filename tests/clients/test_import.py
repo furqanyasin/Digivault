@@ -66,12 +66,13 @@ def test_export_round_trips_through_import(auth_client, team):
     Client.objects.create(
         team=team, name="Roundtrip Co", website_url="https://rt.io",
         status="paused", tier="gold",
-        hosting_platform="wpengine", running_ppc_ads="yes",
+        hosting_platform="wpengine",
         domain_access_location="Acct X", website_built_by_digi="Yes",
         website_maintained_by_digi="No", notes="N1",
         website_access_level="delegate", departments=["seo", "dev"],
         hosting_renewal_date=datetime.date(2027, 3, 15),
         domain_renewal_date=datetime.date(2027, 6, 30),
+        notify_desktop=True, notify_email=False,
     )
     export = auth_client.get("/api/v1/clients/export/")
     assert export.status_code == 200
@@ -94,9 +95,11 @@ def test_export_round_trips_through_import(auth_client, team):
     assert c.tier == "gold"
     assert c.website_access_level == "delegate"
     assert c.departments == ["seo", "dev"]
-    assert c.running_ppc_ads == "yes"
     assert c.hosting_renewal_date == datetime.date(2027, 3, 15)
     assert c.domain_renewal_date == datetime.date(2027, 6, 30)
+    # Notification toggles survive the export→import round-trip.
+    assert c.notify_desktop is True
+    assert c.notify_email is False
 
 
 @pytest.mark.django_db

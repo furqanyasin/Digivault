@@ -1,9 +1,10 @@
-﻿import Link from "next/link";
-import { Shield, Globe, Bell, Key, Users, LayoutDashboard, Building2, Settings, ClipboardList, FileText, CalendarClock, UserCircle } from "lucide-react";
+﻿import { Shield } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
+import { NavLinks } from "@/components/nav-links";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TeamSwitcher } from "@/components/team-switcher";
 import { ChatWidget } from "@/components/chat-widget";
+import { ExtensionAuthBridge } from "@/components/extension-auth-bridge";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Team, User } from "@/lib/api";
@@ -14,24 +15,24 @@ import { FeatureGuard } from "@/components/feature-guard";
 // everyone (incl. custom members). Items with neither and managerOnly are
 // management-only and hidden from custom members.
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, always: true },
-  { href: "/clients", label: "Clients", icon: Building2, feature: "clients" },
-  { href: "/websites", label: "Websites", icon: Globe, feature: "websites" },
+  { href: "/dashboard", label: "Dashboard", icon: "dashboard", always: true },
+  { href: "/clients", label: "Clients", icon: "clients", feature: "clients" },
+  { href: "/websites", label: "Websites", icon: "websites", feature: "websites" },
   // Monitors merged into each website's Uptime tab; /monitors stays routable
   // for monitor create/edit deep links.
-  { href: "/renewals", label: "Renewal Center", icon: CalendarClock, managerOnly: true, feature: "renewals" },
+  { href: "/renewals", label: "Renewal Center", icon: "renewals", managerOnly: true, feature: "renewals" },
   // Status Pages removed from the sidebar; /status-pages stays routable and each
   // website's Uptime tab links to its public page.
-  { href: "/alerts", label: "Alerts", icon: Bell, feature: "alerts" },
-  { href: "/reports", label: "Reports", icon: FileText, feature: "reports" },
-  { href: "/credentials", label: "Credentials", icon: Key, feature: "credentials" },
+  { href: "/alerts", label: "Alerts", icon: "alerts", feature: "alerts" },
+  // Reports moved into each website's Reports tab; the standalone page is gone.
+  { href: "/credentials", label: "Credentials", icon: "credentials", feature: "credentials" },
   // Team, Renewal Center and Settings are owner/manager-only. Developers manage
   // their own security in Account and see their own actions in the Activity Log
   // (the backend scopes the log per-user for non-managers).
-  { href: "/team", label: "Team", icon: Users, managerOnly: true },
-  { href: "/logs", label: "Activity Log", icon: ClipboardList, feature: "activity_log" },
-  { href: "/account", label: "My Account", icon: UserCircle, always: true },
-  { href: "/settings", label: "Settings", icon: Settings, managerOnly: true },
+  { href: "/team", label: "Team", icon: "team", managerOnly: true },
+  { href: "/logs", label: "Activity Log", icon: "logs", feature: "activity_log" },
+  { href: "/account", label: "My Account", icon: "account", always: true },
+  { href: "/settings", label: "Settings", icon: "settings", managerOnly: true },
 ];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -60,8 +61,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="w-64 shrink-0 border-r bg-card flex flex-col">
-        <div className="flex items-center gap-2 px-6 py-5 border-b">
-          <Shield className="h-6 w-6 text-primary" />
+        <div className="flex items-center gap-2.5 px-6 py-5 border-b">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 shadow-sm">
+            <Shield className="h-4.5 w-4.5 text-white" />
+          </div>
           <span className="font-bold text-lg tracking-tight">Digivault</span>
         </div>
 
@@ -76,18 +79,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <GlobalSearch />
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {visibleNavItems.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </Link>
-          ))}
-        </nav>
+        <NavLinks items={visibleNavItems.map(({ href, label, icon }) => ({ href, label, icon }))} />
         <div className="border-t px-3 py-3 space-y-1">
           <ThemeToggle />
           <LogoutButton />
@@ -101,6 +93,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </main>
 
       <ChatWidget />
+      <ExtensionAuthBridge />
     </div>
   );
 }

@@ -62,6 +62,33 @@ class TestBuilder:
         assert "Recommendations" in csv_text
         assert "report.io" in csv_text
 
+    def test_gather_respects_section_selection(self, report_website):
+        # Only ask for active_scripts — other sections must be empty/absent.
+        data = ReportBuilder.gather(
+            report_website, PERIOD_START, PERIOD_END, sections=["active_scripts"]
+        )
+        assert data["sections"] == ["active_scripts"]
+        assert data["scripts"]["active_total"] >= 1
+        assert data["script_changes"]["total"] == 0
+        assert data["recommendations"] == []
+        assert data["security"]["php_errors"] == 0
+
+    def test_csv_omits_excluded_sections(self, report_website):
+        data = ReportBuilder.gather(
+            report_website, PERIOD_START, PERIOD_END, sections=["active_scripts"]
+        )
+        csv_text = ReportBuilder.render_csv(data)
+        assert "Active scripts (total)" in csv_text
+        assert "Recommendations" not in csv_text
+        assert "Script changes (total)" not in csv_text
+
+    def test_pdf_with_subset_still_valid(self, report_website):
+        data = ReportBuilder.gather(
+            report_website, PERIOD_START, PERIOD_END, sections=["security"]
+        )
+        pdf = ReportBuilder.render_pdf(data)
+        assert pdf[:4] == b"%PDF"
+
 
 @pytest.mark.django_db
 class TestService:
@@ -132,6 +159,39 @@ class TestAPI:
         resp = auth_client.delete(f"/api/v1/reports/{other_report.id}/")
         assert resp.status_code == 404
         assert Report.objects.filter(pk=other_report.id).exists()
+
+    def test_generate_with_sections_persists_selection(self, auth_client, report_website, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        resp = auth_client.post(
+            "/api/v1/reports/generate/",
+            {
+                "website_id": str(report_website.id),
+                "period_start": PERIOD_START.isoformat(),
+                "period_end": PERIOD_END.isoformat(),
+                "report_format": "csv",
+                "sections": ["active_scripts", "security"],
+            },
+            format="json",
+        )
+        assert resp.status_code == 201
+        assert resp.data["status"] == "done"
+        assert resp.data["sections"] == ["active_scripts", "security"]
+        report = Report.objects.get(pk=resp.data["id"])
+        assert report.sections == ["active_scripts", "security"]
+
+    def test_generate_rejects_unknown_section(self, auth_client, report_website, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        resp = auth_client.post(
+            "/api/v1/reports/generate/",
+            {
+                "website_id": str(report_website.id),
+                "period_start": PERIOD_START.isoformat(),
+                "period_end": PERIOD_END.isoformat(),
+                "sections": ["not_a_section"],
+            },
+            format="json",
+        )
+        assert resp.status_code == 400
 
     def test_generate_unknown_website_404(self, auth_client, settings, tmp_path):
         settings.MEDIA_ROOT = str(tmp_path)

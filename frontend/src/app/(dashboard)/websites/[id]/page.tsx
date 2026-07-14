@@ -24,6 +24,7 @@ import { DomainExtras } from "@/components/domain-extras";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { UptimeTab } from "@/components/uptime-tab";
+import { ReportsTab } from "@/components/reports-tab";
 import { WebsiteAssignments } from "@/components/website-assignments";
 import { WpLoginButton } from "@/components/wp-login-button";
 import { HealthScoreInfo } from "@/components/health-score-info";
@@ -303,6 +304,7 @@ export default async function WebsiteDetailPage({
           {showSiteEvents && <TabsTrigger value="site-events">Site Events ({siteEvents.length})</TabsTrigger>}
           <TabsTrigger value="security">Security {vulns.length > 0 ? `(${vulns.length})` : ""}</TabsTrigger>
           <TabsTrigger value="seo">SEO</TabsTrigger>
+          <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="setup">
             <Settings className="h-3.5 w-3.5 mr-1" />Setup
           </TabsTrigger>
@@ -525,7 +527,6 @@ export default async function WebsiteDetailPage({
                   <WebsiteAlertsStatus
                     websiteId={id}
                     initialChannelId={website.notification_channel}
-                    initialUptimeChannelId={website.uptime_notification_channel}
                     statusPage={website.status_page}
                   />
                   <div className="border-t mt-4 pt-4">
@@ -713,6 +714,11 @@ export default async function WebsiteDetailPage({
               <SeoTab websiteId={id} report={seoReport} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── Reports ── */}
+        <TabsContent value="reports">
+          <ReportsTab websiteId={id} />
         </TabsContent>
 
         {/* ── Setup ── */}

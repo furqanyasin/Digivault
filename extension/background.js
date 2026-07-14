@@ -160,6 +160,26 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     handleWebAuthSync(msg).then(reply);
     return true;
   }
+
+  if (msg.type === "WEB_AUTH_LOGOUT") {
+    chrome.storage.local.remove(["access", "refresh", "email"]).then(() => reply({ ok: true }));
+    return true;
+  }
+
+  // Content scripts can't read chrome.storage.session directly, so the popup
+  // stashes the "open + autofill" hand-off here and the content script reads it
+  // back through these two messages.
+  if (msg.type === "GET_PENDING_AUTOFILL") {
+    chrome.storage.session.get("dv_pending_autofill").then((s) =>
+      reply(s.dv_pending_autofill ?? null)
+    );
+    return true;
+  }
+
+  if (msg.type === "CLEAR_PENDING_AUTOFILL") {
+    chrome.storage.session.remove("dv_pending_autofill").then(() => reply({ ok: true }));
+    return true;
+  }
 });
 
 // ------------------------------------------------------------------
@@ -167,11 +187,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 // ------------------------------------------------------------------
 
 async function handleGetCredentials(domain) {
-  if (!domain) return { error: "missing_domain" };
   const apiBase = await getApiBase();
-  const result = await authedFetch(
-    `${apiBase}/api/extension/credentials/?domain=${encodeURIComponent(domain)}`
-  );
+  // An empty/absent domain asks for the full vault ("All items" tab); a domain
+  // narrows to that site. The backend switches on the presence of the param.
+  const url = domain
+    ? `${apiBase}/api/extension/credentials/?domain=${encodeURIComponent(domain)}`
+    : `${apiBase}/api/extension/credentials/`;
+  const result = await authedFetch(url);
   if (result.error) return result;
   return { credentials: result.data ?? [] };
 }

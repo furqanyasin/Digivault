@@ -44,14 +44,11 @@ _HOSTING_LABELS = {
     "bluehost": "Bluehost", "godaddy": "GoDaddy", "squarespace": "Squarespace",
     "wix": "Wix", "shopify": "Shopify", "other": "Other",
 }
-_PPC_LABELS = {"yes": "Yes", "no": "No"}
 _TIER_LABELS = {"gold": "Gold", "silver": "Silver", "bronze": "Bronze"}
 _ACCESS_LEVEL_LABELS = {
     "full_admin": "Full admin", "delegate": "Delegate access", "none": "No access",
 }
 _STATUS_CODES = {"active", "paused", "offboarded"}
-
-_PPC_CODES = {"yes", "no"}
 
 
 def _parse_hosting(raw: str) -> str:
@@ -59,13 +56,6 @@ def _parse_hosting(raw: str) -> str:
     if r in _HOSTING_LABELS:  # already a stored code (e.g. an export round-trip)
         return r
     return _HOSTING_NORMALIZE.get(r, "")
-
-
-def _parse_ppc(raw: str) -> str:
-    r = raw.lower().strip()
-    if r in _PPC_CODES:
-        return r
-    return "yes" if r.startswith("yes") else ("no" if r.startswith("no") else "")
 
 
 def _parse_status(raw: str) -> str:
@@ -113,6 +103,14 @@ def _parse_date(raw: str):
     return None
 
 
+def _parse_bool(raw: str, default: bool = True) -> bool:
+    """Parse a Yes/No-style cell. Blank falls back to `default`."""
+    r = (raw or "").strip().lower()
+    if not r:
+        return default
+    return r in ("yes", "y", "true", "1", "on", "enabled")
+
+
 # Canonical CSV columns — shared by the export, the sample, and the importer.
 EXPORT_HEADERS = [
     "Client Name",
@@ -121,14 +119,15 @@ EXPORT_HEADERS = [
     "Tier",
     "Hosting Platform (drop down)",
     "Hosting Platform (Other)",
+    "Website Access Level",
+    "Domain Access",
     "Hosting Renewal Date",
     "Domain Renewal Date",
-    "Domain Access",
-    "Website Access Level",
-    "Departments",
     "Website Built by Digi",
     "Website Maintained by Digi",
-    "Are we running PPC Ads (drop down)",
+    "Departments",
+    "Desktop Notifications",
+    "Email Notifications",
     "Notes",
 ]
 
@@ -326,9 +325,10 @@ class ClientImportView(APIView):
             website_url = (row.get("Websites URL (short text)") or "").strip()
             hosting = _parse_hosting(row.get("Hosting Platform (drop down)") or "")
             hosting_other = (row.get("Hosting Platform (Other)") or "").strip()
-            ppc = _parse_ppc(row.get("Are we running PPC Ads (drop down)") or "")
             hosting_renewal_date = _parse_date(row.get("Hosting Renewal Date") or "")
             domain_renewal_date = _parse_date(row.get("Domain Renewal Date") or "")
+            notify_desktop = _parse_bool(row.get("Desktop Notifications") or "")
+            notify_email = _parse_bool(row.get("Email Notifications") or "")
 
             # "Domain Access" is the current sample header; the long
             # "Where we have the domain access (drop down)" is the legacy
@@ -355,13 +355,14 @@ class ClientImportView(APIView):
                 "hosting_platform_other": hosting_other,
                 "hosting_renewal_date": hosting_renewal_date,
                 "domain_renewal_date": domain_renewal_date,
-                "running_ppc_ads": ppc,
                 "domain_access_location": domain_access,
                 "website_access_level": _parse_access_level(row.get("Website Access Level") or ""),
                 "departments": _parse_departments(row.get("Departments") or ""),
                 "notes": notes,
                 "website_built_by_digi": built_by_digi,
                 "website_maintained_by_digi": maintained_by_digi,
+                "notify_desktop": notify_desktop,
+                "notify_email": notify_email,
             }
 
             obj, was_created = Client.objects.update_or_create(
@@ -410,14 +411,15 @@ class ClientExportView(APIView):
                 _TIER_LABELS.get(c.tier, ""),
                 _HOSTING_LABELS.get(c.hosting_platform, c.hosting_platform or ""),
                 c.hosting_platform_other,
+                _ACCESS_LEVEL_LABELS.get(c.website_access_level, ""),
+                c.domain_access_location,
                 c.hosting_renewal_date.isoformat() if c.hosting_renewal_date else "",
                 c.domain_renewal_date.isoformat() if c.domain_renewal_date else "",
-                c.domain_access_location,
-                _ACCESS_LEVEL_LABELS.get(c.website_access_level, ""),
-                ",".join(c.departments or []),
                 c.website_built_by_digi,
                 c.website_maintained_by_digi,
-                _PPC_LABELS.get(c.running_ppc_ads, ""),
+                ",".join(c.departments or []),
+                "Yes" if c.notify_desktop else "No",
+                "Yes" if c.notify_email else "No",
                 c.notes,
             ])
 
