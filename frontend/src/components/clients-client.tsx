@@ -85,6 +85,9 @@ export function ClientsClient({ initialClients }: Props) {
   }, [page, pageSize, statusFilter, fetchClients]);
 
   const totalPages = Math.ceil(count / pageSize);
+  // The API returns the full (unpaginated) list, so slice for the current page
+  // here — this is what makes the "Per page" control actually paginate.
+  const pageClients = clients.slice((page - 1) * pageSize, page * pageSize);
 
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault();
@@ -328,7 +331,7 @@ export function ClientsClient({ initialClients }: Props) {
                   <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No clients found.</TableCell>
                 </TableRow>
               )}
-              {!loading && clients.map((c) => (
+              {!loading && pageClients.map((c) => (
                 <TableRow key={c.id} className={c.status === "offboarded" ? "opacity-50" : ""}>
                   <TableCell>
                     <div className="font-medium text-sm">{c.name}</div>

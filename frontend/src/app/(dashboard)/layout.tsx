@@ -1,5 +1,5 @@
 ﻿import Link from "next/link";
-import { Shield, Globe, Bell, Key, Users, LayoutDashboard, MonitorCheck, Building2, Settings, ClipboardList, FileText, CalendarClock, UserCircle } from "lucide-react";
+import { Shield, Globe, Bell, Key, Users, LayoutDashboard, Building2, Settings, ClipboardList, FileText, CalendarClock, UserCircle } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TeamSwitcher } from "@/components/team-switcher";
@@ -9,7 +9,6 @@ import { api } from "@/lib/api";
 import type { Team, User } from "@/lib/api";
 import { GlobalSearch } from "@/components/global-search";
 import { FeatureGuard } from "@/components/feature-guard";
-import { HeatmapTracker } from "@/components/heatmap-tracker";
 
 // `feature` maps a nav item to a custom-access key; `always` items are shown to
 // everyone (incl. custom members). Items with neither and managerOnly are
@@ -21,7 +20,8 @@ const navItems = [
   // Monitors merged into each website's Uptime tab; /monitors stays routable
   // for monitor create/edit deep links.
   { href: "/renewals", label: "Renewal Center", icon: CalendarClock, managerOnly: true, feature: "renewals" },
-  { href: "/status-pages", label: "Status Pages", icon: MonitorCheck, feature: "status_pages" },
+  // Status Pages removed from the sidebar; /status-pages stays routable and each
+  // website's Uptime tab links to its public page.
   { href: "/alerts", label: "Alerts", icon: Bell, feature: "alerts" },
   { href: "/reports", label: "Reports", icon: FileText, feature: "reports" },
   { href: "/credentials", label: "Credentials", icon: Key, feature: "credentials" },
@@ -42,13 +42,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
   ]);
 
   const activeTeam = teams.find((t) => t.id === user?.active_team) ?? teams[0] ?? null;
-  const isManager = activeTeam?.my_role === "owner" || activeTeam?.my_role === "manager";
-  const isCustom = activeTeam?.my_role === "custom";
+  const isOwner = activeTeam?.my_role === "owner";
+  const isManager = isOwner || activeTeam?.my_role === "manager";
   const myFeatures = activeTeam?.my_features ?? [];
+  // Feature access now gates every role except owner. Owner sees everything;
+  // manager-only sections stay role-gated; feature-keyed items are shown only
+  // when the member's granted features include them.
   const visibleNavItems = navItems.filter((item) => {
-    // Custom members see only "always" items + their granted features.
-    if (isCustom) return item.always || (item.feature ? myFeatures.includes(item.feature) : false);
-    return !item.managerOnly || isManager;
+    if (item.always) return true;
+    if (item.managerOnly && !isManager) return false;
+    if (isOwner) return true;
+    if (item.feature) return myFeatures.includes(item.feature);
+    return true;
   });
 
   return (
@@ -91,11 +96,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto">
-        {isCustom && <FeatureGuard features={myFeatures} />}
+        {!isOwner && <FeatureGuard features={myFeatures} isManager={isManager} />}
         {children}
       </main>
 
-      <HeatmapTracker isManager={isManager} />
       <ChatWidget />
     </div>
   );

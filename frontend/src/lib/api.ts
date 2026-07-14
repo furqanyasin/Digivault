@@ -229,6 +229,7 @@ export interface TeamMember {
   };
   role: string;
   feature_access: string[];
+  effective_features: string[];
   totp_enabled: boolean;
   created_at: string;
 }
@@ -463,6 +464,8 @@ export interface StatusPageMonitor {
 export interface UptimeBar {
   date: string;
   status: "up" | "down" | "degraded" | "no-data";
+  down_minutes: number;
+  degraded_minutes: number;
 }
 
 export interface PublicMonitor {
@@ -475,14 +478,38 @@ export interface PublicMonitor {
   last_response_time: number | null;
 }
 
+export interface PublicIncident {
+  id: string;
+  title: string;
+  body: string;
+  status: "investigating" | "identified" | "monitoring" | "resolved";
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export interface PublicMaintenance {
+  id: string;
+  title: string;
+  message: string;
+  scheduled_start: string;
+  scheduled_end: string;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface PublicStatusPage {
   id: string;
   name: string;
   slug: string;
   description: string;
   allow_indexing: boolean;
+  logo_url: string;
+  brand_color: string;
   overall_status: "operational" | "degraded" | "outage";
   monitors: PublicMonitor[];
+  incidents: PublicIncident[];
+  maintenance: PublicMaintenance[];
   updated_at: string;
 }
 

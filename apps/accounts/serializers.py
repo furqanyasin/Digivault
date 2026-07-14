@@ -64,20 +64,31 @@ class TeamSerializer(BaseModelSerializer):
         return m.role if m else None
 
     def get_my_features(self, obj) -> list:
-        """Allowed feature keys for the requesting user when their role is
-        'custom' — drives nav/page gating in the frontend layout."""
+        """Effective feature keys for the requesting user — drives nav/page
+        gating in the frontend layout. Owner gets everything; other roles get
+        their stored feature_access (falling back to the role default)."""
+        from apps.accounts.features import effective_features
+
         m = self._my_membership(obj)
-        return list(m.feature_access or []) if m else []
+        return effective_features(m.role, m.feature_access) if m else []
 
 
 class TeamMembershipSerializer(BaseModelSerializer):
     user = UserSerializer(read_only=True)
     totp_enabled = serializers.BooleanField(source="user.totp_enabled", read_only=True)
+    # Effective access (stored override or role default) so the UI chips reflect
+    # what the member actually sees, even for legacy rows with no stored value.
+    effective_features = serializers.SerializerMethodField()
 
     class Meta:
         model = TeamMembership
-        fields = ("id", "user", "role", "feature_access", "totp_enabled", "created_at")
+        fields = ("id", "user", "role", "feature_access", "effective_features", "totp_enabled", "created_at")
         read_only_fields = ("id", "totp_enabled", "created_at")
+
+    def get_effective_features(self, obj) -> list:
+        from apps.accounts.features import effective_features
+
+        return effective_features(obj.role, obj.feature_access)
 
 
 class TeamInvitationSerializer(BaseModelSerializer):

@@ -30,11 +30,7 @@ logger = logging.getLogger(__name__)
 
 ROLE_LEVELS = {"viewer": 1, "developer": 2, "custom": 2, "editor": 2, "seo": 2, "manager": 3, "owner": 4}
 
-# Feature keys a "custom" member's access can be limited to. Mirrors the nav.
-CUSTOM_FEATURE_KEYS = {
-    "websites", "clients", "monitors", "status_pages",
-    "alerts", "reports", "renewals", "credentials", "activity_log",
-}
+from apps.accounts.features import FEATURE_KEYS, default_features
 
 
 def _my_level(user, team):
@@ -212,15 +208,16 @@ class TeamMemberDetailView(APIView):
 
         old_role = target.role
         target.role = new_role
-        # feature_access only applies to the custom role; sanitize to known keys
-        # and clear it for every other role.
-        if new_role == "custom":
-            raw = request.data.get("feature_access") or []
+        # feature_access applies to every role except owner. When the caller
+        # supplies a list we save that (a per-member override); otherwise the
+        # role's default preset is applied as a starting point.
+        raw = request.data.get("feature_access")
+        if raw is not None:
             if not isinstance(raw, list):
                 return Response({"detail": "feature_access must be a list."}, status=status.HTTP_400_BAD_REQUEST)
-            target.feature_access = [k for k in raw if k in CUSTOM_FEATURE_KEYS]
+            target.feature_access = [k for k in raw if k in FEATURE_KEYS]
         else:
-            target.feature_access = []
+            target.feature_access = default_features(new_role)
         target.save(update_fields=["role", "feature_access", "updated_at"])
         AuditService.log(
             actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_ROLE_CHANGED,

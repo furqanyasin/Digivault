@@ -295,7 +295,7 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="scripts">Scripts ({displayScripts.length})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
           <TabsTrigger value="forms">Forms ({forms.filter((f) => f.is_managed !== false).length})</TabsTrigger>
-          <TabsTrigger value="uptime">Uptime {monitors.length > 0 ? `(${monitors.length})` : ""}</TabsTrigger>
+          <TabsTrigger value="uptime">Uptime &amp; Downtime {monitors.length > 0 ? `(${monitors.length})` : ""}</TabsTrigger>
           <TabsTrigger value="access">Access & Domain</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="changelog">Change Log ({visibleChanges.length})</TabsTrigger>
@@ -698,7 +698,7 @@ export default async function WebsiteDetailPage({
               <CardTitle className="text-base">Uptime & Downtime</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <UptimeTab monitors={monitors} websiteId={id} />
+              <UptimeTab monitors={monitors} websiteId={id} statusPage={website.status_page} />
             </CardContent>
           </Card>
         </TabsContent>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, ExternalLink, MonitorCheck } from "lucide-react";
+import { Activity, ExternalLink, Globe, MonitorCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -7,6 +7,8 @@ import {
 import { MonitorSparkline } from "@/components/monitor-sparkline";
 import type { Monitor } from "@/lib/api";
 import { fmtDateTime } from "@/lib/utils";
+
+type StatusPageSummary = { slug: string; name: string; status: string; monitor_count: number };
 
 const STATUS_VARIANT: Record<string, "success" | "destructive" | "warning" | "secondary"> = {
   up: "success",
@@ -16,31 +18,85 @@ const STATUS_VARIANT: Record<string, "success" | "destructive" | "warning" | "se
   pending: "secondary",
 };
 
+const PAGE_STATUS_STYLE: Record<string, string> = {
+  operational: "text-emerald-600",
+  degraded: "text-amber-600",
+  outage: "text-red-600",
+};
+
 function pct(v: number | null): string {
   return v === null || v === undefined ? "—" : `${v}%`;
 }
 
-export function UptimeTab({ monitors, websiteId }: { monitors: Monitor[]; websiteId: string }) {
+function PublicStatusPages({ statusPage }: { statusPage: StatusPageSummary | null }) {
+  return (
+    <div className="border-t px-4 py-4 space-y-2">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <Globe className="h-4 w-4 text-muted-foreground" />
+        Public Status Pages
+      </div>
+      {statusPage ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <Link
+            href={`/status/${statusPage.slug}`}
+            target="_blank"
+            className="inline-flex items-center gap-1 text-blue-600 hover:underline font-mono"
+          >
+            /status/{statusPage.slug} <ExternalLink className="h-3 w-3" />
+          </Link>
+          <span className="text-muted-foreground">{statusPage.name}</span>
+          <span className={`capitalize ${PAGE_STATUS_STYLE[statusPage.status] ?? "text-muted-foreground"}`}>
+            · {statusPage.status}
+          </span>
+          <span className="text-muted-foreground">
+            · {statusPage.monitor_count} monitor{statusPage.monitor_count !== 1 ? "s" : ""}
+          </span>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          This website isn&apos;t on a public status page yet.{" "}
+          <Link href="/status-pages" className="text-blue-600 hover:underline">
+            Create one
+          </Link>{" "}
+          to share live uptime with clients.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function UptimeTab({
+  monitors,
+  websiteId,
+  statusPage = null,
+}: {
+  monitors: Monitor[];
+  websiteId: string;
+  statusPage?: StatusPageSummary | null;
+}) {
   if (monitors.length === 0) {
     return (
-      <div className="py-16 flex flex-col items-center gap-3 text-center">
-        <Activity className="h-10 w-10 text-muted-foreground" />
-        <p className="font-medium">No uptime monitors for this website yet</p>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          Add an HTTP, ping, port, or SSL monitor to track this site&apos;s availability.
-        </p>
-        <Link
-          href={`/monitors/new?website=${websiteId}`}
-          className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"
-        >
-          <MonitorCheck className="h-4 w-4" /> Add a monitor
-        </Link>
+      <div>
+        <div className="py-16 flex flex-col items-center gap-3 text-center">
+          <Activity className="h-10 w-10 text-muted-foreground" />
+          <p className="font-medium">No uptime monitors for this website yet</p>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            Add an HTTP, ping, port, or SSL monitor to track this site&apos;s availability.
+          </p>
+          <Link
+            href={`/monitors/new?website=${websiteId}`}
+            className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"
+          >
+            <MonitorCheck className="h-4 w-4" /> Add a monitor
+          </Link>
+        </div>
+        <PublicStatusPages statusPage={statusPage} />
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div>
       <Table>
         <TableHeader>
           <TableRow>
@@ -87,14 +143,7 @@ export function UptimeTab({ monitors, websiteId }: { monitors: Monitor[]; websit
           ))}
         </TableBody>
       </Table>
-      <div className="px-1">
-        <Link
-          href={`/monitors/new?website=${websiteId}`}
-          className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"
-        >
-          <MonitorCheck className="h-4 w-4" /> Add another monitor
-        </Link>
-      </div>
+      <PublicStatusPages statusPage={statusPage} />
     </div>
   );
 }
