@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -428,7 +429,7 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
               <div>
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Password</Label>
                 {editMode ? (
-                  <Input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} className="mt-1" />
+                  <PasswordInput value={form.password} onChange={(e) => upd("password", e.target.value)} className="mt-1" />
                 ) : revealed?.password_hidden ? (
                   <div className="flex items-center gap-2 mt-1">
                     <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -677,7 +678,7 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
             </div>
             <div className="space-y-1.5">
               <Label>Password</Label>
-              <Input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} required />
+              <PasswordInput value={form.password} onChange={(e) => upd("password", e.target.value)} autoComplete="new-password" required />
             </div>
           </div>
 

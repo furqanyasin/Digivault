@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { UserPlus, Trash2, Check, ShieldAlert, ShieldOff, X, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { fmtDate } from "@/lib/utils";
@@ -237,9 +238,8 @@ export function TeamManagementClient({
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="add-password">Password (optional)</Label>
-                    <Input
+                    <PasswordInput
                       id="add-password"
-                      type="password"
                       placeholder="Leave blank to email a set-password link"
                       minLength={8}
                       value={addForm.password}

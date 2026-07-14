@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Eye, EyeOff, Trash2, ExternalLink, Copy, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -255,7 +256,7 @@ function AddCredentialDialog({ websiteId, onAdded }: { websiteId: string; onAdde
             </div>
             <div className="space-y-1.5">
               <Label>Password</Label>
-              <Input type="password" value={form.password} onChange={(e) => update("password", e.target.value)} required />
+              <PasswordInput value={form.password} onChange={(e) => update("password", e.target.value)} autoComplete="new-password" required />
             </div>
           </div>
           <div className="space-y-1.5">
