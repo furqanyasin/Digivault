@@ -4,6 +4,10 @@
   padding: 0;
 }
 
+/* Utility to hide elements without an inline style attribute (blocked by the
+   popup's CSP style-src 'self'). Toggled from JS via classList. */
+.hidden { display: none !important; }
+
 :root {
   --bg: #f4f5f7;
   --white: #ffffff;

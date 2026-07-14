@@ -25,6 +25,7 @@ const SECTION_OPTIONS: { key: string; label: string; description: string }[] = [
   { key: "active_scripts", label: "Active Scripts", description: "Third-party scripts currently on the site" },
   { key: "script_changes", label: "Script Changes", description: "Changes detected during the period" },
   { key: "performance", label: "Performance", description: "Latest PageSpeed scores (mobile & desktop)" },
+  { key: "uptime", label: "Uptime & Downtime", description: "Monitor uptime % and downtime over the period" },
   { key: "security", label: "Security", description: "Vulnerabilities and PHP errors" },
   { key: "domain_ssl", label: "Domain & SSL", description: "Registrar, hosting, expiry dates" },
   { key: "recommendations", label: "Recommendations", description: "Suggested actions based on findings" },

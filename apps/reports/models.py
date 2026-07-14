@@ -24,6 +24,7 @@ class Report(BaseModel):
         "active_scripts",
         "script_changes",
         "performance",
+        "uptime",
         "security",
         "domain_ssl",
         "recommendations",
