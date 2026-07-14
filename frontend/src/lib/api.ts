@@ -332,6 +332,7 @@ export interface DetectedForm {
   detection_type: "native" | "dom" | "embedded";
   provider: string;
   is_managed: boolean;
+  submission_count: number;
   fields: { name: string; type: string; label: string; required: boolean }[];
   first_seen_at: string;
   last_seen_at: string;

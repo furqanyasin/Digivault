@@ -1,103 +1,93 @@
-import { FileText, ChevronDown, ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { FileText, ChevronDown, ChevronRight, AlertTriangle, CheckCircle } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import type { DetectedForm } from "@/lib/api";
-import { fmtDate } from "@/lib/utils";
+import type { DetectedForm, FormSubmissionError } from "@/lib/api";
 
 interface Props {
   forms: DetectedForm[];
+  formErrors?: FormSubmissionError[];
 }
 
-const METHOD_COLOR: Record<string, string> = {
-  post: "bg-blue-100 text-blue-800",
-  get: "bg-slate-100 text-slate-700",
-};
-
-const DETECTION_LABEL: Record<DetectedForm["detection_type"], string> = {
-  native: "native",
-  dom: "div-based",
-  embedded: "embedded",
-};
-
-const DETECTION_COLOR: Record<DetectedForm["detection_type"], string> = {
-  native: "bg-emerald-100 text-emerald-800",
-  dom: "bg-amber-100 text-amber-800",
-  embedded: "bg-violet-100 text-violet-800",
-};
-
-function DetectionBadge({ form }: { form: DetectedForm }) {
-  const label =
-    form.detection_type === "embedded" && form.provider
-      ? `embedded — ${form.provider}`
-      : DETECTION_LABEL[form.detection_type] ?? form.detection_type;
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${DETECTION_COLOR[form.detection_type] ?? "bg-slate-100 text-slate-700"}`}>
-      {label}
-    </span>
-  );
+// A friendly name for a form: its name/id, else the embedded provider, else
+// the page it lives on.
+function formLabel(f: DetectedForm): string {
+  if (f.form_name) return f.form_name;
+  if (f.form_id) return f.form_id;
+  if (f.provider) return f.provider;
+  const path = f.page_url.replace(/^https?:\/\/[^/]+/, "") || "/";
+  return `Form on ${path}`;
 }
 
-function FieldBadge({ field }: { field: DetectedForm["fields"][number] }) {
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-mono bg-muted">
-      {field.label || field.name || field.type}
-      {field.required && <span className="text-red-500">*</span>}
-    </span>
-  );
+function pagePath(url: string): string {
+  return url.replace(/^https?:\/\/[^/]+/, "") || "/";
 }
 
-// A structural signature for a form, ignoring which page it appeared on. The
-// same form (e.g. a footer newsletter signup) shows up on every page, producing
-// one DetectedForm row per page — collapse those into a single entry.
+// A structural signature for a form, ignoring which page it appeared on, so the
+// same form across pages collapses into a single row (with summed submissions).
 function formSignature(f: DetectedForm): string {
   const fields = f.fields.map((x) => `${x.name}:${x.type}`).join(",");
-  return [
-    f.detection_type, f.form_method, f.form_id, f.form_name,
-    f.form_action, f.provider, fields,
-  ].join("|");
+  return [f.detection_type, f.form_id, f.form_name, f.form_action, f.provider, fields].join("|");
 }
 
-export function FormsTab({ forms }: Props) {
+// Errors that belong to a form: matched by the HTML form id when both have one.
+function errorsForForm(f: DetectedForm, errors: FormSubmissionError[]): FormSubmissionError[] {
+  if (!f.form_id) return [];
+  return errors.filter((e) => e.form_id && e.form_id === f.form_id);
+}
+
+export function FormsTab({ forms, formErrors = [] }: Props) {
   if (forms.length === 0) {
     return (
       <div className="py-16 flex flex-col items-center gap-3 text-center">
         <FileText className="h-10 w-10 text-muted-foreground" />
         <p className="font-medium">No forms detected yet</p>
         <p className="text-sm text-muted-foreground max-w-sm">
-          Forms will appear here once the tracking snippet fires on a page that contains a{" "}
-          <code className="bg-muted px-1 rounded">&lt;form&gt;</code> element.
+          Forms will appear here once the tracking snippet fires on a page that contains a form.
         </p>
       </div>
     );
   }
 
-  // Deduplicate identical forms across pages, keeping the most recently seen.
+  // Deduplicate identical forms across pages: keep the most recently seen row,
+  // but sum submission counts so the total reflects every page it appears on.
   const bySignature = new Map<string, DetectedForm>();
   for (const f of forms) {
     const sig = formSignature(f);
     const existing = bySignature.get(sig);
-    if (!existing || f.last_seen_at > existing.last_seen_at) {
-      bySignature.set(sig, f);
+    if (!existing) {
+      bySignature.set(sig, { ...f });
+    } else {
+      existing.submission_count += f.submission_count;
+      if (f.last_seen_at > existing.last_seen_at) {
+        existing.page_url = f.page_url;
+        existing.last_seen_at = f.last_seen_at;
+      }
     }
   }
   const uniqueForms = Array.from(bySignature.values());
-  // Only WordPress-managed forms count — embedded third-party iframes can't
-  // have their submissions verified from the page.
   const managedForms = uniqueForms.filter((f) => f.is_managed !== false);
   const embeddedForms = uniqueForms.filter((f) => f.is_managed === false);
-  const pageCount = new Set(
-    forms.filter((f) => f.is_managed !== false).map((f) => f.page_url)
-  ).size;
+
+  const totalSubmissions = managedForms.reduce((n, f) => n + (f.submission_count || 0), 0);
+  const totalErrors = formErrors.length;
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {managedForms.length} managed form{managedForms.length !== 1 ? "s" : ""} detected across{" "}
-        {pageCount} page{pageCount !== 1 ? "s" : ""}
-      </p>
-      <FormsTable forms={managedForms} />
+      <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+        <span>{managedForms.length} form{managedForms.length !== 1 ? "s" : ""}</span>
+        <span>·</span>
+        <span>{totalSubmissions} submission{totalSubmissions !== 1 ? "s" : ""} tracked</span>
+        {totalErrors > 0 && (
+          <span className="inline-flex items-center gap-1 text-red-600 font-medium">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {totalErrors} submission error{totalErrors !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      <FormsTable forms={managedForms} formErrors={formErrors} />
+
       {embeddedForms.length > 0 && (
         <details className="border rounded-lg">
           <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium flex items-center gap-2">
@@ -105,11 +95,11 @@ export function FormsTab({ forms }: Props) {
             <ChevronDown className="h-4 w-4 hidden [details[open]_&]:inline" />
             Third-party embedded forms ({embeddedForms.length})
             <span className="font-normal text-muted-foreground">
-              — managed by a third party; submissions can&apos;t be verified from the page
+              — hosted by a third party; submissions can&apos;t be counted from the page
             </span>
           </summary>
           <div className="px-2 pb-2">
-            <FormsTable forms={embeddedForms} />
+            <FormsTable forms={embeddedForms} formErrors={formErrors} embedded />
           </div>
         </details>
       )}
@@ -117,60 +107,63 @@ export function FormsTab({ forms }: Props) {
   );
 }
 
-function FormsTable({ forms }: { forms: DetectedForm[] }) {
+function FormsTable({
+  forms,
+  formErrors,
+  embedded = false,
+}: {
+  forms: DetectedForm[];
+  formErrors: FormSubmissionError[];
+  embedded?: boolean;
+}) {
   return (
+    <div className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Page / Action</TableHead>
-            <TableHead>Method</TableHead>
-            <TableHead>Detected as</TableHead>
-            <TableHead>ID / Name</TableHead>
-            <TableHead>Fields</TableHead>
-            <TableHead>Last seen</TableHead>
+            <TableHead>Form</TableHead>
+            <TableHead>Page</TableHead>
+            <TableHead className="text-right">Submissions</TableHead>
+            <TableHead>Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {forms.map((form) => (
-            <TableRow key={form.id}>
-              <TableCell className="align-top">
-                <div className="font-mono text-xs text-muted-foreground truncate max-w-[180px]" title={form.page_url}>
-                  {form.page_url.replace(/^https?:\/\/[^/]+/, "") || "/"}
-                </div>
-                {form.form_action && (
-                  <div className="font-mono text-xs truncate max-w-[180px] text-foreground" title={form.form_action}>
-                    → {form.form_action.replace(/^https?:\/\/[^/]+/, "") || "(same page)"}
-                  </div>
-                )}
-              </TableCell>
-              <TableCell>
-                <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase ${METHOD_COLOR[form.form_method] ?? "bg-slate-100 text-slate-700"}`}>
-                  {form.form_method}
-                </span>
-              </TableCell>
-              <TableCell>
-                <DetectionBadge form={form} />
-              </TableCell>
-              <TableCell className="text-xs font-mono text-muted-foreground">
-                {form.form_id && <div>#{form.form_id}</div>}
-                {form.form_name && <div>{form.form_name}</div>}
-                {!form.form_id && !form.form_name && "—"}
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1 max-w-xs">
-                  {form.fields.length === 0 ? (
-                    <span className="text-xs text-muted-foreground">—</span>
+          {forms.map((form) => {
+            const errs = errorsForForm(form, formErrors);
+            return (
+              <TableRow key={form.id}>
+                <TableCell className="font-medium text-sm max-w-[220px] truncate" title={formLabel(form)}>
+                  {formLabel(form)}
+                </TableCell>
+                <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={form.page_url}>
+                  {pagePath(form.page_url)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums text-sm">
+                  {embedded ? <span className="text-muted-foreground">n/a</span> : form.submission_count}
+                </TableCell>
+                <TableCell>
+                  {errs.length > 0 ? (
+                    <div className="space-y-0.5">
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        {errs.length} error{errs.length !== 1 ? "s" : ""}
+                      </span>
+                      <p className="text-xs text-muted-foreground max-w-[280px] truncate" title={errs[0].message}>
+                        {errs[0].message}
+                      </p>
+                    </div>
                   ) : (
-                    form.fields.map((f, i) => <FieldBadge key={i} field={f} />)
+                    <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                      <CheckCircle className="h-3.5 w-3.5" />
+                      OK
+                    </span>
                   )}
-                </div>
-              </TableCell>
-              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                {fmtDate(form.last_seen_at)}
-              </TableCell>
-            </TableRow>
-          ))}
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
+    </div>
   );
 }
