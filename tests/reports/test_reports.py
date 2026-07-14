@@ -89,6 +89,29 @@ class TestBuilder:
         pdf = ReportBuilder.render_pdf(data)
         assert pdf[:4] == b"%PDF"
 
+    def test_uptime_section_gathers_monitor_stats(self, report_website):
+        from apps.monitors.models import Monitor, MonitorCheck
+
+        monitor = Monitor.objects.create(
+            team=report_website.team, website=report_website,
+            name="Homepage", url="https://report.io", status="up",
+        )
+        MonitorCheck.objects.create(monitor=monitor, status=MonitorCheck.Status.UP)
+        MonitorCheck.objects.create(monitor=monitor, status=MonitorCheck.Status.DOWN)
+
+        data = ReportBuilder.gather(
+            report_website, PERIOD_START, PERIOD_END, sections=["uptime"]
+        )
+        assert data["sections"] == ["uptime"]
+        # A monitor may be auto-provisioned on website creation, so locate ours.
+        row = next(u for u in data["uptime"] if u["name"] == "Homepage")
+        assert row["checks"] == 2
+        assert row["down_checks"] == 1
+        assert row["uptime_pct"] == 50.0
+        # CSV + PDF render with the section present
+        assert "Uptime & Downtime" in ReportBuilder.render_csv(data)
+        assert ReportBuilder.render_pdf(data)[:4] == b"%PDF"
+
 
 @pytest.mark.django_db
 class TestService:

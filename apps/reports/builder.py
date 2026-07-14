@@ -99,6 +99,27 @@ class ReportBuilder:
             except Exception:
                 domain = None
 
+        # Uptime / downtime per monitor over the window
+        uptime = []
+        if "uptime" in included:
+            from apps.monitors.models import Monitor, MonitorCheck
+
+            for m in Monitor.objects.filter(website=website).order_by("name"):
+                checks = MonitorCheck.objects.filter(
+                    monitor=m, checked_at__gte=start_dt, checked_at__lte=end_dt
+                )
+                total = checks.count()
+                up = checks.filter(status=MonitorCheck.Status.UP).count()
+                down = checks.filter(status=MonitorCheck.Status.DOWN).count()
+                uptime.append({
+                    "name": m.name,
+                    "url": m.url,
+                    "status": m.status,
+                    "uptime_pct": round(up / total * 100, 2) if total else None,
+                    "checks": total,
+                    "down_checks": down,
+                })
+
         # Latest performance per strategy
         performance = []
         if "performance" in included:
@@ -160,6 +181,7 @@ class ReportBuilder:
             },
             "domain": domain,
             "performance": performance,
+            "uptime": uptime,
             "security": {
                 "vulnerabilities_by_severity": vuln_counts,
                 "php_errors": php_error_count,
@@ -221,6 +243,16 @@ class ReportBuilder:
             w.writerow(["Script changes (total)", data["script_changes"]["total"]])
             for ct, n in data["script_changes"]["by_type"].items():
                 w.writerow([f"  {ct}", n])
+            w.writerow([])
+        if "uptime" in inc:
+            w.writerow(["Uptime & Downtime"])
+            w.writerow(["  Monitor", "Status", "Uptime %", "Checks", "Down checks"])
+            for u in data.get("uptime", []):
+                w.writerow([
+                    f"  {u['name']}", u["status"],
+                    "—" if u["uptime_pct"] is None else u["uptime_pct"],
+                    u["checks"], u["down_checks"],
+                ])
             w.writerow([])
         if "security" in inc:
             sec = data["security"]
@@ -467,6 +499,27 @@ class ReportBuilder:
                     "—" if lcp is None else f"{lcp:,} ms",
                 ])
             story.append(styled_table(perf_rows, [5 * cm, 5 * cm, 5 * cm], header=True))
+
+        # Uptime & Downtime
+        if "uptime" in inc:
+            story.append(Paragraph("Uptime & Downtime", section_style))
+            monitors = data.get("uptime") or []
+            if monitors:
+                up_rows = [["Monitor", "Status", "Uptime", "Checks", "Down"]]
+                for u in monitors:
+                    up = u["status"] == "up"
+                    color = "#16A34A" if up else ("#DC2626" if u["status"] == "down" else "#D97706")
+                    pct = "—" if u["uptime_pct"] is None else f"{u['uptime_pct']}%"
+                    up_rows.append([
+                        Paragraph(str(u["name"]), body_style),
+                        Paragraph(f'<font color="{color}"><b>{str(u["status"]).title()}</b></font>', body_style),
+                        pct,
+                        str(u["checks"]),
+                        str(u["down_checks"]),
+                    ])
+                story.append(styled_table(up_rows, [5 * cm, 3 * cm, 3 * cm, 2 * cm, 2 * cm], header=True))
+            else:
+                story.append(Paragraph("No uptime monitors configured for this site.", body_style))
 
         # Security
         if "security" in inc:
