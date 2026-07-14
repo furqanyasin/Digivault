@@ -24,6 +24,22 @@ CHANNEL_LAYERS = {
     }
 }
 
+# Local-memory cache so Redis is not required for dev (login/rate-limit/device
+# trust all read the cache). Mirrors the channel-layer override above.
+CACHES = {  # type: ignore[assignment]
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+    }
+}
+
+# Run Celery tasks inline in dev so the ingest pipeline works without a broker.
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True
+
+# Local dev only: let login skip the mandatory 2FA gate and issue tokens
+# directly. NEVER set in production settings.
+ALLOW_2FA_BYPASS = True
+
 # Disable throttling during tests so rate limits don't interfere
 REST_FRAMEWORK = {  # type: ignore[assignment]
     **REST_FRAMEWORK,  # noqa: F405
