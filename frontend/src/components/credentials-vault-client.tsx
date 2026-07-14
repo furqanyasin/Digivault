@@ -513,8 +513,8 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
   const [section, setSection] = useState<Section>(defaultSection);
   const [form, setForm] = useState({
     website_id: "",
-    label: "",
     credential_type: "",
+    custom_type: "",
     login_url: "",
     username: "",
     password: "",
@@ -524,6 +524,36 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
   function upd(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
   const typeOptions = section === "website" ? WEBSITE_TYPES : HOSTING_TYPES;
+  const isCustom = form.credential_type === "custom";
+
+  // Selecting a website autofills as much as possible: the login URL derived
+  // from its domain, and a sensible default type from its platform.
+  function selectWebsite(id: string) {
+    const site = websites.find((w) => w.id === id);
+    const domain = (site?.domain || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+    setForm((f) => {
+      const platform = (site?.platform || "").toLowerCase();
+      const type = f.credential_type || (platform === "wordpress" || !platform ? "wordpress" : "custom");
+      const loginUrl = domain
+        ? type === "wordpress" ? `https://${domain}/wp-admin` : `https://${domain}`
+        : f.login_url;
+      return { ...f, website_id: id, credential_type: type, login_url: loginUrl };
+    });
+  }
+
+  // Label is auto-generated (the field was removed from the form). For custom
+  // types the free-text CMS/hosting name stands in for the type.
+  function derivedLabel(): string {
+    const site = websites.find((w) => w.id === form.website_id);
+    const typeName = isCustom
+      ? (form.custom_type.trim() || "Custom")
+      : typeLabel(form.credential_type || (section === "website" ? "wordpress" : "siteground"));
+    if (section === "website") {
+      const siteName = site?.name || site?.domain || "Website";
+      return `${siteName} — ${typeName}`;
+    }
+    return form.custom_type.trim() ? `${form.custom_type.trim()} Account` : `${typeName} Account`;
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -531,10 +561,14 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
       toast({ variant: "destructive", title: "Select a website" });
       return;
     }
+    if (isCustom && !form.custom_type.trim()) {
+      toast({ variant: "destructive", title: section === "website" ? "Enter the CMS type" : "Enter the hosting type" });
+      return;
+    }
     setLoading(true);
     try {
       const body: Record<string, string | null> = {
-        label: form.label,
+        label: derivedLabel(),
         credential_type: form.credential_type || (section === "website" ? "wordpress" : "siteground"),
         login_url: form.login_url,
         username: form.username,
@@ -591,7 +625,7 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
           {section === "website" && (
             <div className="space-y-1.5">
               <Label>Website</Label>
-              <Select value={form.website_id} onValueChange={(v) => upd("website_id", v)}>
+              <Select value={form.website_id} onValueChange={selectWebsite}>
                 <SelectTrigger><SelectValue placeholder="Select website" /></SelectTrigger>
                 <SelectContent>
                   {websites.map((w) => (
@@ -601,16 +635,6 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
               </Select>
             </div>
           )}
-
-          <div className="space-y-1.5">
-            <Label>Label</Label>
-            <Input
-              placeholder={section === "website" ? "e.g. WordPress Admin" : "e.g. SiteGround Account"}
-              value={form.label}
-              onChange={(e) => upd("label", e.target.value)}
-              required
-            />
-          </div>
 
           <div className="space-y-1.5">
             <Label>Type</Label>
@@ -624,6 +648,18 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
               </SelectContent>
             </Select>
           </div>
+
+          {isCustom && (
+            <div className="space-y-1.5">
+              <Label>{section === "website" ? "CMS type" : "Hosting type"}</Label>
+              <Input
+                placeholder={section === "website" ? "e.g. Joomla, Drupal, Ghost" : "e.g. AWS, DigitalOcean, Vercel"}
+                value={form.custom_type}
+                onChange={(e) => upd("custom_type", e.target.value)}
+                autoFocus
+              />
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label>Login URL</Label>
