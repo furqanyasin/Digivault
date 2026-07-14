@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 
 interface Props {
@@ -92,9 +93,8 @@ export function InvitationAcceptClient({ token, inviteEmail }: Props) {
         </div>
         <div className="space-y-2">
           <Label htmlFor="invite-password">Temporary password</Label>
-          <Input
+          <PasswordInput
             id="invite-password"
-            type="password"
             placeholder="Paste from your email"
             value={password}
             onChange={(e) => setPassword(e.target.value)}

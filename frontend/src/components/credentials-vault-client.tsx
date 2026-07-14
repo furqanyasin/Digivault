@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -290,6 +291,25 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
     }
   }
 
+  // Entering edit reveals the stored values first (when possible) so every
+  // field is populated and editable, not just the metadata.
+  async function enterEdit() {
+    if (!revealed) {
+      try {
+        const res = await fetch(`/api/credentials/${cred.id}/reveal`, { method: "POST" });
+        if (res.ok) {
+          const data: RevealData = await res.json();
+          setRevealed(data);
+          setForm((f) => ({ ...f, username: data.username, password: data.password, notes: data.notes }));
+        }
+      } catch {
+        // fall through to edit with metadata only; blank secret fields are
+        // left unchanged on save
+      }
+    }
+    setEditMode(true);
+  }
+
   async function handleSave() {
     setSaveLoading(true);
     try {
@@ -341,15 +361,6 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
       <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
         <div className={`h-24 bg-gradient-to-br ${cardGradient(cred)} flex items-center justify-center relative`}>
           <Lock className="h-10 w-10 text-white/75" />
-          {!editMode && canWrite && (
-            <button
-              onClick={() => setEditMode(true)}
-              className="absolute top-3 right-3 p-1.5 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
-              title="Edit"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
         </div>
 
         <div className="p-5 space-y-4">
@@ -428,7 +439,7 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
               <div>
                 <Label className="text-xs text-muted-foreground uppercase tracking-wide">Password</Label>
                 {editMode ? (
-                  <Input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} className="mt-1" />
+                  <PasswordInput value={form.password} onChange={(e) => upd("password", e.target.value)} className="mt-1" />
                 ) : revealed?.password_hidden ? (
                   <div className="flex items-center gap-2 mt-1">
                     <Lock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -474,13 +485,18 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
                   <Button size="sm" onClick={handleSave} disabled={saveLoading}>{saveLoading ? "Saving…" : "Save changes"}</Button>
                 </>
               ) : !deleteConfirm ? (
-                <Button
-                  variant="ghost" size="sm"
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-auto"
-                  onClick={() => setDeleteConfirm(true)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete
-                </Button>
+                <>
+                  <Button variant="outline" size="sm" onClick={enterEdit}>
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-auto"
+                    onClick={() => setDeleteConfirm(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete
+                  </Button>
+                </>
               ) : (
                 <div className="flex items-center gap-2 ml-auto">
                   <span className="text-xs text-muted-foreground">Delete permanently?</span>
@@ -677,7 +693,7 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
             </div>
             <div className="space-y-1.5">
               <Label>Password</Label>
-              <Input type="password" value={form.password} onChange={(e) => upd("password", e.target.value)} required />
+              <PasswordInput value={form.password} onChange={(e) => upd("password", e.target.value)} autoComplete="new-password" required />
             </div>
           </div>
 

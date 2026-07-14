@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Globe, Bell, Key, Users, LayoutDashboard, Building2, Settings,
-  ClipboardList, FileText, CalendarClock, UserCircle,
+  ClipboardList, FileText, CalendarClock, UserCircle, Flame,
   type LucideIcon,
 } from "lucide-react";
 
@@ -22,6 +22,7 @@ const ICONS: Record<string, LucideIcon> = {
   logs: ClipboardList,
   account: UserCircle,
   settings: Settings,
+  heatmap: Flame,
 };
 
 export interface NavLinkItem {
