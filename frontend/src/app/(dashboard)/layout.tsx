@@ -60,8 +60,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="w-64 shrink-0 border-r bg-card flex flex-col">
+      {/* Sidebar — sticks to the top while the page body scrolls */}
+      <aside className="w-64 shrink-0 border-r bg-card flex flex-col sticky top-0 h-screen self-start overflow-y-auto">
         <div className="flex items-center gap-2.5 px-6 py-5 border-b">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 shadow-sm">
             <Shield className="h-4.5 w-4.5 text-white" />
@@ -87,8 +87,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto">
+      {/* Main content — flows in normal document flow so the body scrolls when
+          content is taller than the viewport. min-w-0 lets wide children (e.g.
+          tables) stay contained instead of forcing page-wide overflow. */}
+      <main className="flex-1 min-w-0">
         {!isOwner && <FeatureGuard features={myFeatures} isManager={isManager} />}
         {children}
       </main>
