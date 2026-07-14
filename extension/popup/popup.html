@@ -9,7 +9,7 @@
 <body>
 
   <!-- ═══════════ LOGIN SCREEN ═══════════ -->
-  <div id="screen-login" style="display:none">
+  <div id="screen-login" class="hidden">
     <div class="login-wrap">
       <div class="login-logo">
         <img src="../icons/icon48.png" width="36" height="36" alt="" />
@@ -45,7 +45,7 @@
   </div>
 
   <!-- ═══════════ MAIN SCREEN ═══════════ -->
-  <div id="screen-main" style="display:none">
+  <div id="screen-main" class="hidden">
 
     <!-- ── VAULT TAB ──────────────────────── -->
     <div id="tab-vault" class="tab-pane">
@@ -70,7 +70,7 @@
     </div>
 
     <!-- ── GENERATOR TAB ──────────────────── -->
-    <div id="tab-generator" class="tab-pane" style="display:none">
+    <div id="tab-generator" class="tab-pane hidden">
       <div class="gen-body">
         <div class="gen-tip-banner">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -123,12 +123,12 @@
     </div>
 
     <!-- ── ALERTS TAB ─────────────────────── -->
-    <div id="tab-alerts" class="tab-pane" style="display:none">
+    <div id="tab-alerts" class="tab-pane hidden">
       <div id="alerts-body" class="tab-body"></div>
     </div>
 
     <!-- ── ACCOUNT TAB ────────────────────── -->
-    <div id="tab-account" class="tab-pane" style="display:none">
+    <div id="tab-account" class="tab-pane hidden">
       <div class="account-body">
         <div class="account-email-row">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -182,7 +182,7 @@
       <button class="nav-btn" data-tab="alerts">
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         <span>Alerts</span>
-        <span class="nav-badge" id="nav-alerts-badge" style="display:none"></span>
+        <span class="nav-badge hidden" id="nav-alerts-badge"></span>
       </button>
       <button class="nav-btn" data-tab="account">
         <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>

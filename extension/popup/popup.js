@@ -67,18 +67,20 @@ function credOpenUrl(cred) {
 // ─── Screen helpers ───────────────────────────────────────────────────────────
 
 function showScreen(name) {
-  document.getElementById("screen-login").style.display = name === "login" ? "" : "none";
-  document.getElementById("screen-main").style.display  = name === "main"  ? "" : "none";
+  // Toggle a CSS class rather than an inline style — the popup's CSP
+  // (style-src 'self') blocks inline style attributes.
+  document.getElementById("screen-login").classList.toggle("hidden", name !== "login");
+  document.getElementById("screen-main").classList.toggle("hidden", name !== "main");
 }
 
 function switchTab(name) {
   activeTab = name;
-  document.querySelectorAll(".tab-pane").forEach((el) => { el.style.display = "none"; });
+  document.querySelectorAll(".tab-pane").forEach((el) => { el.classList.add("hidden"); });
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === name);
   });
   const pane = document.getElementById("tab-" + name);
-  if (pane) pane.style.display = "";
+  if (pane) pane.classList.remove("hidden");
 
   if (name === "vault")     renderVault();
   if (name === "alerts")    renderAlerts();
@@ -407,7 +409,7 @@ function initGenerator() {
 
   document.getElementById("gen-dismiss-btn").addEventListener("click", () => {
     const banner = document.querySelector(".gen-tip-banner");
-    if (banner) banner.style.display = "none";
+    if (banner) banner.classList.add("hidden");
   });
 
   document.getElementById("gen-history-btn").addEventListener("click", async () => {
@@ -448,7 +450,7 @@ function renderAlerts() {
   const badge = document.getElementById("nav-alerts-badge");
   if (unknownCount > 0) {
     badge.textContent = unknownCount;
-    badge.style.display = "";
+    badge.classList.remove("hidden");
   }
 
   // Summary card
@@ -557,7 +559,7 @@ async function initMain() {
     if (unknownCount > 0) {
       const badge = document.getElementById("nav-alerts-badge");
       badge.textContent = unknownCount;
-      badge.style.display = "";
+      badge.classList.remove("hidden");
     }
   }
 
