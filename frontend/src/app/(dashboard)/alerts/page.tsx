@@ -21,6 +21,9 @@ const SEVERITY_LABEL: Record<string, string> = {
   low: "All changes",
 };
 
+// A change tagged with the website it belongs to (added during fetch).
+type ChangeWithSite = ScriptChange & { _websiteName: string; _websiteId: string };
+
 async function getData(token: string) {
   const [notificationsResult, rulesResult, websitesResult] = await Promise.allSettled([
     api.get<Notification[]>("/api/v1/notifications/", token),
@@ -30,13 +33,21 @@ async function getData(token: string) {
 
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
 
-  // Fetch changes across all websites for the global alerts view
+  // Fetch changes across all websites for the global alerts view. Each change is
+  // tagged with its source website so the table can show attribution (the
+  // ScriptChange payload itself doesn't carry the website).
   const changeSets = await Promise.allSettled(
     websites.map((s) => api.get<ScriptChange[]>(`/api/v1/websites/${s.id}/changes/`, token))
   );
-  const allChanges = changeSets
-    .filter((r) => r.status === "fulfilled")
-    .flatMap((r) => (r as PromiseFulfilledResult<ScriptChange[]>).value);
+  const allChanges: ChangeWithSite[] = changeSets.flatMap((r, i) => {
+    if (r.status !== "fulfilled") return [];
+    const site = websites[i];
+    return r.value.map((c) => ({
+      ...c,
+      _websiteName: site.name || site.domain,
+      _websiteId: site.id,
+    }));
+  });
 
   return {
     notifications: notificationsResult.status === "fulfilled" ? notificationsResult.value : [],
@@ -54,10 +65,10 @@ function severityVariant(s: string): "destructive" | "warning" | "secondary" {
 
 export default async function AlertsPage() {
   const token = await getAccessToken();
-  const { notifications, rules, allChanges, websites } = await getData(token ?? "");
+  const { notifications, rules, allChanges } = await getData(token ?? "");
 
   const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
-  function isInternal(c: ScriptChange) {
+  function isInternal(c: ChangeWithSite) {
     const hit = (s?: string) => !!s && INTERNAL_DOMAINS.some((d) => s.includes(d));
     return hit(c.script?.src_url) || hit(c.description);
   }
@@ -66,9 +77,6 @@ export default async function AlertsPage() {
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
   const highCount = pendingChanges.filter((c) => c.severity === "high" || c.severity === "critical").length;
   const medCount = pendingChanges.filter((c) => c.severity === "medium").length;
-
-  // Build website lookup for change attribution
-  const websiteMap = Object.fromEntries(websites.map((w) => [w.id, w]));
 
   return (
     <div className="p-8 space-y-8">
@@ -127,6 +135,7 @@ export default async function AlertsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Severity</TableHead>
+                  <TableHead>Website</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Script</TableHead>
                   <TableHead>Description</TableHead>
@@ -143,6 +152,7 @@ export default async function AlertsPage() {
                   .map((change) => (
                     <TableRow key={change.id}>
                       <TableCell><Badge variant={severityVariant(change.severity)}>{change.severity}</Badge></TableCell>
+                      <TableCell className="text-sm font-medium max-w-[160px] truncate">{change._websiteName}</TableCell>
                       <TableCell className="capitalize font-medium text-sm">{change.change_type}</TableCell>
                       <TableCell className="font-mono text-xs max-w-[180px] truncate">{change.script?.src_url ?? "—"}</TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{change.description}</TableCell>
