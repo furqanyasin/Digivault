@@ -81,35 +81,55 @@ class DiffEngine:
         removed_urls = prev_urls - curr_urls
         added_urls = curr_urls - prev_urls
 
-        # URL_CHANGED: same known provider, exactly one URL removed and one added.
-        # Group removed/added by provider so a GTM container-ID swap shows as
-        # URL_CHANGED rather than REMOVED + ADDED.
-        removed_by_provider: dict[str, list[str]] = {}
-        for url in removed_urls:
+        # URL_CHANGED: exactly one URL removed and one added for the same source.
+        # Grouping by "source" collapses a version swap into a single, calm
+        # "updated" event instead of a scary Added + Removed pair. Known scripts
+        # group by provider (e.g. a GTM container-ID swap); unknown third-party
+        # scripts group by host, so self-updating widgets that version their
+        # files (e.g. leadconnectorhq) stop producing confusing add/remove churn.
+        def _group_key(url: str):
             r = ScriptClassifier.classify(url)
             if r.is_known:
-                removed_by_provider.setdefault(r.provider, []).append(url)
+                return ("provider", r.provider)
+            from urllib.parse import urlsplit
+            raw = "https:" + url if url.startswith("//") else url
+            host = urlsplit(raw).netloc.lower().removeprefix("www.")
+            return ("host", host) if host else None
 
-        added_by_provider: dict[str, list[str]] = {}
+        removed_by_key: dict[tuple, list[str]] = {}
+        for url in removed_urls:
+            key = _group_key(url)
+            if key:
+                removed_by_key.setdefault(key, []).append(url)
+
+        added_by_key: dict[tuple, list[str]] = {}
         for url in added_urls:
-            r = ScriptClassifier.classify(url)
-            if r.is_known:
-                added_by_provider.setdefault(r.provider, []).append(url)
+            key = _group_key(url)
+            if key:
+                added_by_key.setdefault(key, []).append(url)
 
         url_changed_skips: set[str] = set()
-        for provider in set(removed_by_provider) & set(added_by_provider):
-            old_list = removed_by_provider[provider]
-            new_list = added_by_provider[provider]
-            # Only treat as URL change when there is a 1-to-1 swap
+        for key in set(removed_by_key) & set(added_by_key):
+            old_list = removed_by_key[key]
+            new_list = added_by_key[key]
+            # Only treat as an update when there is a 1-to-1 swap
             if len(old_list) == 1 and len(new_list) == 1:
                 old_url, new_url = old_list[0], new_list[0]
                 url_changed_skips.add(old_url)
                 url_changed_skips.add(new_url)
-                is_critical = cls._is_critical(provider)
+                if key[0] == "provider":
+                    provider = key[1]
+                    is_critical = cls._is_critical(provider)
+                    severity = cls._SEV.HIGH if is_critical else cls._SEV.MEDIUM
+                    description = f"{provider} URL changed"
+                else:
+                    provider = "unknown"
+                    severity = cls._SEV.MEDIUM
+                    description = f"Script updated on {key[1]}"
                 results.append(ChangeResult(
                     change_type=cls._CT.URL_CHANGED,
-                    severity=cls._SEV.HIGH if is_critical else cls._SEV.MEDIUM,
-                    description=f"{provider} URL changed",
+                    severity=severity,
+                    description=description,
                     old_value=prev_map[old_url],
                     new_value=curr_map[new_url],
                     src_url=new_url,

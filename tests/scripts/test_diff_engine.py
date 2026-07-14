@@ -81,6 +81,26 @@ class TestDiffEngine:
         assert len(changes) == 2
         assert all(c.change_type == ScriptChange.ChangeType.REMOVED for c in changes)
 
+    def test_unknown_widget_version_swap_collapses_to_single_update(self):
+        """A versioned third-party widget (same host) should read as one calm
+        'updated' event, not a high Added + medium Removed pair."""
+        prev = [self._script("https://widgets.leadconnectorhq.com/loader-abc123.js")]
+        curr = [self._script("https://widgets.leadconnectorhq.com/loader-def456.js")]
+        changes = DiffEngine.diff(prev, curr)
+        assert len(changes) == 1
+        assert changes[0].change_type == ScriptChange.ChangeType.URL_CHANGED
+        assert changes[0].severity == ScriptChange.Severity.MEDIUM
+        assert "leadconnectorhq.com" in changes[0].description
+
+    def test_unknown_add_and_unrelated_remove_not_collapsed(self):
+        """Different hosts must NOT collapse — a genuine add and remove stay separate."""
+        prev = [self._script("https://old-tracker.xyz/a.js")]
+        curr = [self._script("https://new-tracker.xyz/b.js")]
+        changes = DiffEngine.diff(prev, curr)
+        types = {c.change_type for c in changes}
+        assert ScriptChange.ChangeType.ADDED in types
+        assert ScriptChange.ChangeType.REMOVED in types
+
 
 class TestNormalizedDiffing:
     """ver bumps and cache-buster rotation must not fake add/remove events."""
