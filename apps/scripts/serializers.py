@@ -63,6 +63,14 @@ class FormErrorIngestSerializer(serializers.Serializer):
     message = serializers.CharField(max_length=2000)
 
 
+class FormSubmissionIngestSerializer(serializers.Serializer):
+    """Posted by the snippet when a native form is submitted, to count it."""
+
+    site_id = serializers.CharField(max_length=64)
+    page_url = serializers.URLField(max_length=2048)
+    form = IngestFormSerializer()
+
+
 class FormSubmissionErrorSerializer(BaseModelSerializer):
     class Meta:
         model = FormSubmissionError
@@ -124,6 +132,7 @@ class DetectedFormSerializer(BaseModelSerializer):
             "id", "page_url", "form_id", "form_name",
             "form_action", "form_method", "fields",
             "detection_type", "provider", "is_managed",
+            "submission_count",
             "first_seen_at", "last_seen_at",
         )
         read_only_fields = fields

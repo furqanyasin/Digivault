@@ -7,9 +7,11 @@ default preset that a manager can then fine-tune per member.
 
 from __future__ import annotations
 
+# Mirrors the feature-gated sidebar nav. Monitors, Status Pages and Reports are
+# no longer standalone sections (folded into the website detail tabs), so they
+# are not gatable features anymore.
 FEATURE_KEYS = frozenset({
-    "websites", "clients", "monitors", "status_pages",
-    "alerts", "reports", "renewals", "credentials", "activity_log",
+    "websites", "clients", "alerts", "renewals", "credentials", "activity_log",
 })
 
 # Renewal Center is manager-only, so it's excluded from non-manager presets.

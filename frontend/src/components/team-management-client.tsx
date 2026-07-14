@@ -41,13 +41,10 @@ const ROLE_BADGE: Record<string, string> = {
 // Feature keys a custom member's access can be limited to — mirrors the backend
 // CUSTOM_FEATURE_KEYS and the sidebar nav.
 const FEATURES: { key: string; label: string }[] = [
-  { key: "websites", label: "Websites" },
   { key: "clients", label: "Clients" },
-  { key: "monitors", label: "Monitors" },
-  { key: "status_pages", label: "Status Pages" },
-  { key: "alerts", label: "Alerts" },
-  { key: "reports", label: "Reports" },
+  { key: "websites", label: "Websites" },
   { key: "renewals", label: "Renewal Center" },
+  { key: "alerts", label: "Alerts" },
   { key: "credentials", label: "Credentials" },
   { key: "activity_log", label: "Activity Log" },
 ];

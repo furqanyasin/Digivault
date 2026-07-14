@@ -185,7 +185,7 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.5'
+      snippet_version: '1.6'
     });
     if (navigator.sendBeacon) {
       var blob = new Blob([payload], { type: 'application/json' });
@@ -267,7 +267,42 @@
   // filters again (only mail/SMTP/5xx-style failures are stored) and redacts
   // any PII that leaks into status text.
   var formErrorsUrl = ingestUrl.replace(/\/ingest\/?$/, '/ingest/form-errors/');
+  var formSubmitUrl = ingestUrl.replace(/\/ingest\/?$/, '/ingest/form-submission/');
   var reportedErrors = {};
+
+  // Count a native <form> submission. Describes the form the same way
+  // collectForms() does so the server can match it by fingerprint. Only native
+  // forms are countable — embedded third-party iframes never reach this event.
+  function sendFormSubmission(form) {
+    if (!form || form.tagName !== 'FORM') return;
+    var fieldList = [];
+    var inputs = form.querySelectorAll('input, textarea, select');
+    for (var i = 0; i < inputs.length; i++) {
+      if (!isFieldInput(inputs[i])) continue;
+      fieldList.push(describeField(inputs[i]));
+    }
+    var payload = JSON.stringify({
+      site_id: siteId,
+      page_url: window.location.href,
+      form: {
+        form_id: form.id || '',
+        form_name: form.getAttribute('name') || '',
+        form_action: form.action || '',
+        form_method: (form.method || 'post').toLowerCase(),
+        detection_type: 'native',
+        provider: '',
+        fields: fieldList
+      }
+    });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(formSubmitUrl, new Blob([payload], { type: 'application/json' }));
+    } else {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', formSubmitUrl, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(payload);
+    }
+  }
 
   function sendFormError(source, formId, message) {
     var key = (source + '|' + formId + '|' + message).slice(0, 200);
@@ -336,6 +371,7 @@
   document.addEventListener('submit', function (e) {
     watchForm = e.target && e.target.tagName === 'FORM' ? e.target : null;
     watchUntil = Date.now() + 20000;
+    if (watchForm) sendFormSubmission(watchForm);
     if (errObserver || typeof MutationObserver === 'undefined') return;
     errObserver = new MutationObserver(function (mutations) {
       if (Date.now() > watchUntil) return;

@@ -244,6 +244,9 @@ class DetectedForm(BaseModel):
     provider = models.CharField(max_length=100, blank=True)
     # Structural hash that uniquely identifies a form within a page.
     fingerprint = models.CharField(max_length=64, db_index=True)
+    # Count of submit attempts observed by the snippet (native/same-origin
+    # forms only — embedded third-party iframes can't be tracked from the page).
+    submission_count = models.PositiveIntegerField(default=0)
     first_seen_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(auto_now=True)
 

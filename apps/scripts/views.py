@@ -37,6 +37,7 @@ from apps.scripts.serializers import (
     DetectedFormSerializer,
     FormErrorIngestSerializer,
     FormSubmissionErrorSerializer,
+    FormSubmissionIngestSerializer,
     IngestPayloadSerializer,
     ScriptChangeSerializer,
     ScriptSerializer,
@@ -185,6 +186,51 @@ class FormErrorIngestView(APIView):
                 message=sanitize_error_message(data["message"]),
             )
         return Response(status=status.HTTP_202_ACCEPTED)
+
+
+class FormSubmissionIngestView(APIView):
+    """POST /api/ingest/form-submission/ — counts a native form submission.
+
+    The snippet fires this on submit. We recompute the form's fingerprint the
+    same way ingest does and increment the matching DetectedForm's counter.
+    Same trust model as the other ingest endpoints (site_id + origin check).
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [IngestThrottle]
+
+    def post(self, request):
+        serializer = FormSubmissionIngestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            website = Website.objects.get(site_id=data["site_id"])
+        except Website.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
+        if origin and website.domain:
+            from urllib.parse import urlparse
+            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
+            site_host = website.domain.lower().removeprefix("www.").removeprefix("https://").removeprefix("http://").split("/")[0]
+            if origin_host and site_host and origin_host != site_host:
+                return Response(status=status.HTTP_403_FORBIDDEN)
+
+        from django.db.models import F
+
+        fingerprint = DetectedForm.compute_fingerprint(data["form"])
+        # Increment only if the form was already detected on this page — avoids
+        # counting phantom submissions for forms we've never catalogued.
+        updated = DetectedForm.objects.filter(
+            website=website,
+            page_url=data["page_url"],
+            fingerprint=fingerprint,
+        ).update(submission_count=F("submission_count") + 1)
+        return Response(
+            {"counted": bool(updated)}, status=status.HTTP_202_ACCEPTED
+        )
 
 
 class WebsiteScriptListView(generics.ListAPIView):

@@ -15,14 +15,14 @@ def member(team):
 def test_set_custom_role_sanitizes_features(auth_client, team, member):
     resp = auth_client.patch(
         f"/api/v1/auth/teams/{team.id}/members/{member.id}/",
-        {"role": "custom", "feature_access": ["websites", "reports", "bogus"]},
+        {"role": "custom", "feature_access": ["websites", "alerts", "bogus"]},
         format="json",
     )
     assert resp.status_code == 200, resp.data
     member.refresh_from_db()
     assert member.role == "custom"
     # Unknown keys are dropped.
-    assert set(member.feature_access) == {"websites", "reports"}
+    assert set(member.feature_access) == {"websites", "alerts"}
 
 
 @pytest.mark.django_db

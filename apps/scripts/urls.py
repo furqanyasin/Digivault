@@ -6,6 +6,7 @@ from apps.scripts.views import (
     BulkScriptReviewView,
     ExtensionLookupView,
     FormErrorIngestView,
+    FormSubmissionIngestView,
     IngestView,
     ScriptReviewView,
     ScriptTimelineView,
@@ -22,6 +23,7 @@ from apps.scripts.views import (
 ingest_urlpatterns = [
     path("ingest/", IngestView.as_view(), name="ingest"),
     path("ingest/form-errors/", FormErrorIngestView.as_view(), name="ingest-form-errors"),
+    path("ingest/form-submission/", FormSubmissionIngestView.as_view(), name="ingest-form-submission"),
     path("extension/lookup/", ExtensionLookupView.as_view(), name="extension-lookup"),
     path("s.js", SnippetJsView.as_view(), name="snippet-js"),
 ]
