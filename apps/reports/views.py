@@ -49,6 +49,7 @@ class ReportGenerateView(APIView):
             data["period_start"],
             data["period_end"],
             report_format=data["report_format"],
+            sections=data.get("sections") or None,
         )
         code = (
             status.HTTP_201_CREATED

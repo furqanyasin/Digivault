@@ -22,99 +22,121 @@ def _as_dt(d: date, end: bool = False):
 
 class ReportBuilder:
     @staticmethod
-    def gather(website, period_start: date, period_end: date) -> dict:
-        """Collect a website's report data for the [start, end] window."""
+    def gather(website, period_start: date, period_end: date, sections=None) -> dict:
+        """Collect a website's report data for the [start, end] window.
+
+        `sections` is an iterable of section keys (Report.SECTION_KEYS) to
+        include; None or empty means all sections. "overview" is always
+        gathered. Excluded sections skip their queries entirely.
+        """
+        from apps.reports.models import Report
         from apps.scripts.models import ScriptChange
         from apps.site_health.models import PhpError
         from apps.site_health.models import VulnerabilityReport
         from apps.performance.models import PerformanceReport
 
+        included = set(sections) if sections else set(Report.SECTION_KEYS)
+
         start_dt = _as_dt(period_start)
         end_dt = _as_dt(period_end, end=True)
 
         # Script changes in the window
-        changes = ScriptChange.objects.filter(
-            website=website, created_at__gte=start_dt, created_at__lte=end_dt
-        )
-        change_counts = {
-            row["change_type"]: row["n"]
-            for row in changes.values("change_type").annotate(n=Count("id"))
-        }
-        high_risk = list(
-            changes.filter(severity__in=["critical", "high"])
-            .order_by("-created_at")
-            .values("change_type", "severity", "description")[:20]
-        )
+        change_counts: dict = {}
+        high_risk: list = []
+        if "script_changes" in included:
+            changes = ScriptChange.objects.filter(
+                website=website, created_at__gte=start_dt, created_at__lte=end_dt
+            )
+            change_counts = {
+                row["change_type"]: row["n"]
+                for row in changes.values("change_type").annotate(n=Count("id"))
+            }
+            high_risk = list(
+                changes.filter(severity__in=["critical", "high"])
+                .order_by("-created_at")
+                .values("change_type", "severity", "description")[:20]
+            )
 
         # Active scripts currently running on the site, grouped by domain and
         # excluding Digivault's own infra (the tracking snippet) — matches the
         # website detail "Active Scripts" list.
-        from apps.scripts.models import Script
-        from apps.scripts.tasks import _internal_hosts
+        active_scripts: list = []
+        if "active_scripts" in included:
+            from apps.scripts.models import Script
+            from apps.scripts.tasks import _internal_hosts
 
-        internal = _internal_hosts()
-        grouped: dict[str, dict] = {}
-        for s in Script.objects.filter(website=website, is_active=True).order_by("provider", "src_domain"):
-            blob = f"{s.src_url or ''} {s.src_domain or ''}".lower()
-            if any(h in blob for h in internal):
-                continue
-            key = (s.src_domain or s.src_url or "").lower()
-            if key not in grouped:
-                grouped[key] = {
-                    "domain": s.src_domain or s.src_url or "—",
-                    "provider": s.provider,
-                    "category": s.category,
-                    "files": 0,
-                }
-            grouped[key]["files"] += 1
-        active_scripts = sorted(
-            grouped.values(),
-            key=lambda r: (r["provider"] == "unknown", r["provider"], r["domain"]),
-        )
+            internal = _internal_hosts()
+            grouped: dict[str, dict] = {}
+            for s in Script.objects.filter(website=website, is_active=True).order_by("provider", "src_domain"):
+                blob = f"{s.src_url or ''} {s.src_domain or ''}".lower()
+                if any(h in blob for h in internal):
+                    continue
+                key = (s.src_domain or s.src_url or "").lower()
+                if key not in grouped:
+                    grouped[key] = {
+                        "domain": s.src_domain or s.src_url or "—",
+                        "provider": s.provider,
+                        "category": s.category,
+                        "files": 0,
+                    }
+                grouped[key]["files"] += 1
+            active_scripts = sorted(
+                grouped.values(),
+                key=lambda r: (r["provider"] == "unknown", r["provider"], r["domain"]),
+            )
 
         # Domain / SSL
         domain = None
-        try:
-            di = website.domain_info
-            domain = {
-                "registrar": di.registrar,
-                "hosting_provider": di.hosting_provider,
-                "domain_days_until_expiry": di.domain_days_until_expiry,
-                "ssl_days_until_expiry": di.ssl_days_until_expiry,
-            }
-        except Exception:
-            domain = None
+        if "domain_ssl" in included:
+            try:
+                di = website.domain_info
+                domain = {
+                    "registrar": di.registrar,
+                    "hosting_provider": di.hosting_provider,
+                    "domain_days_until_expiry": di.domain_days_until_expiry,
+                    "ssl_days_until_expiry": di.ssl_days_until_expiry,
+                }
+            except Exception:
+                domain = None
 
         # Latest performance per strategy
         performance = []
-        for strategy in ("mobile", "desktop"):
-            latest = (
-                PerformanceReport.objects.filter(website=website, strategy=strategy)
-                .order_by("-checked_at")
-                .first()
-            )
-            if latest:
-                performance.append({
-                    "strategy": strategy,
-                    "performance_score": latest.performance_score,
-                    "lcp_ms": latest.lcp_ms,
-                })
+        if "performance" in included:
+            for strategy in ("mobile", "desktop"):
+                latest = (
+                    PerformanceReport.objects.filter(website=website, strategy=strategy)
+                    .order_by("-checked_at")
+                    .first()
+                )
+                if latest:
+                    performance.append({
+                        "strategy": strategy,
+                        "performance_score": latest.performance_score,
+                        "lcp_ms": latest.lcp_ms,
+                    })
 
         # Security
-        vuln_counts = {
-            row["severity"]: row["n"]
-            for row in VulnerabilityReport.objects.filter(website=website)
-            .values("severity")
-            .annotate(n=Count("id"))
-        }
+        vuln_counts: dict = {}
+        php_error_count = 0
+        if "security" in included:
+            vuln_counts = {
+                row["severity"]: row["n"]
+                for row in VulnerabilityReport.objects.filter(website=website)
+                .values("severity")
+                .annotate(n=Count("id"))
+            }
+            php_error_count = PhpError.objects.filter(
+                website=website, captured_at__gte=start_dt, captured_at__lte=end_dt
+            ).count()
 
-        php_error_count = PhpError.objects.filter(
-            website=website, captured_at__gte=start_dt, captured_at__lte=end_dt
-        ).count()
-
-        recommendations = ReportBuilder._recommendations(domain, vuln_counts, high_risk)
+        recommendations = (
+            ReportBuilder._recommendations(domain, vuln_counts, high_risk)
+            if "recommendations" in included
+            else []
+        )
 
         return {
+            "sections": sorted(included),
             "website": {
                 "name": website.name,
                 "domain": website.domain,
@@ -172,7 +194,14 @@ class ReportBuilder:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _included(data: dict) -> set:
+        from apps.reports.models import Report
+
+        return set(data.get("sections") or Report.SECTION_KEYS)
+
+    @staticmethod
     def render_csv(data: dict) -> str:
+        inc = ReportBuilder._included(data)
         buf = io.StringIO()
         w = csv.writer(buf)
         site = data["website"]
@@ -182,23 +211,34 @@ class ReportBuilder:
         w.writerow(["Health score", site["health_score"]])
         w.writerow(["Status", site["status"]])
         w.writerow([])
-        scripts = data.get("scripts", {})
-        w.writerow(["Active scripts (total)", scripts.get("active_total", 0)])
-        for s in scripts.get("active", []):
-            w.writerow([f"  {s['provider']} — {s['domain']}", s.get("category") or "", "Active"])
-        w.writerow([])
-        w.writerow(["Script changes (total)", data["script_changes"]["total"]])
-        for ct, n in data["script_changes"]["by_type"].items():
-            w.writerow([f"  {ct}", n])
-        w.writerow([])
-        sec = data["security"]
-        w.writerow(["PHP errors", sec["php_errors"]])
-        for sev, n in sec["vulnerabilities_by_severity"].items():
-            w.writerow([f"Vulnerabilities ({sev})", n])
-        w.writerow([])
-        w.writerow(["Recommendations"])
-        for rec in data["recommendations"]:
-            w.writerow(["", rec])
+        if "active_scripts" in inc:
+            scripts = data.get("scripts", {})
+            w.writerow(["Active scripts (total)", scripts.get("active_total", 0)])
+            for s in scripts.get("active", []):
+                w.writerow([f"  {s['provider']} — {s['domain']}", s.get("category") or "", "Active"])
+            w.writerow([])
+        if "script_changes" in inc:
+            w.writerow(["Script changes (total)", data["script_changes"]["total"]])
+            for ct, n in data["script_changes"]["by_type"].items():
+                w.writerow([f"  {ct}", n])
+            w.writerow([])
+        if "security" in inc:
+            sec = data["security"]
+            w.writerow(["PHP errors", sec["php_errors"]])
+            for sev, n in sec["vulnerabilities_by_severity"].items():
+                w.writerow([f"Vulnerabilities ({sev})", n])
+            w.writerow([])
+        if "domain_ssl" in inc and data.get("domain"):
+            dom = data["domain"]
+            w.writerow(["Registrar", dom.get("registrar") or ""])
+            w.writerow(["Hosting provider", dom.get("hosting_provider") or ""])
+            w.writerow(["Domain expires in (days)", dom.get("domain_days_until_expiry")])
+            w.writerow(["SSL expires in (days)", dom.get("ssl_days_until_expiry")])
+            w.writerow([])
+        if "recommendations" in inc:
+            w.writerow(["Recommendations"])
+            for rec in data["recommendations"]:
+                w.writerow(["", rec])
         return buf.getvalue()
 
     # Brand palette (kept in sync with the frontend's indigo accent).
@@ -358,59 +398,64 @@ class ReportBuilder:
             t.setStyle(TableStyle(cmds))
             return t
 
+        inc = ReportBuilder._included(data)
+
         # Overview
+        overview_rows = [
+            ["Health score", f"{site['health_score']} / 100"],
+            ["Status", str(site["status"]).title()],
+            ["Platform", site["platform"] or "—"],
+        ]
+        if "active_scripts" in inc:
+            overview_rows.append(["Active scripts", str(data.get("scripts", {}).get("active_total", 0))])
+        if "script_changes" in inc:
+            overview_rows.append(["Script changes (period)", str(data["script_changes"]["total"])])
+        if "security" in inc:
+            overview_rows.append(["PHP errors (period)", str(data["security"]["php_errors"])])
         story.append(Paragraph("Overview", section_style))
-        story.append(styled_table(
-            [
-                ["Health score", f"{site['health_score']} / 100"],
-                ["Status", str(site["status"]).title()],
-                ["Platform", site["platform"] or "—"],
-                ["Active scripts", str(data.get("scripts", {}).get("active_total", 0))],
-                ["Script changes (period)", str(data["script_changes"]["total"])],
-                ["PHP errors (period)", str(data["security"]["php_errors"])],
-            ],
-            [6 * cm, 9 * cm],
-        ))
+        story.append(styled_table(overview_rows, [6 * cm, 9 * cm]))
 
         # Active scripts
-        story.append(Paragraph("Active Scripts", section_style))
-        active = data.get("scripts", {}).get("active") or []
-        if active:
-            story.append(Paragraph(
-                f"{data['scripts']['active_total']} active script(s) across "
-                f"{data['scripts']['active_domains']} domain(s).", body_style))
-            story.append(Spacer(1, 0.2 * cm))
-            cap = 60
-            as_rows = [["Provider", "Domain", "Category", "Status"]]
-            for s in active[:cap]:
-                prov = s["provider"] if s["provider"] and s["provider"] != "unknown" else "—"
-                cat = s["category"] if s["category"] and s["category"] != "unknown" else "—"
-                as_rows.append([
-                    Paragraph(str(prov), body_style),
-                    Paragraph(str(s["domain"]), body_style),
-                    Paragraph(str(cat).replace("_", " ").title(), body_style),
-                    Paragraph('<font color="#16A34A"><b>Active</b></font>', body_style),
-                ])
-            story.append(styled_table(as_rows, [4 * cm, 6 * cm, 3 * cm, 2 * cm], header=True))
-            if len(active) > cap:
+        if "active_scripts" in inc:
+            story.append(Paragraph("Active Scripts", section_style))
+            active = data.get("scripts", {}).get("active") or []
+            if active:
                 story.append(Paragraph(
-                    f"… and {len(active) - cap} more active script domain(s).", body_style))
-        else:
-            story.append(Paragraph("No active third-party scripts detected.", body_style))
+                    f"{data['scripts']['active_total']} active script(s) across "
+                    f"{data['scripts']['active_domains']} domain(s).", body_style))
+                story.append(Spacer(1, 0.2 * cm))
+                cap = 60
+                as_rows = [["Provider", "Domain", "Category", "Status"]]
+                for s in active[:cap]:
+                    prov = s["provider"] if s["provider"] and s["provider"] != "unknown" else "—"
+                    cat = s["category"] if s["category"] and s["category"] != "unknown" else "—"
+                    as_rows.append([
+                        Paragraph(str(prov), body_style),
+                        Paragraph(str(s["domain"]), body_style),
+                        Paragraph(str(cat).replace("_", " ").title(), body_style),
+                        Paragraph('<font color="#16A34A"><b>Active</b></font>', body_style),
+                    ])
+                story.append(styled_table(as_rows, [4 * cm, 6 * cm, 3 * cm, 2 * cm], header=True))
+                if len(active) > cap:
+                    story.append(Paragraph(
+                        f"… and {len(active) - cap} more active script domain(s).", body_style))
+            else:
+                story.append(Paragraph("No active third-party scripts detected.", body_style))
 
         # Script changes
-        story.append(Paragraph("Script Changes", section_style))
-        by_type = data["script_changes"]["by_type"]
-        if by_type:
-            rows = [["Change type", "Count"]] + [
-                [str(ct).replace("_", " ").title(), str(n)] for ct, n in by_type.items()
-            ]
-            story.append(styled_table(rows, [9 * cm, 6 * cm], header=True))
-        else:
-            story.append(Paragraph("No script changes recorded this period.", body_style))
+        if "script_changes" in inc:
+            story.append(Paragraph("Script Changes", section_style))
+            by_type = data["script_changes"]["by_type"]
+            if by_type:
+                rows = [["Change type", "Count"]] + [
+                    [str(ct).replace("_", " ").title(), str(n)] for ct, n in by_type.items()
+                ]
+                story.append(styled_table(rows, [9 * cm, 6 * cm], header=True))
+            else:
+                story.append(Paragraph("No script changes recorded this period.", body_style))
 
         # Performance
-        if data["performance"]:
+        if "performance" in inc and data["performance"]:
             story.append(Paragraph("Performance", section_style))
             perf_rows = [["Strategy", "Performance score", "LCP"]]
             for p in data["performance"]:
@@ -424,24 +469,25 @@ class ReportBuilder:
             story.append(styled_table(perf_rows, [5 * cm, 5 * cm, 5 * cm], header=True))
 
         # Security
-        story.append(Paragraph("Security", section_style))
-        vulns = data["security"]["vulnerabilities_by_severity"]
-        if vulns:
-            sev_rows = [["Severity", "Findings"]]
-            for sev in ("critical", "high", "medium", "low"):
-                if sev in vulns:
-                    color = ReportBuilder._SEVERITY_COLORS.get(sev, ReportBuilder._MUTED)
-                    sev_rows.append([
-                        Paragraph(f'<font color="{color}"><b>{sev.title()}</b></font>', body_style),
-                        str(vulns[sev]),
-                    ])
-            story.append(styled_table(sev_rows, [9 * cm, 6 * cm], header=True))
-        else:
-            story.append(Paragraph(
-                "No known vulnerabilities matched the detected plugins.", body_style))
+        if "security" in inc:
+            story.append(Paragraph("Security", section_style))
+            vulns = data["security"]["vulnerabilities_by_severity"]
+            if vulns:
+                sev_rows = [["Severity", "Findings"]]
+                for sev in ("critical", "high", "medium", "low"):
+                    if sev in vulns:
+                        color = ReportBuilder._SEVERITY_COLORS.get(sev, ReportBuilder._MUTED)
+                        sev_rows.append([
+                            Paragraph(f'<font color="{color}"><b>{sev.title()}</b></font>', body_style),
+                            str(vulns[sev]),
+                        ])
+                story.append(styled_table(sev_rows, [9 * cm, 6 * cm], header=True))
+            else:
+                story.append(Paragraph(
+                    "No known vulnerabilities matched the detected plugins.", body_style))
 
         # Domain & SSL
-        if data["domain"]:
+        if "domain_ssl" in inc and data["domain"]:
             dom = data["domain"]
             story.append(Paragraph("Domain & SSL", section_style))
             story.append(styled_table(
@@ -455,12 +501,13 @@ class ReportBuilder:
             ))
 
         # Recommendations
-        story.append(Paragraph("Recommendations", section_style))
-        story.append(ListFlowable(
-            [ListItem(Paragraph(r, body_style), leftIndent=12) for r in data["recommendations"]],
-            bulletType="bullet",
-            bulletColor=brand,
-        ))
+        if "recommendations" in inc:
+            story.append(Paragraph("Recommendations", section_style))
+            story.append(ListFlowable(
+                [ListItem(Paragraph(r, body_style), leftIndent=12) for r in data["recommendations"]],
+                bulletType="bullet",
+                bulletColor=brand,
+            ))
 
         doc.build(story, canvasmaker=_ReportCanvas)
         return buf.getvalue()

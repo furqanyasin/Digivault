@@ -19,6 +19,16 @@ class Report(BaseModel):
         DONE = "done", "Done"
         FAILED = "failed", "Failed"
 
+    # Toggleable report sections; "overview" is always included.
+    SECTION_KEYS = (
+        "active_scripts",
+        "script_changes",
+        "performance",
+        "security",
+        "domain_ssl",
+        "recommendations",
+    )
+
     team = models.ForeignKey(
         "accounts.Team", on_delete=models.CASCADE, related_name="reports"
     )
@@ -30,6 +40,9 @@ class Report(BaseModel):
     report_format = models.CharField(
         max_length=4, choices=Format.choices, default=Format.PDF
     )
+    # Section keys included in this report (subset of SECTION_KEYS).
+    # Empty list means "all sections" — the default for scheduled reports.
+    sections = models.JSONField(default=list, blank=True)
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.PENDING
     )

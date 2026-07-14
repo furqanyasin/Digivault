@@ -35,9 +35,34 @@ async function getServerHost() {
 
 let activeTab = "vault";
 let currentTabHostname = "";
-let cachedCreds = [];
+let cachedCreds = [];        // credentials for the current site
+let cachedAllCreds = [];     // every credential visible to the user
 let cachedScriptData = null;
 let tipDismissed = false;
+
+// Best-effort hostname from a credential's login_url (falls back to "").
+function credHostname(cred) {
+  if (!cred.login_url) return "";
+  try {
+    const u = cred.login_url.startsWith("http") ? cred.login_url : "https://" + cred.login_url;
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+// URL to open the credential's site directly. Prefer the explicit login_url;
+// otherwise derive one from the linked website name/host if it looks like a domain.
+function credOpenUrl(cred) {
+  if (cred.login_url) {
+    return cred.login_url.startsWith("http") ? cred.login_url : "https://" + cred.login_url;
+  }
+  const host = (cred.website_name || "").trim();
+  if (host && /\.[a-z]{2,}$/i.test(host) && !host.includes(" ")) {
+    return "https://" + host.replace(/^https?:\/\//, "");
+  }
+  return "";
+}
 
 // ─── Screen helpers ───────────────────────────────────────────────────────────
 
@@ -134,22 +159,28 @@ async function renderVault(filter, search) {
   }
   const body = document.getElementById("vault-body");
 
-  let creds = cachedCreds;
-
+  // "For this site" uses the current-site set; "All items" and "Recents" use
+  // the full vault so the user can open any site regardless of the active tab.
+  let creds;
   if (filter === "site") {
-    creds = creds.filter((c) =>
-      c.login_url
-        ? new URL(c.login_url.startsWith("http") ? c.login_url : "https://" + c.login_url).hostname.replace(/^www\./, "") ===
-          currentTabHostname.replace(/^www\./, "")
-        : false
+    creds = cachedCreds.filter(
+      (c) => credHostname(c) && credHostname(c) === currentTabHostname.replace(/^www\./, "")
     );
+  } else if (filter === "recent") {
+    creds = [...cachedAllCreds]
+      .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+      .slice(0, 15);
+  } else {
+    creds = cachedAllCreds;
   }
 
   if (search) {
     creds = creds.filter(
       (c) =>
         c.label.toLowerCase().includes(search) ||
-        (c.credential_type ?? "").toLowerCase().includes(search)
+        (c.credential_type ?? "").toLowerCase().includes(search) ||
+        (c.website_name ?? "").toLowerCase().includes(search) ||
+        credHostname(c).includes(search)
     );
   }
 
@@ -180,6 +211,16 @@ async function renderVault(filter, search) {
           <p class="empty-sub">No logins stored for ${escapeHtml(currentTabHostname)}. Credentials saved from this site will appear here.</p>
         `;
       }
+    } else if (!search && (filter === "all" || filter === "recent")) {
+      empty.innerHTML = `
+        <div class="empty-icon-wrap">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#1a56db" stroke-width="1.5">
+            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+        </div>
+        <p class="empty-title">Your vault is empty</p>
+        <p class="empty-sub">Credentials you save in Digivault will appear here for one-click access.</p>
+      `;
     } else {
       empty.innerHTML = `
         <div class="empty-icon-wrap">
@@ -205,9 +246,12 @@ async function renderVault(filter, search) {
         ftp: "FTP/SFTP", shopify: "Shopify", namecheap: "Namecheap", hostinger: "Hostinger",
         wix: "Wix", webflow: "Webflow", custom: "Custom" }[cred.credential_type] ?? cred.credential_type
     );
-    const domain = cred.login_url
-      ? new URL(cred.login_url.startsWith("http") ? cred.login_url : "https://" + cred.login_url).hostname.replace(/^www\./, "")
-      : "";
+    const domain = credHostname(cred);
+    const openUrl = credOpenUrl(cred);
+    // "Fill" only makes sense on the matching site's own page; elsewhere the
+    // primary action is "Open", which navigates to the site first.
+    const onMatchingSite =
+      domain && domain === currentTabHostname.replace(/^www\./, "");
 
     card.innerHTML = `
       <div class="cred-icon">
@@ -219,10 +263,27 @@ async function renderVault(filter, search) {
         <div class="cred-label">${escapeHtml(cred.label)}</div>
         <div class="cred-meta">${typeLabel}${domain ? " · " + escapeHtml(domain) : ""}</div>
       </div>
-      <button class="cred-fill-btn" data-id="${escapeHtml(cred.id)}">Fill</button>
+      <div class="cred-actions">
+        ${openUrl ? `<button class="cred-open-btn" title="Open site and fill login">Open</button>` : ""}
+        ${onMatchingSite ? `<button class="cred-fill-btn" data-id="${escapeHtml(cred.id)}">Fill</button>` : ""}
+      </div>
     `;
 
-    card.querySelector(".cred-fill-btn").addEventListener("click", async function () {
+    const openBtn = card.querySelector(".cred-open-btn");
+    if (openBtn) {
+      openBtn.addEventListener("click", async function () {
+        // Open the site in a new tab and hand off the credential id so the
+        // content script can autofill once the login form is present.
+        await chrome.storage.session.set({
+          dv_pending_autofill: { credentialId: cred.id, host: domain },
+        });
+        chrome.tabs.create({ url: openUrl });
+        window.close();
+      });
+    }
+
+    const fillBtn = card.querySelector(".cred-fill-btn");
+    if (fillBtn) fillBtn.addEventListener("click", async function () {
       this.textContent = "…";
       this.disabled = true;
       const btn = this;
@@ -479,14 +540,16 @@ document.getElementById("vault-open-btn").addEventListener("click", async (e) =>
 async function initMain() {
   showScreen("main");
 
-  // Load data in parallel
-  const [scriptResult, credResult] = await Promise.all([
+  // Load data in parallel: script data, current-site creds, and the full vault.
+  const [scriptResult, credResult, allCredResult] = await Promise.all([
     msg("GET_DATA"),
     msg("GET_CREDENTIALS", { domain: currentTabHostname }),
+    msg("GET_CREDENTIALS", { domain: "" }),
   ]);
 
   cachedScriptData = scriptResult && !scriptResult.error ? scriptResult : null;
   cachedCreds = (!credResult || credResult.error) ? [] : (credResult.credentials ?? []);
+  cachedAllCreds = (!allCredResult || allCredResult.error) ? [] : (allCredResult.credentials ?? []);
 
   // Update alerts badge
   if (cachedScriptData && cachedScriptData.has_unknown) {

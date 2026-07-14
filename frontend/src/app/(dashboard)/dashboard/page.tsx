@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Globe, AlertTriangle, CheckCircle, Clock, Plus, ExternalLink, Activity, TrendingUp } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Globe, AlertTriangle, Clock, Plus, ExternalLink, Activity, TrendingUp } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getAccessToken } from "@/lib/server-token";
@@ -64,39 +64,39 @@ export default async function DashboardPage() {
   const stats = [
     {
       label: "Monitored Sites", value: websites.length, icon: Globe,
-      iconColor: "text-blue-500", borderColor: "border-l-blue-500", bg: "",
+      chip: "bg-violet-500/10", iconColor: "text-violet-600 dark:text-violet-400", bg: "",
       href: "/websites",
     },
     {
       label: "Sites with Issues", value: withIssues, icon: AlertTriangle,
-      iconColor: withIssues > 0 ? "text-red-500" : "text-muted-foreground",
-      borderColor: withIssues > 0 ? "border-l-red-500" : "border-l-slate-200 dark:border-l-slate-700",
-      bg: withIssues > 0 ? "bg-red-50/50 dark:bg-red-950/20" : "",
+      chip: withIssues > 0 ? "bg-rose-500/10" : "bg-emerald-500/10",
+      iconColor: withIssues > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400",
+      bg: withIssues > 0 ? "bg-rose-50/50 dark:bg-rose-950/20" : "",
       href: "/websites",
     },
     {
       label: "Pending Changes", value: pending.length, icon: Clock,
-      iconColor: pending.length > 0 ? "text-amber-500" : "text-muted-foreground",
-      borderColor: pending.length > 0 ? "border-l-amber-400" : "border-l-slate-200 dark:border-l-slate-700",
+      chip: "bg-amber-500/10",
+      iconColor: pending.length > 0 ? "text-amber-600 dark:text-amber-400" : "text-amber-500/60",
       bg: pending.length > 0 ? "bg-amber-50/50 dark:bg-amber-950/20" : "",
       href: null,
     },
     {
       label: "High Risk", value: highRisk.length, icon: AlertTriangle,
-      iconColor: highRisk.length > 0 ? "text-red-600" : "text-muted-foreground",
-      borderColor: highRisk.length > 0 ? "border-l-red-600" : "border-l-slate-200 dark:border-l-slate-700",
+      chip: highRisk.length > 0 ? "bg-red-500/10" : "bg-emerald-500/10",
+      iconColor: highRisk.length > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400",
       bg: highRisk.length > 0 ? "bg-red-50/50 dark:bg-red-950/20" : "",
       href: null,
     },
     {
       label: "Monitors", value: monitors.length, icon: Activity,
-      iconColor: "text-violet-500", borderColor: "border-l-violet-500", bg: "",
+      chip: "bg-sky-500/10", iconColor: "text-sky-600 dark:text-sky-400", bg: "",
       href: "/monitors",
     },
     {
       label: "Monitors Down", value: monitorsDown, icon: TrendingUp,
-      iconColor: monitorsDown > 0 ? "text-red-500" : "text-muted-foreground",
-      borderColor: monitorsDown > 0 ? "border-l-red-500" : "border-l-slate-200 dark:border-l-slate-700",
+      chip: monitorsDown > 0 ? "bg-red-500/10" : "bg-emerald-500/10",
+      iconColor: monitorsDown > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400",
       bg: monitorsDown > 0 ? "bg-red-50/50 dark:bg-red-950/20" : "",
       href: "/monitors",
     },
@@ -119,15 +119,17 @@ export default async function DashboardPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {stats.map(({ label, value, icon: Icon, iconColor, borderColor, bg, href }) => {
+        {stats.map(({ label, value, icon: Icon, chip, iconColor, bg, href }) => {
           const card = (
-            <Card key={label} className={`border-l-4 ${borderColor} ${bg} ${href ? "hover:border-primary/50 transition-colors cursor-pointer" : ""}`}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 pt-4">
-                <CardTitle className="text-xs font-medium text-muted-foreground">{label}</CardTitle>
-                <Icon className={`h-4 w-4 ${iconColor}`} />
-              </CardHeader>
-              <CardContent className="pb-4">
-                <div className="text-2xl font-bold">{value}</div>
+            <Card key={label} className={`${bg} ${href ? "hover:border-primary/50 hover:shadow-md transition-all cursor-pointer" : ""}`}>
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${chip}`}>
+                  <Icon className={`h-5 w-5 ${iconColor}`} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-2xl font-bold leading-none">{value}</div>
+                  <div className="text-xs font-medium text-muted-foreground mt-1 truncate">{label}</div>
+                </div>
               </CardContent>
             </Card>
           );
@@ -162,7 +164,7 @@ export default async function DashboardPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {websites.map((site) => {
               return (
-                <Card key={site.id} className="hover:border-primary/50 transition-colors">
+                <Card key={site.id} className="hover:border-primary/50 hover:shadow-md transition-all">
                   <CardContent className="p-5 space-y-3">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-2 min-w-0">

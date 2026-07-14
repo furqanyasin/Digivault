@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, Bell, ExternalLink } from "lucide-react";
+import { Bell, ExternalLink } from "lucide-react";
 
 interface Channel { id: string; name: string; channel_type: string }
 interface StatusPageSummary { slug: string; name: string; status: string; monitor_count: number }
@@ -46,19 +46,15 @@ function ChannelSelect({
 export function WebsiteAlertsStatus({
   websiteId,
   initialChannelId,
-  initialUptimeChannelId,
   statusPage,
 }: {
   websiteId: string;
   initialChannelId: string | null;
-  initialUptimeChannelId?: string | null;
   statusPage: StatusPageSummary | null;
 }) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [channelId, setChannelId] = useState<string>(initialChannelId ?? "");
-  const [uptimeChannelId, setUptimeChannelId] = useState<string>(initialUptimeChannelId ?? "");
   const [saved, setSaved] = useState(false);
-  const [uptimeSaved, setUptimeSaved] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -85,15 +81,9 @@ export function WebsiteAlertsStatus({
     if (await patchWebsite({ notification_channel: value || null })) setSaved(true);
   }
 
-  async function changeUptimeChannel(value: string) {
-    setUptimeChannelId(value);
-    setUptimeSaved(false);
-    if (await patchWebsite({ uptime_notification_channel: value || null })) setUptimeSaved(true);
-  }
-
   return (
     <div className="space-y-4">
-      {/* General alert channel */}
+      {/* Single alert channel — covers every notification for this site */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-2 text-sm font-medium">
           <Bell className="h-4 w-4 text-muted-foreground" />
@@ -107,27 +97,9 @@ export function WebsiteAlertsStatus({
           saved={saved}
         />
         <p className="text-xs text-muted-foreground">
-          Script, domain/SSL/hosting expiry, and SEO alerts for this site go to this
-          channel. Leave on &ldquo;Team default&rdquo; to use the team&apos;s active channels.
-        </p>
-      </div>
-
-      {/* Uptime / downtime channel */}
-      <div className="space-y-1.5 border-t pt-3">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Activity className="h-4 w-4 text-muted-foreground" />
-          Uptime alert channel
-        </div>
-        <ChannelSelect
-          value={uptimeChannelId}
-          channels={channels}
-          emptyLabel="Same as website channel"
-          onChange={changeUptimeChannel}
-          saved={uptimeSaved}
-        />
-        <p className="text-xs text-muted-foreground">
-          Downtime and recovery alerts route here, separately from other website
-          notifications. Leave unset to use the website alert channel.
+          All alerts for this site — script changes, domain/SSL/hosting expiry, SEO,
+          and uptime/downtime — go to this channel. Leave on &ldquo;Team default&rdquo;
+          to use the team&apos;s active channels.
         </p>
       </div>
 
