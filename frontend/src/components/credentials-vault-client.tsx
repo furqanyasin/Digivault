@@ -92,11 +92,44 @@ const TYPE_BADGE: Record<string, string> = {
 
 interface RevealData { username: string; password: string; notes: string; password_hidden?: boolean }
 
+// Vibrant gradients used for custom/other credentials. Since most vault items
+// are "custom", giving each a distinct hue (derived deterministically from its
+// name) keeps the grid lively instead of a wall of identical gray cards.
+const CUSTOM_GRADIENTS = [
+  "from-violet-500 to-purple-600",
+  "from-blue-500 to-indigo-600",
+  "from-sky-500 to-blue-600",
+  "from-cyan-500 to-teal-600",
+  "from-emerald-500 to-green-600",
+  "from-amber-500 to-orange-600",
+  "from-orange-500 to-red-500",
+  "from-rose-500 to-pink-600",
+  "from-fuchsia-500 to-purple-600",
+  "from-indigo-500 to-violet-600",
+  "from-teal-500 to-emerald-600",
+  "from-pink-500 to-rose-600",
+];
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 function typeLabel(t: string) {
   return ALL_TYPES.find((x) => x.value === t)?.label ?? t;
 }
 function gradient(t: string) { return TYPE_GRADIENTS[t] ?? "from-slate-400 to-slate-600"; }
 function badge(t: string) { return TYPE_BADGE[t] ?? "bg-slate-50 text-slate-600 border-slate-200"; }
+
+// Gradient for a credential card: a branded color for known providers, or a
+// stable per-name vibrant color for custom/other entries.
+function cardGradient(cred: { credential_type: string; label?: string }): string {
+  const known = TYPE_GRADIENTS[cred.credential_type];
+  if (known && cred.credential_type !== "custom") return known;
+  const seed = cred.label || cred.credential_type || "";
+  return CUSTOM_GRADIENTS[hashString(seed) % CUSTOM_GRADIENTS.length];
+}
 
 // ─── Credential card ──────────────────────────────────────────────────────────
 
@@ -142,7 +175,7 @@ function CredCard({ cred, subtitle, canWrite, onView, onDelete, onShare }: {
       className="group border rounded-xl overflow-hidden bg-card hover:shadow-lg transition-all cursor-pointer select-none"
       onClick={onView}
     >
-      <div className={`relative h-[72px] bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center`}>
+      <div className={`relative h-[72px] bg-gradient-to-br ${cardGradient(cred)} flex items-center justify-center`}>
         <CardArt cred={cred} />
         {cred.login_url && (
           <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -306,7 +339,7 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
-        <div className={`h-24 bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center justify-center relative`}>
+        <div className={`h-24 bg-gradient-to-br ${cardGradient(cred)} flex items-center justify-center relative`}>
           <Lock className="h-10 w-10 text-white/75" />
           {!editMode && canWrite && (
             <button
@@ -726,7 +759,7 @@ function ShareCredentialModal({ cred, teamId, onClose }: {
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-2xl p-0 overflow-hidden gap-0">
-        <div className={`h-16 bg-gradient-to-br ${gradient(cred.credential_type)} flex items-center px-5 gap-3`}>
+        <div className={`h-16 bg-gradient-to-br ${cardGradient(cred)} flex items-center px-5 gap-3`}>
           <Share2 className="h-6 w-6 text-white/80 shrink-0" />
           <h2 className="font-bold text-lg text-white truncate">Share: {cred.label}</h2>
         </div>
