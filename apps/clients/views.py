@@ -170,12 +170,19 @@ def _sync_hosting_to_websites(client) -> None:
 
 
 def _auto_create_website(client, request) -> None:
-    """Create a Website for a newly added client if it has a URL and none exists yet.
+    """Attach a Website to a newly added client, creating one if needed.
 
-    Matches by domain (case-insensitive) within the team so re-adding a client
-    that already has a tracked site never creates a duplicate. Website creation
-    triggers the usual post_save provisioning (uptime monitor, status page,
-    initial checks) via apps.websites.signals.
+    Matches by domain (case-insensitive) within the team, so re-adding a client
+    never duplicates a tracked site. An existing site with no client is adopted
+    rather than skipped — that's what makes "wipe the clients and re-import"
+    reattach the sites (Website.client is SET_NULL, so deleting a client leaves
+    its website behind, orphaned).
+
+    A site already owned by a different client is left alone: re-importing must
+    never silently move a website between clients.
+
+    Creation triggers the usual post_save provisioning (uptime monitor, status
+    page, initial checks) via apps.websites.signals.
     """
     if not client.website_url:
         return
@@ -186,7 +193,16 @@ def _auto_create_website(client, request) -> None:
     if not domain:
         return
 
-    if Website.objects.filter(team=client.team, domain__iexact=domain).exists():
+    existing = Website.objects.filter(team=client.team, domain__iexact=domain).first()
+    if existing is not None:
+        if existing.client_id is None:
+            existing.client = client
+            existing.save(update_fields=["client", "updated_at"])
+            AuditService.log_request(
+                request, ActivityLog.Action.WEBSITE_UPDATED,
+                description=f"Linked existing website '{existing.domain}' to client '{client.name}'",
+                resource_type="website", resource_id=existing.pk,
+            )
         return
 
     website = Website.objects.create(
