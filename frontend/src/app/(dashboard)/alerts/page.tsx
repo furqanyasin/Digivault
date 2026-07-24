@@ -17,7 +17,7 @@ async function getData(token: string) {
   const [notificationsResult, rulesResult, websitesResult] = await Promise.allSettled([
     api.get<Notification[]>("/api/v1/notifications/", token),
     api.get<AlertRule[]>("/api/v1/alert-rules/", token),
-    api.get<Website[]>("/api/v1/websites/", token),
+    api.getAll<Website>("/api/v1/websites/", token),
   ]);
 
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];

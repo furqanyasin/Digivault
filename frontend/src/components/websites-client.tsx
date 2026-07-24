@@ -1,13 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock } from "lucide-react";
+import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronLeft, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { WebsiteRowMenu } from "@/components/website-row-menu";
+import { AddClientWebsiteButton } from "@/components/add-client-website-button";
 import type { Website } from "@/lib/api";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -51,9 +53,25 @@ function formatSslDays(v: number | null): string {
   return `${v}d`;
 }
 
-export function WebsitesClient({ websites }: { websites: Website[] }) {
+export interface MissingClient {
+  id: string;
+  name: string;
+  domain: string;
+}
+
+const PAGE_SIZES = [25, 50, 100] as const;
+
+export function WebsitesClient({
+  websites,
+  missingClients = [],
+}: {
+  websites: Website[];
+  missingClients?: MissingClient[];
+}) {
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"table" | "cards">("table");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -65,6 +83,21 @@ export function WebsitesClient({ websites }: { websites: Website[] }) {
     );
   }, [websites, query]);
 
+  const missingFiltered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return missingClients;
+    return missingClients.filter(
+      (c) => c.domain.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+    );
+  }, [missingClients, query]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // Searching or resizing can leave you past the end of the new result set.
+  useEffect(() => {
+    if (page > totalPages) setPage(1);
+  }, [page, totalPages]);
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -73,9 +106,22 @@ export function WebsitesClient({ websites }: { websites: Website[] }) {
           <Input
             placeholder="Search websites..."
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => { setQuery(e.target.value); setPage(1); }}
             className="pl-9"
           />
+        </div>
+        <div className="flex items-center gap-2 text-xs ml-auto mr-2">
+          <span className="text-muted-foreground">Per page:</span>
+          {PAGE_SIZES.map((ps) => (
+            <button
+              key={ps}
+              type="button"
+              onClick={() => { setPageSize(ps); setPage(1); }}
+              className={`px-2 py-1 rounded border text-xs ${pageSize === ps ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
+            >
+              {ps}
+            </button>
+          ))}
         </div>
         <div className="flex items-center gap-1 rounded-lg border bg-muted/40 p-1">
           <button
@@ -100,6 +146,48 @@ export function WebsitesClient({ websites }: { websites: Website[] }) {
           </button>
         </div>
       </div>
+
+      {missingFiltered.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50/40 dark:bg-amber-950/10">
+          <CardContent className="p-0">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-200">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+              <p className="text-sm font-medium">
+                {missingFiltered.length} client{missingFiltered.length !== 1 ? "s" : ""} not yet
+                monitored
+              </p>
+              <span className="text-xs text-muted-foreground">
+                — they have a website URL but no site here.
+              </span>
+            </div>
+            <Table>
+              <TableBody>
+                {missingFiltered.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell>
+                      <span className="flex items-center gap-2 font-medium">
+                        <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                        {c.domain}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/clients/${c.id}`} className="text-primary hover:underline text-sm">
+                        {c.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="warning">Not added</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AddClientWebsiteButton clientId={c.id} clientName={c.name} domain={c.domain} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {filtered.length === 0 ? (
         <Card>
@@ -126,7 +214,7 @@ export function WebsitesClient({ websites }: { websites: Website[] }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((site) => (
+                {paged.map((site) => (
                   <TableRow key={site.id}>
                     <TableCell>
                       <Link href={`/websites/${site.id}`} className="flex items-center gap-2 font-medium hover:text-primary">
@@ -164,7 +252,7 @@ export function WebsitesClient({ websites }: { websites: Website[] }) {
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((site) => (
+          {paged.map((site) => (
             <Card key={site.id} className="hover:border-primary/50 hover:shadow-md transition-all">
               <CardContent className="p-5 space-y-3">
                 <div className="flex items-start justify-between">
@@ -224,6 +312,38 @@ export function WebsitesClient({ websites }: { websites: Website[] }) {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Page {page} of {totalPages} &middot; {filtered.length} total
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1}>«</Button>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+              const p = start + i;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPage(p)}
+                  className={`w-8 h-8 rounded border text-xs ${p === page ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page === totalPages}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</Button>
+          </div>
         </div>
       )}
     </div>
