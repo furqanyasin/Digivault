@@ -160,7 +160,9 @@ export interface Notification {
 
 export interface AlertRule {
   id: string;
+  name: string;
   website: string | null;
+  website_domain: string;
   channel: string;
   min_severity: "high" | "medium" | "low";
   change_types: string[];
@@ -337,6 +339,7 @@ export interface DetectedForm {
   provider: string;
   is_managed: boolean;
   submission_count: number;
+  last_submission_at: string | null;
   fields: { name: string; type: string; label: string; required: boolean }[];
   first_seen_at: string;
   last_seen_at: string;

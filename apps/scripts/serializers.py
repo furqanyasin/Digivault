@@ -132,7 +132,7 @@ class DetectedFormSerializer(BaseModelSerializer):
             "id", "page_url", "form_id", "form_name",
             "form_action", "form_method", "fields",
             "detection_type", "provider", "is_managed",
-            "submission_count",
+            "submission_count", "last_submission_at",
             "first_seen_at", "last_seen_at",
         )
         read_only_fields = fields

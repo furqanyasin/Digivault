@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { HeartPulse, ChevronDown, AlertTriangle, ShieldAlert, CalendarClock, Lock, CheckCircle } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { AlertTriangle, ShieldAlert, CalendarClock, Lock, CheckCircle } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { DomainInfo, ScriptChange, VulnerabilityReport } from "@/lib/api";
 
 interface Props {
@@ -18,13 +18,19 @@ function scoreColor(score: number): string {
   return "text-red-600";
 }
 
+function barColor(score: number): string {
+  if (score >= 85) return "bg-emerald-500";
+  if (score >= 60) return "bg-amber-500";
+  return "bg-violet-600";
+}
+
 // Mirrors apps/websites/models.py → Website.recalculate_health_score so the
 // explanation always matches how the number is actually computed.
-const RUBRIC: { label: string; detail: string }[] = [
-  { label: "Pending script changes", detail: "critical −15, high −10, medium −3, low −1 each (capped per level)" },
-  { label: "Domain expiry", detail: "−8 within 30 days, −20 within 7 days" },
-  { label: "SSL certificate expiry", detail: "−5 within 30 days, −12 within 14 days, −20 within 7 days" },
-  { label: "Open vulnerabilities", detail: "critical −8, high −4 each (capped)" },
+const RUBRIC: { label: string; parts: string[] }[] = [
+  { label: "Pending script changes", parts: ["critical −15", "high −10", "medium −3"] },
+  { label: "Domain expiry", parts: ["−8 within 30d", "−20 within 7d"] },
+  { label: "SSL certificate", parts: ["−5 within 30d", "−12 within 14d"] },
+  { label: "Open vulnerabilities", parts: ["critical −8", "high −4"] },
 ];
 
 export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInfo, vulns, websiteId }: Props) {
@@ -37,107 +43,129 @@ export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInf
   const sslDays = domainInfo?.ssl_days_until_expiry ?? null;
   const vulnCount = vulns.filter((v) => v.severity === "critical" || v.severity === "high").length;
 
-  const fixes: { icon: typeof AlertTriangle; text: string; href: string }[] = [];
+  const fixes: { icon: typeof AlertTriangle; tone: string; text: string; href: string }[] = [];
   if (highRisk > 0) {
     fixes.push({
       icon: AlertTriangle,
-      text: `Review & acknowledge ${highRisk} high-risk pending change${highRisk > 1 ? "s" : ""} — approve or ignore the scripts on the Scripts tab, or clear them in the Change Log.`,
+      tone: "text-red-500",
+      text: `Review ${highRisk} high-risk pending change${highRisk > 1 ? "s" : ""}`,
       href: `/websites/${websiteId}?tab=changelog`,
     });
   }
   if (medium + low > 0) {
     fixes.push({
       icon: AlertTriangle,
-      text: `Clear ${medium + low} lower-severity pending change${medium + low > 1 ? "s" : ""} once you've confirmed they're expected.`,
+      tone: "text-amber-500",
+      text: `Clear ${medium + low} lower-severity pending change${medium + low > 1 ? "s" : ""}`,
       href: `/websites/${websiteId}?tab=changelog`,
     });
   }
   if (domainDays !== null && domainDays <= 30) {
     fixes.push({
       icon: CalendarClock,
-      text: `Renew the domain — it expires in ${domainDays} day${domainDays === 1 ? "" : "s"}.`,
+      tone: "text-muted-foreground",
+      text: `Renew domain — expires in ${domainDays} day${domainDays === 1 ? "" : "s"}`,
       href: `/websites/${websiteId}?tab=access`,
     });
   }
   if (sslDays !== null && sslDays <= 30) {
     fixes.push({
       icon: Lock,
-      text: `Renew the SSL certificate — it expires in ${sslDays} day${sslDays === 1 ? "" : "s"}.`,
+      tone: "text-muted-foreground",
+      text: `Renew SSL certificate — expires in ${sslDays} day${sslDays === 1 ? "" : "s"}`,
       href: `/websites/${websiteId}?tab=access`,
     });
   }
   if (vulnCount > 0) {
     fixes.push({
       icon: ShieldAlert,
-      text: `Patch ${vulnCount} open vulnerabilit${vulnCount > 1 ? "ies" : "y"} — update the affected plugins, themes, or core.`,
+      tone: "text-red-500",
+      text: `Patch ${vulnCount} open vulnerabilit${vulnCount > 1 ? "ies" : "y"}`,
       href: `/websites/${websiteId}?tab=security`,
     });
   }
 
   return (
-    <Card className="overflow-hidden">
-      <details open>
-        <summary className="flex items-center justify-between gap-2 px-4 py-3 cursor-pointer list-none select-none [&::-webkit-details-marker]:hidden">
-          <span className="flex items-center gap-2 text-base font-semibold">
-            <HeartPulse className="h-4 w-4 text-rose-500" />
-            How the health score is calculated
-          </span>
-          <span className="flex items-center gap-2">
-            <span className={`font-bold ${scoreColor(healthScore)}`}>{healthScore}/100</span>
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          </span>
-        </summary>
-
-        <div className="px-4 pb-4 space-y-4 text-sm">
-          <p className="text-muted-foreground">
-            Every site starts at <span className="font-medium text-foreground">100</span>. Points are deducted for
-            unresolved issues — the score is recalculated automatically whenever data changes:
-          </p>
-
-          <ul className="space-y-1.5">
-            {RUBRIC.map((r) => (
-              <li key={r.label} className="flex gap-2">
-                <span className="text-muted-foreground">•</span>
-                <span>
-                  <span className="font-medium">{r.label}:</span>{" "}
-                  <span className="text-muted-foreground">{r.detail}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-
-          <p className="text-muted-foreground">
-            The <span className="font-medium text-foreground">status badge</span> follows the worst open change:
-            an unacknowledged <span className="font-medium">critical/high</span> change marks the site{" "}
-            <span className="text-red-600 font-medium">critical</span>, a <span className="font-medium">medium</span>{" "}
-            change marks it <span className="text-amber-600 font-medium">warning</span>, otherwise it's{" "}
-            <span className="text-emerald-600 font-medium">active</span>.
-          </p>
-
-          <div className="rounded-md border bg-muted/40 p-3 space-y-2">
-            <p className="font-medium flex items-center gap-2">
-              {fixes.length === 0
-                ? <><CheckCircle className="h-4 w-4 text-emerald-500" /> How to improve it</>
-                : <><AlertTriangle className="h-4 w-4 text-amber-500" /> How to improve this site ({status})</>}
-            </p>
-            {fixes.length === 0 ? (
-              <p className="text-muted-foreground">
-                No outstanding issues are dragging this score down. Keep changes acknowledged and renewals current to
-                stay at 100.
+    <div className="grid gap-4 lg:grid-cols-3">
+      <Card className="lg:col-span-2">
+        <CardContent className="pt-6 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-base font-semibold">Health score</h3>
+              <p className="text-sm text-muted-foreground">
+                Recalculated automatically as issues open and close.
               </p>
-            ) : (
-              <ul className="space-y-2">
-                {fixes.map((f, i) => (
-                  <li key={i} className="flex gap-2">
-                    <f.icon className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                    <Link href={f.href} className="hover:underline">{f.text}</Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            </div>
+            <div className="text-right shrink-0">
+              <span className={`text-3xl font-bold leading-none ${scoreColor(healthScore)}`}>
+                {healthScore}
+              </span>
+              <p className="text-xs text-muted-foreground mt-1">/ 100</p>
+            </div>
           </div>
-        </div>
-      </details>
-    </Card>
+
+          <div
+            className="h-2 w-full overflow-hidden rounded-full bg-muted"
+            role="progressbar"
+            aria-valuenow={healthScore}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Health score"
+          >
+            <div
+              className={`h-full rounded-full transition-all ${barColor(healthScore)}`}
+              style={{ width: `${Math.max(0, Math.min(100, healthScore))}%` }}
+            />
+          </div>
+
+          {/* The scoring rubric, so the number is never a black box. */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {RUBRIC.map((r) => (
+              <div key={r.label} className="rounded-lg border px-3 py-2">
+                <p className="text-sm font-medium">{r.label}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {r.parts.join(" · ")}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            The status badge follows the worst open change: an unacknowledged critical/high change marks the
+            site <span className="font-medium text-red-600">critical</span>, a medium change{" "}
+            <span className="font-medium text-amber-600">warning</span>, otherwise{" "}
+            <span className="font-medium text-emerald-600">active</span>. This site is{" "}
+            <span className="font-medium">{status}</span>.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Recommended actions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {fixes.length === 0 ? (
+            <div className="flex gap-2 text-sm">
+              <CheckCircle className="h-4 w-4 shrink-0 text-emerald-500 mt-0.5" />
+              <p className="text-muted-foreground">
+                Nothing is dragging this score down. Keep changes acknowledged and renewals current to stay at 100.
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {fixes.map((f, i) => (
+                <li key={i}>
+                  <Link href={f.href} className="flex gap-2 text-sm group">
+                    <f.icon className={`h-4 w-4 shrink-0 mt-0.5 ${f.tone}`} />
+                    <span className="group-hover:underline">{f.text}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

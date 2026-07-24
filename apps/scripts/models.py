@@ -247,6 +247,9 @@ class DetectedForm(BaseModel):
     # Count of submit attempts observed by the snippet (native/same-origin
     # forms only — embedded third-party iframes can't be tracked from the page).
     submission_count = models.PositiveIntegerField(default=0)
+    # When a submit was last observed. Distinct from last_seen_at, which bumps
+    # on every ingest (i.e. every pageview) whether or not anyone submitted.
+    last_submission_at = models.DateTimeField(null=True, blank=True)
     first_seen_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(auto_now=True)
 

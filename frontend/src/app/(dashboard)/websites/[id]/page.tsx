@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, Globe, Lock, Shield, Settings, Server, Bell } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, ExternalLink, Globe, Lock, Shield, Settings, Bell } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, Script, ScriptChange, DomainInfo, Monitor, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState, SecurityHeaderReport } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,13 +21,11 @@ import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
 import { SecurityHeadersPanel } from "@/components/security-headers-panel";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
-import { DomainExtras } from "@/components/domain-extras";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
 import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { UptimeTab } from "@/components/uptime-tab";
 import { ReportsTab } from "@/components/reports-tab";
 import { WebsiteAssignments } from "@/components/website-assignments";
-import { WpLoginButton } from "@/components/wp-login-button";
 import { HealthScoreInfo } from "@/components/health-score-info";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
@@ -216,6 +215,9 @@ export default async function WebsiteDetailPage({
     (s) => s.provider === "unknown" && s.review_status === "pending"
   );
 
+  // `domain` is stored bare (no scheme), so build a real URL for the Visit link.
+  const siteUrl = /^https?:\/\//.test(website.domain) ? website.domain : `https://${website.domain}`;
+
   return (
     <div className="p-8 space-y-6">
       {/* Header */}
@@ -226,62 +228,79 @@ export default async function WebsiteDetailPage({
             Websites
           </Link>
           <h1 className="text-3xl font-bold tracking-tight">{website.name || website.domain}</h1>
-          <p className="text-muted-foreground font-mono text-sm">{website.domain}</p>
+          <p className="text-muted-foreground font-mono text-sm">{siteUrl}</p>
         </div>
-        <Badge
-          variant={
-            website.status === "critical" ? "destructive" :
-              website.status === "warning" ? "warning" :
-                website.status === "active" ? "success" : "secondary"
-          }
-          className="text-sm px-3 py-1 mt-2"
-        >
-          {website.status}
-        </Badge>
+        <div className="flex items-center gap-2 mt-2 shrink-0">
+          <Badge
+            variant={
+              website.status === "critical" ? "destructive" :
+                website.status === "warning" ? "warning" :
+                  website.status === "active" ? "success" : "secondary"
+            }
+            className="text-sm px-3 py-1"
+          >
+            {website.status}
+          </Badge>
+          <Button asChild variant="outline" size="sm">
+            <a href={siteUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+              Visit
+            </a>
+          </Button>
+          <RefreshDomainButton websiteId={id} label="Run check" variant="default" />
+        </div>
       </div>
 
       {/* Stats row — clickable cards jump to filtered tabs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Link href={`/websites/${id}?tab=scripts`}>
-          <Card className="hover:border-blue-400 border-l-4 border-l-blue-400 transition-colors cursor-pointer">
+          <Card className="h-full transition-colors hover:border-violet-400">
             <CardContent className="flex items-center gap-3 py-4">
-              <Code className="h-7 w-7 text-blue-500 shrink-0" />
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100">
+                <Code className="h-5 w-5 text-violet-600" />
+              </span>
               <div>
-                <p className="text-2xl font-bold">{displayScripts.length}</p>
+                <p className="text-2xl font-bold leading-tight">{displayScripts.length}</p>
                 <p className="text-xs text-muted-foreground">Active scripts</p>
               </div>
             </CardContent>
           </Card>
         </Link>
-        <Link href={`/websites/${id}?tab=overview`}>
-          <Card className={`border-l-4 transition-colors cursor-pointer ${pendingChanges.length > 0 ? "border-l-amber-400 hover:border-amber-500 bg-amber-50/40 dark:bg-amber-950/20" : "border-l-slate-200 dark:border-l-slate-700"}`}>
+        <Link href={`/websites/${id}?tab=changelog`}>
+          <Card className="h-full transition-colors hover:border-amber-400">
             <CardContent className="flex items-center gap-3 py-4">
-              <Clock className={`h-7 w-7 shrink-0 ${pendingChanges.length > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${pendingChanges.length > 0 ? "bg-amber-100" : "bg-muted"}`}>
+                <Clock className={`h-5 w-5 ${pendingChanges.length > 0 ? "text-amber-600" : "text-muted-foreground"}`} />
+              </span>
               <div>
-                <p className="text-2xl font-bold">{pendingChanges.length}</p>
+                <p className="text-2xl font-bold leading-tight">{pendingChanges.length}</p>
                 <p className="text-xs text-muted-foreground">Pending changes</p>
               </div>
             </CardContent>
           </Card>
         </Link>
         <Link href={`/websites/${id}?tab=scripts`}>
-          <Card className={`border-l-4 transition-colors cursor-pointer ${unknownScripts.length > 0 ? "border-l-red-500 hover:border-red-600 bg-red-50/40 dark:bg-red-950/20" : "border-l-slate-200 dark:border-l-slate-700"}`}>
+          <Card className="h-full transition-colors hover:border-red-400">
             <CardContent className="flex items-center gap-3 py-4">
-              <AlertTriangle className={`h-7 w-7 shrink-0 ${unknownScripts.length > 0 ? "text-red-500" : "text-muted-foreground"}`} />
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${unknownScripts.length > 0 ? "bg-red-100" : "bg-muted"}`}>
+                <Shield className={`h-5 w-5 ${unknownScripts.length > 0 ? "text-red-600" : "text-muted-foreground"}`} />
+              </span>
               <div>
-                <p className="text-2xl font-bold">{unknownScripts.length}</p>
+                <p className="text-2xl font-bold leading-tight">{unknownScripts.length}</p>
                 <p className="text-xs text-muted-foreground">Unknown scripts</p>
               </div>
             </CardContent>
           </Card>
         </Link>
         <Link href="/credentials">
-          <Card className="border-l-4 border-l-emerald-500 hover:border-emerald-600 transition-colors cursor-pointer">
+          <Card className="h-full transition-colors hover:border-violet-400">
             <CardContent className="flex items-center gap-3 py-4">
-              <Lock className="h-7 w-7 text-emerald-500 shrink-0" />
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100">
+                <Lock className="h-5 w-5 text-violet-600" />
+              </span>
               <div>
-                <p className="text-2xl font-bold">Vault</p>
-                <p className="text-xs text-muted-foreground">View credentials</p>
+                <p className="text-sm font-semibold leading-tight">Credentials vault</p>
+                <p className="text-xs text-violet-600">View credentials →</p>
               </div>
             </CardContent>
           </Card>
@@ -323,7 +342,7 @@ export default async function WebsiteDetailPage({
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
-                <span>Pending Changes {pendingChanges.length > 0 && <span className="text-amber-500 ml-1">({pendingChanges.length})</span>}</span>
+                <span>Pending changes {pendingChanges.length > 0 && <span className="text-muted-foreground ml-1 font-normal">({pendingChanges.length})</span>}</span>
                 {pendingChanges.length > 0 && (
                   <Link href={`/websites/${id}?tab=changelog`} className="text-xs font-normal text-muted-foreground hover:text-foreground">
                     View full log →
@@ -340,7 +359,7 @@ export default async function WebsiteDetailPage({
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center justify-between">
-                  Top Scripts
+                  Top scripts
                   <Link href={`/websites/${id}?tab=scripts`} className="text-xs font-normal text-muted-foreground hover:text-foreground">
                     View all {displayScripts.length} →
                   </Link>
@@ -358,8 +377,22 @@ export default async function WebsiteDetailPage({
                   <TableBody>
                     {displayScripts.slice(0, 7).map((script) => (
                       <TableRow key={script.id}>
-                        <TableCell><Badge variant={providerVariant(script.provider)}>{script.provider}</Badge></TableCell>
-                        <TableCell className="text-sm">{script.category || "—"}</TableCell>
+                        <TableCell className="text-sm font-medium">
+                          {script.provider === "unknown" ? (
+                            <Badge variant={providerVariant(script.provider)}>unknown</Badge>
+                          ) : (
+                            script.provider
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {script.category ? (
+                            <span className="inline-flex items-center rounded-md bg-violet-50 px-2 py-0.5 font-mono text-xs text-violet-700">
+                              {script.category}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell className="font-mono text-xs max-w-[280px] text-muted-foreground" title={script.src_url}>
                           {smartUrl(script.src_url)}
                         </TableCell>
@@ -502,23 +535,6 @@ export default async function WebsiteDetailPage({
               <Card className="md:col-span-2">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
-                    <Server className="h-4 w-4" />
-                    Hosting renewal & Mail
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <DomainExtras
-                    websiteId={id}
-                    hostingExpiresAt={domainInfo.hosting_expires_at}
-                    hostingDaysUntilExpiry={domainInfo.hosting_days_until_expiry}
-                    smtpStatus={domainInfo.smtp_status}
-                    mxHosts={domainInfo.mx_hosts ?? []}
-                  />
-                </CardContent>
-              </Card>
-              <Card className="md:col-span-2">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
                     <Bell className="h-4 w-4" />
                     Alerts & Status Page
                   </CardTitle>
@@ -529,9 +545,6 @@ export default async function WebsiteDetailPage({
                     initialChannelId={website.notification_channel}
                     statusPage={website.status_page}
                   />
-                  <div className="border-t mt-4 pt-4">
-                    <WpLoginButton websiteId={id} configured={website.wp_sso_configured} />
-                  </div>
                   <div className="border-t mt-4 pt-4">
                     <WebsiteAssignments websiteId={id} />
                   </div>

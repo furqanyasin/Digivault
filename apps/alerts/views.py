@@ -25,7 +25,7 @@ class AlertRuleListCreateView(generics.ListCreateAPIView):
         team = self.request.user.active_team
         if team is None:
             return AlertRule.objects.none()
-        return AlertRule.objects.filter(team=team)
+        return AlertRule.objects.filter(team=team).select_related("website")
 
     def perform_create(self, serializer):
         rule = serializer.save(team=self.request.user.active_team)
@@ -46,7 +46,7 @@ class AlertRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
         team = self.request.user.active_team
         if team is None:
             return AlertRule.objects.none()
-        return AlertRule.objects.filter(team=team)
+        return AlertRule.objects.filter(team=team).select_related("website")
 
     def perform_update(self, serializer):
         rule = serializer.save()
