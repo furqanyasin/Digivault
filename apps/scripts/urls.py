@@ -10,6 +10,9 @@ from apps.scripts.views import (
     IngestView,
     ScriptReviewView,
     ScriptTimelineView,
+    TeamChangeListView,
+    TeamFormErrorListView,
+    TeamFormListView,
     SnippetJsView,
     WebsiteChangeListView,
     WebsiteFormErrorListView,
@@ -35,6 +38,13 @@ script_urlpatterns = [
         WebsiteScriptListView.as_view(),
         name="website-scripts",
     ),
+    path(
+        "changes/",
+        TeamChangeListView.as_view(),
+        name="team-changes",
+    ),
+    path("forms/", TeamFormListView.as_view(), name="team-forms"),
+    path("form-errors/", TeamFormErrorListView.as_view(), name="team-form-errors"),
     path(
         "websites/<uuid:website_pk>/changes/",
         WebsiteChangeListView.as_view(),

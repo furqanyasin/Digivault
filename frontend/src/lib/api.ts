@@ -73,7 +73,10 @@ export const api = {
    */
   getAll: async <T>(path: string, token?: string): Promise<T[]> => {
     const out: T[] = [];
-    let url: string | null = path;
+    // Ask for the largest page the API allows (StandardPagination.max_page_size)
+    // so the common case is a single round trip instead of one per 25 rows.
+    const sep = path.includes("?") ? "&" : "?";
+    let url: string | null = `${path}${sep}page_size=100`;
     // Hard stop so a malformed `next` can't spin forever.
     for (let i = 0; url && i < 50; i++) {
       const page: { data: T[]; next: string | null } = await requestPage<T>(url, token);
@@ -174,6 +177,9 @@ export interface Script {
 
 export interface ScriptChange {
   id: string;
+  website: string;
+  /** Attribution for the team-wide /changes/ list, which mixes sites. */
+  website_name: string;
   change_type: string;
   severity: string;
   description: string;

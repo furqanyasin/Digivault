@@ -4,7 +4,7 @@ import type { Notification, AlertRule, Website, ScriptChange } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { CheckCircle, AlertTriangle } from "lucide-react";
+import { CheckCircle, AlertTriangle, Globe } from "lucide-react";
 import { AcknowledgeButton } from "@/components/acknowledge-button";
 import { CreateAlertRuleDialog } from "@/components/create-alert-rule-dialog";
 import { AlertRulesClient } from "@/components/alert-rules-client";
@@ -14,29 +14,24 @@ import { fmtDate, fmtDateTime } from "@/lib/utils";
 type ChangeWithSite = ScriptChange & { _websiteName: string; _websiteId: string };
 
 async function getData(token: string) {
-  const [notificationsResult, rulesResult, websitesResult] = await Promise.allSettled([
-    api.get<Notification[]>("/api/v1/notifications/", token),
-    api.get<AlertRule[]>("/api/v1/alert-rules/", token),
-    api.getAll<Website>("/api/v1/websites/", token),
-  ]);
+  // One team-wide changes call. This used to be a request per website — 60+
+  // sequential round trips on a real agency account, all before first paint.
+  const [notificationsResult, rulesResult, websitesResult, changesResult] =
+    await Promise.allSettled([
+      api.get<Notification[]>("/api/v1/notifications/", token),
+      api.get<AlertRule[]>("/api/v1/alert-rules/", token),
+      api.getAll<Website>("/api/v1/websites/", token),
+      api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
+    ]);
 
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
+  const changes = changesResult.status === "fulfilled" ? changesResult.value : [];
 
-  // Fetch changes across all websites for the global alerts view. Each change is
-  // tagged with its source website so the table can show attribution (the
-  // ScriptChange payload itself doesn't carry the website).
-  const changeSets = await Promise.allSettled(
-    websites.map((s) => api.get<ScriptChange[]>(`/api/v1/websites/${s.id}/changes/`, token))
-  );
-  const allChanges: ChangeWithSite[] = changeSets.flatMap((r, i) => {
-    if (r.status !== "fulfilled") return [];
-    const site = websites[i];
-    return r.value.map((c) => ({
-      ...c,
-      _websiteName: site.name || site.domain,
-      _websiteId: site.id,
-    }));
-  });
+  const allChanges: ChangeWithSite[] = changes.map((c) => ({
+    ...c,
+    _websiteName: c.website_name || "",
+    _websiteId: c.website || "",
+  }));
 
   return {
     notifications: notificationsResult.status === "fulfilled" ? notificationsResult.value : [],
@@ -66,6 +61,9 @@ export default async function AlertsPage() {
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
   const highCount = pendingChanges.filter((c) => c.severity === "high" || c.severity === "critical").length;
   const medCount = pendingChanges.filter((c) => c.severity === "medium").length;
+  // We only fetch unacknowledged changes now, so an "Acknowledged" total would
+  // always read 0. Distinct affected sites is both accurate and more useful.
+  const affectedSites = new Set(pendingChanges.map((c) => c._websiteId)).size;
 
   return (
     <div className="p-8 space-y-8">
@@ -104,10 +102,10 @@ export default async function AlertsPage() {
         </Card>
         <Card>
           <CardContent className="flex items-center gap-3 py-4">
-            <CheckCircle className="h-6 w-6 text-emerald-500 shrink-0" />
+            <Globe className="h-6 w-6 text-violet-500 shrink-0" />
             <div>
-              <p className="text-xl font-bold">{visibleChanges.length - pendingChanges.length}</p>
-              <p className="text-xs text-muted-foreground">Acknowledged</p>
+              <p className="text-xl font-bold">{affectedSites}</p>
+              <p className="text-xs text-muted-foreground">Sites affected</p>
             </div>
           </CardContent>
         </Card>

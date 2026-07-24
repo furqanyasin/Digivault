@@ -299,6 +299,40 @@ class WebsiteChangeListView(generics.ListAPIView):
         return qs
 
 
+class TeamChangeListView(generics.ListAPIView):
+    """GET /api/v1/changes/ — every change across the team, newest first.
+
+    The alerts view previously fetched /websites/<id>/changes/ once per site,
+    which was one HTTP round trip per website (60+ for a real agency). This
+    collapses that into a single query.
+    """
+
+    serializer_class = ScriptChangeSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return ScriptChange.objects.none()
+
+        qs = ScriptChange.objects.filter(website__team=team).select_related(
+            "script", "acknowledged_by", "website"
+        )
+
+        severity = self.request.query_params.get("severity")
+        change_type = self.request.query_params.get("change_type")
+        unacknowledged = self.request.query_params.get("unacknowledged")
+
+        if severity:
+            qs = qs.filter(severity=severity)
+        if change_type:
+            qs = qs.filter(change_type=change_type)
+        if unacknowledged == "true":
+            qs = qs.filter(acknowledged_at__isnull=True)
+
+        return qs
+
+
 class AcknowledgeChangeView(APIView):
     """POST /api/v1/changes/<pk>/acknowledge/ — mark a change as reviewed."""
 
@@ -537,6 +571,37 @@ class WebsiteFormListView(generics.ListAPIView):
             website__team=team,
             website_id=self.kwargs["website_pk"],
         ).order_by("page_url", "form_action")
+
+
+class TeamFormListView(generics.ListAPIView):
+    """GET /api/v1/forms/ — detected forms across the whole team.
+
+    Lets the dashboard summarise forms in one request instead of one per site.
+    """
+
+    serializer_class = DetectedFormSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return DetectedForm.objects.none()
+        return DetectedForm.objects.filter(website__team=team).order_by(
+            "page_url", "form_action"
+        )
+
+
+class TeamFormErrorListView(generics.ListAPIView):
+    """GET /api/v1/form-errors/ — failed submissions across the whole team."""
+
+    serializer_class = FormSubmissionErrorSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return FormSubmissionError.objects.none()
+        return FormSubmissionError.objects.filter(website__team=team)
 
 
 class ExtensionLookupView(APIView):
