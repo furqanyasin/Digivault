@@ -47,15 +47,37 @@ _HOSTING_LABELS = {
 _TIER_LABELS = {"gold": "Gold", "silver": "Silver", "bronze": "Bronze"}
 _ACCESS_LEVEL_LABELS = {
     "full_admin": "Full admin", "delegate": "Delegate access", "none": "No access",
+    "not_working": "Access not working",
+}
+
+# Wording used in the real client sheets, which predates the codes above.
+_ACCESS_LEVEL_ALIASES = {
+    "admin": "full_admin",
+    "full admin": "full_admin",
+    "delegate": "delegate",
+    "limited": "delegate",
+    "not have": "none",
+    "no access": "none",
+    "none": "none",
+    "not working": "not_working",
 }
 _STATUS_CODES = {"active", "paused", "offboarded"}
 
 
 def _parse_hosting(raw: str) -> str:
+    """Map a hosting cell to a stored code.
+
+    Anything non-empty we don't recognise becomes "other" rather than being
+    discarded — real sheets carry values like "Not Manage by us" that aren't
+    platforms at all. The caller keeps the original wording in
+    hosting_platform_other so nothing is lost.
+    """
     r = raw.lower().strip()
+    if not r:
+        return ""
     if r in _HOSTING_LABELS:  # already a stored code (e.g. an export round-trip)
         return r
-    return _HOSTING_NORMALIZE.get(r, "")
+    return _HOSTING_NORMALIZE.get(r, "other")
 
 
 def _parse_status(raw: str) -> str:
@@ -82,7 +104,7 @@ def _parse_access_level(raw: str) -> str:
     for code, label in _ACCESS_LEVEL_LABELS.items():
         if r == label.lower():
             return code
-    return ""
+    return _ACCESS_LEVEL_ALIASES.get(r, "")
 
 
 def _parse_departments(raw: str) -> list:
@@ -373,8 +395,13 @@ class ClientImportView(APIView):
                 continue
 
             website_url = (row.get("Websites URL (short text)") or "").strip()
-            hosting = _parse_hosting(row.get("Hosting Platform (drop down)") or "")
+            raw_hosting = (row.get("Hosting Platform (drop down)") or "").strip()
+            hosting = _parse_hosting(raw_hosting)
             hosting_other = (row.get("Hosting Platform (Other)") or "").strip()
+            # Unrecognised platform wording lands in "other" — keep the original
+            # text so the sheet's meaning survives the import.
+            if hosting == "other" and not hosting_other and raw_hosting.lower() != "other":
+                hosting_other = raw_hosting
             hosting_renewal_date = _parse_date(row.get("Hosting Renewal Date") or "")
             domain_renewal_date = _parse_date(row.get("Domain Renewal Date") or "")
             notify_desktop = _parse_bool(row.get("Desktop Notifications") or "")
@@ -422,9 +449,15 @@ class ClientImportView(APIView):
 
             if was_created:
                 created += 1
-                _auto_create_website(obj, request)
             else:
                 updated += 1
+
+            # Runs for updates too, not just creates: re-importing a sheet turns
+            # every existing client into an update, and skipping those left them
+            # with no website at all. _auto_create_website is idempotent — it
+            # adopts an orphaned site, creates a missing one, and otherwise
+            # leaves things alone.
+            _auto_create_website(obj, request)
 
             _sync_hosting_to_websites(obj)
 

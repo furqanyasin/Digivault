@@ -24,6 +24,7 @@ const HOSTING_LABELS: Record<string, string> = {
 
 const ACCESS_LEVEL_TABLE_LABELS: Record<string, string> = {
   full_admin: "Full admin", delegate: "Delegate", none: "No access",
+  not_working: "Not working",
 };
 
 interface LookupResult {
@@ -360,7 +361,8 @@ export function ClientsClient({ initialClients }: Props) {
                       <Badge
                         variant={
                           c.website_access_level === "full_admin" ? "success" :
-                          c.website_access_level === "delegate" ? "warning" : "secondary"
+                          c.website_access_level === "delegate" ? "warning" :
+                          c.website_access_level === "not_working" ? "destructive" : "secondary"
                         }
                       >
                         {ACCESS_LEVEL_TABLE_LABELS[c.website_access_level] ?? c.website_access_level}

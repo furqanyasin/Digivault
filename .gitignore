@@ -77,3 +77,7 @@ dump.rdb
 
 # Build artifacts
 extension.zip
+
+# Client data exports — never commit
+*clients-import*.csv
+all clients CSV*.csv

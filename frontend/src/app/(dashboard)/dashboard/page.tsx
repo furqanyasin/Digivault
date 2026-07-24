@@ -78,6 +78,10 @@ async function getData(token: string) {
   };
 }
 
+// Two full rows on the lg 3-column grid. The rest live on /websites, which has
+// search and filtering — a 60-card wall on the dashboard is unusable.
+const DASHBOARD_SITE_LIMIT = 6;
+
 const STATUS_DOT: Record<string, string> = {
   active: "bg-emerald-500",
   warning: "bg-amber-500",
@@ -297,7 +301,9 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">Your Sites</h2>
           <Link href="/websites">
-            <Button variant="outline" size="sm">View all</Button>
+            <Button variant="outline" size="sm">
+              {websites.length > DASHBOARD_SITE_LIMIT ? `View all ${websites.length}` : "View all"}
+            </Button>
           </Link>
         </div>
 
@@ -317,7 +323,7 @@ export default async function DashboardPage() {
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {websites.map((site) => {
+            {websites.slice(0, DASHBOARD_SITE_LIMIT).map((site) => {
               return (
                 <Card key={site.id} className="hover:border-primary/50 hover:shadow-md transition-all">
                   <CardContent className="p-5 space-y-3">
