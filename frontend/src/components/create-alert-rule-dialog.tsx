@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -22,16 +23,26 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
-export function CreateAlertRuleDialog() {
+const ALL_SITES = "__all__";
+
+const EMPTY_FORM = {
+  name: "",
+  website: ALL_SITES,
+  channel: "in_app",
+  min_severity: "medium",
+  delivery_mode: "immediate",
+};
+
+export function CreateAlertRuleDialog({
+  websites = [],
+}: {
+  websites?: { id: string; name: string; domain: string }[];
+}) {
   const { toast } = useToast();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({
-    channel: "in_app",
-    min_severity: "medium",
-    delivery_mode: "immediate",
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
 
   function update(key: string, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -45,6 +56,8 @@ export function CreateAlertRuleDialog() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          name: form.name.trim(),
+          website: form.website === ALL_SITES ? null : form.website,
           channel: form.channel,
           min_severity: form.min_severity,
           delivery_mode: form.delivery_mode,
@@ -59,7 +72,7 @@ export function CreateAlertRuleDialog() {
       }
       toast({ title: "Alert rule created" });
       setOpen(false);
-      setForm({ channel: "in_app", min_severity: "medium", delivery_mode: "immediate" });
+      setForm(EMPTY_FORM);
       router.refresh();
     } catch {
       toast({ variant: "destructive", title: "Network error" });
@@ -73,7 +86,7 @@ export function CreateAlertRuleDialog() {
       <DialogTrigger asChild>
         <Button size="sm">
           <Plus className="h-4 w-4 mr-1" />
-          New rule
+          New alert rule
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -81,6 +94,29 @@ export function CreateAlertRuleDialog() {
           <DialogTitle>Create alert rule</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="rule-name">Name</Label>
+            <Input
+              id="rule-name"
+              value={form.name}
+              onChange={(e) => update("name", e.target.value)}
+              placeholder="New third-party script detected"
+              maxLength={120}
+            />
+            <p className="text-xs text-muted-foreground">Shown in the rules table.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Website</Label>
+            <Select value={form.website} onValueChange={(v) => update("website", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_SITES}>All websites</SelectItem>
+                {websites.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>{w.name || w.domain}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1.5">
             <Label>Channel</Label>
             <Select value={form.channel} onValueChange={(v) => update("channel", v)}>

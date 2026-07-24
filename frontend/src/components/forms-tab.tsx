@@ -1,7 +1,9 @@
-import { FileText, ChevronDown, ChevronRight, AlertTriangle, CheckCircle } from "lucide-react";
+import { FileText, ChevronDown, ChevronRight, Send, CheckCircle2, XCircle } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { fmtRelative } from "@/lib/utils";
 import type { DetectedForm, FormSubmissionError } from "@/lib/api";
 
 interface Props {
@@ -36,6 +38,66 @@ function errorsForForm(f: DetectedForm, errors: FormSubmissionError[]): FormSubm
   return errors.filter((e) => e.form_id && e.form_id === f.form_id);
 }
 
+// Share of observed submits that didn't produce a server-side failure. Null when
+// nothing has been submitted yet — 0 submits is "no data", not "0% success".
+function successRate(f: DetectedForm, errors: FormSubmissionError[]): number | null {
+  const submits = f.submission_count || 0;
+  if (submits === 0) return null;
+  const failed = Math.min(errorsForForm(f, errors).length, submits);
+  return ((submits - failed) / submits) * 100;
+}
+
+type Health = "healthy" | "degraded" | "failing";
+
+function health(rate: number | null): Health | null {
+  if (rate === null) return null;
+  if (rate < 50) return "failing";
+  if (rate < 95) return "degraded";
+  return "healthy";
+}
+
+const HEALTH_LABEL: Record<Health, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  failing: "Failing",
+};
+
+const HEALTH_VARIANT: Record<Health, "success" | "warning" | "destructive"> = {
+  healthy: "success",
+  degraded: "warning",
+  failing: "destructive",
+};
+
+function fmtPct(rate: number | null): string {
+  if (rate === null) return "—";
+  // Keep a decimal only when it carries information (99.3% vs a clean 100%).
+  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}%`;
+}
+
+function StatTile({
+  icon,
+  tone,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  tone: string;
+  value: string | number;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tone}`}>
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-xl font-bold leading-tight tabular-nums">{value}</p>
+        <p className="text-xs text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  );
+}
+
 export function FormsTab({ forms, formErrors = [] }: Props) {
   if (forms.length === 0) {
     return (
@@ -59,6 +121,9 @@ export function FormsTab({ forms, formErrors = [] }: Props) {
       bySignature.set(sig, { ...f });
     } else {
       existing.submission_count += f.submission_count;
+      if (f.last_submission_at && (!existing.last_submission_at || f.last_submission_at > existing.last_submission_at)) {
+        existing.last_submission_at = f.last_submission_at;
+      }
       if (f.last_seen_at > existing.last_seen_at) {
         existing.page_url = f.page_url;
         existing.last_seen_at = f.last_seen_at;
@@ -70,20 +135,48 @@ export function FormsTab({ forms, formErrors = [] }: Props) {
   const embeddedForms = uniqueForms.filter((f) => f.is_managed === false);
 
   const totalSubmissions = managedForms.reduce((n, f) => n + (f.submission_count || 0), 0);
-  const totalErrors = formErrors.length;
+
+  // Weight by submission volume so one quiet form can't swing the average.
+  const withTraffic = managedForms.filter((f) => (f.submission_count || 0) > 0);
+  const totalFailed = withTraffic.reduce(
+    (n, f) => n + Math.min(errorsForForm(f, formErrors).length, f.submission_count),
+    0
+  );
+  const avgSuccess = totalSubmissions > 0
+    ? ((totalSubmissions - totalFailed) / totalSubmissions) * 100
+    : null;
+
+  const failingCount = managedForms.filter(
+    (f) => health(successRate(f, formErrors)) === "failing"
+  ).length;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-        <span>{managedForms.length} form{managedForms.length !== 1 ? "s" : ""}</span>
-        <span>·</span>
-        <span>{totalSubmissions} submission{totalSubmissions !== 1 ? "s" : ""} tracked</span>
-        {totalErrors > 0 && (
-          <span className="inline-flex items-center gap-1 text-red-600 font-medium">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            {totalErrors} submission error{totalErrors !== 1 ? "s" : ""}
-          </span>
-        )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatTile
+          icon={<FileText className="h-4 w-4 text-violet-600" />}
+          tone="bg-violet-100"
+          value={managedForms.length}
+          label={`Detected form${managedForms.length !== 1 ? "s" : ""}`}
+        />
+        <StatTile
+          icon={<Send className="h-4 w-4 text-emerald-600" />}
+          tone="bg-emerald-100"
+          value={totalSubmissions}
+          label="Submits (total)"
+        />
+        <StatTile
+          icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+          tone="bg-emerald-100"
+          value={fmtPct(avgSuccess)}
+          label="Avg success"
+        />
+        <StatTile
+          icon={<XCircle className="h-4 w-4 text-red-600" />}
+          tone="bg-red-100"
+          value={failingCount}
+          label="Failing"
+        />
       </div>
 
       <FormsTable forms={managedForms} formErrors={formErrors} />
@@ -117,19 +210,23 @@ function FormsTable({
   embedded?: boolean;
 }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-lg border bg-card">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>Form</TableHead>
-            <TableHead>Page</TableHead>
-            <TableHead className="text-right">Submissions</TableHead>
+            <TableHead>Path</TableHead>
+            <TableHead className="text-right">Submits</TableHead>
+            <TableHead className="text-right">Success</TableHead>
+            <TableHead>Last submit</TableHead>
             <TableHead>Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {forms.map((form) => {
             const errs = errorsForForm(form, formErrors);
+            const rate = embedded ? null : successRate(form, formErrors);
+            const state = embedded ? null : health(rate);
             return (
               <TableRow key={form.id}>
                 <TableCell className="font-medium text-sm max-w-[220px] truncate" title={formLabel(form)}>
@@ -141,21 +238,23 @@ function FormsTable({
                 <TableCell className="text-right tabular-nums text-sm">
                   {embedded ? <span className="text-muted-foreground">n/a</span> : form.submission_count}
                 </TableCell>
+                <TableCell className="text-right tabular-nums text-sm">
+                  {embedded ? <span className="text-muted-foreground">n/a</span> : fmtPct(rate)}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {embedded ? "n/a" : fmtRelative(form.last_submission_at)}
+                </TableCell>
                 <TableCell>
-                  {errs.length > 0 ? (
-                    <div className="space-y-0.5">
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        {errs.length} error{errs.length !== 1 ? "s" : ""}
-                      </span>
-                      <p className="text-xs text-muted-foreground max-w-[280px] truncate" title={errs[0].message}>
-                        {errs[0].message}
-                      </p>
-                    </div>
+                  {state ? (
+                    <Badge
+                      variant={HEALTH_VARIANT[state]}
+                      title={errs.length > 0 ? errs[0].message : undefined}
+                    >
+                      {HEALTH_LABEL[state]}
+                    </Badge>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
-                      <CheckCircle className="h-3.5 w-3.5" />
-                      OK
+                    <span className="text-xs text-muted-foreground">
+                      {embedded ? "Not tracked" : "No submits yet"}
                     </span>
                   )}
                 </TableCell>

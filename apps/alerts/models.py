@@ -27,6 +27,9 @@ class AlertRule(BaseModel):
         on_delete=models.CASCADE,
         related_name="alert_rules",
     )
+    # Human label shown in the rules table. Blank on rules created before this
+    # field existed — the UI falls back to a label derived from channel/severity.
+    name = models.CharField(max_length=120, blank=True)
     # None = global rule for all websites on this team
     website = models.ForeignKey(
         "websites.Website",

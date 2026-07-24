@@ -6,7 +6,15 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 
-export function RefreshDomainButton({ websiteId }: { websiteId: string }) {
+export function RefreshDomainButton({
+  websiteId,
+  label = "Refresh domain info",
+  variant = "outline",
+}: {
+  websiteId: string;
+  label?: string;
+  variant?: "outline" | "default";
+}) {
   const { toast } = useToast();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -34,9 +42,9 @@ export function RefreshDomainButton({ websiteId }: { websiteId: string }) {
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={handle} disabled={loading}>
+    <Button variant={variant} size="sm" onClick={handle} disabled={loading}>
       <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
-      {loading ? "Checking…" : "Refresh domain info"}
+      {loading ? "Checking…" : label}
     </Button>
   );
 }

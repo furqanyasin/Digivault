@@ -7,19 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { CheckCircle, AlertTriangle } from "lucide-react";
 import { AcknowledgeButton } from "@/components/acknowledge-button";
 import { CreateAlertRuleDialog } from "@/components/create-alert-rule-dialog";
+import { AlertRulesClient } from "@/components/alert-rules-client";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
-
-const CHANNEL_LABEL: Record<string, string> = {
-  in_app: "In-app",
-  email: "Email",
-  slack: "Slack",
-};
-
-const SEVERITY_LABEL: Record<string, string> = {
-  high: "High severity only",
-  medium: "Medium & above",
-  low: "All changes",
-};
 
 // A change tagged with the website it belongs to (added during fetch).
 type ChangeWithSite = ScriptChange & { _websiteName: string; _websiteId: string };
@@ -65,7 +54,7 @@ function severityVariant(s: string): "destructive" | "warning" | "secondary" {
 
 export default async function AlertsPage() {
   const token = await getAccessToken();
-  const { notifications, rules, allChanges } = await getData(token ?? "");
+  const { notifications, rules, allChanges, websites } = await getData(token ?? "");
 
   const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
   function isInternal(c: ChangeWithSite) {
@@ -80,12 +69,18 @@ export default async function AlertsPage() {
 
   return (
     <div className="p-8 space-y-8">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Alerts</h1>
-          <p className="text-muted-foreground mt-1">Unacknowledged changes and notification history</p>
+          <p className="text-muted-foreground mt-1">Alert rules and their delivery channels.</p>
         </div>
+        <CreateAlertRuleDialog
+          websites={websites.map((w) => ({ id: w.id, name: w.name, domain: w.domain }))}
+        />
       </div>
+
+      {/* Alert rules — filterable by channel and severity */}
+      <AlertRulesClient rules={rules} />
 
       {/* Summary bar */}
       <div className="grid grid-cols-3 gap-4">
@@ -160,49 +155,6 @@ export default async function AlertsPage() {
                       <TableCell><AcknowledgeButton changeId={change.id} /></TableCell>
                     </TableRow>
                   ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Alert Rules */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Alert Rules ({rules.length})</CardTitle>
-          <CreateAlertRuleDialog />
-        </CardHeader>
-        <CardContent className="p-0">
-          {rules.length === 0 ? (
-            <div className="p-8 text-center space-y-2">
-              <p className="font-medium">No alert rules configured</p>
-              <p className="text-sm text-muted-foreground">Create a rule to receive notifications via email, Slack, or in-app.</p>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Channel</TableHead>
-                  <TableHead>Triggers on</TableHead>
-                  <TableHead>Scope</TableHead>
-                  <TableHead>Delivery</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rules.map((rule) => (
-                  <TableRow key={rule.id}>
-                    <TableCell className="font-medium">{CHANNEL_LABEL[rule.channel] ?? rule.channel}</TableCell>
-                    <TableCell>{SEVERITY_LABEL[rule.min_severity] ?? rule.min_severity}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{rule.website ? "This site" : "All sites"}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground capitalize">{rule.delivery_mode.replace("_", " ")}</TableCell>
-                    <TableCell>
-                      <Badge variant={rule.is_active ? "success" : "secondary"}>
-                        {rule.is_active ? "Active" : "Paused"}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
               </TableBody>
             </Table>
           )}

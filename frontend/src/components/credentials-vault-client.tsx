@@ -89,6 +89,29 @@ const TYPE_BADGE: Record<string, string> = {
   custom:     "bg-slate-50 text-slate-600 border-slate-200",
 };
 
+// Solid brand dot shown beside each option in the type dropdown, so platforms
+// are recognisable at a glance. Hues match TYPE_BADGE / TYPE_GRADIENTS.
+const TYPE_DOT: Record<string, string> = {
+  wordpress:  "bg-blue-500",
+  cpanel:     "bg-orange-500",
+  godaddy:    "bg-green-500",
+  cloudflare: "bg-amber-500",
+  ftp:        "bg-purple-500",
+  shopify:    "bg-emerald-500",
+  namecheap:  "bg-red-500",
+  hostinger:  "bg-violet-500",
+  wix:        "bg-slate-600",
+  webflow:    "bg-indigo-500",
+  framer:     "bg-pink-500",
+  siteground: "bg-sky-500",
+  bluehost:   "bg-blue-600",
+  wpengine:   "bg-teal-500",
+  kinsta:     "bg-fuchsia-500",
+  custom:     "bg-slate-400",
+};
+
+function dot(t: string) { return TYPE_DOT[t] ?? "bg-slate-400"; }
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RevealData { username: string; password: string; notes: string; password_hidden?: boolean }
@@ -375,7 +398,14 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
                 <Select value={form.credential_type} onValueChange={(v) => upd("credential_type", v)}>
                   <SelectTrigger className="h-7 text-xs w-44"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {typeList.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                    {typeList.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        <span className="flex items-center gap-2">
+                          <span className={`h-2 w-2 shrink-0 rounded-full ${dot(t.value)}`} aria-hidden />
+                          {t.label}
+                        </span>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               ) : (
@@ -653,21 +683,30 @@ function AddItemModal({ websites, defaultSection, onClose, onAdded }: {
           )}
 
           <div className="space-y-1.5">
-            <Label>Type</Label>
+            <Label>{section === "website" ? "CMS type" : "Hosting type"}</Label>
             <Select
               value={form.credential_type}
               onValueChange={(v) => upd("credential_type", v)}
             >
-              <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue placeholder={section === "website" ? "Select CMS type" : "Select hosting type"} />
+              </SelectTrigger>
               <SelectContent>
-                {typeOptions.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                {typeOptions.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    <span className="flex items-center gap-2">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${dot(t.value)}`} aria-hidden />
+                      {t.label}
+                    </span>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
 
           {isCustom && (
             <div className="space-y-1.5">
-              <Label>{section === "website" ? "CMS type" : "Hosting type"}</Label>
+              <Label>{section === "website" ? "Which CMS?" : "Which host?"}</Label>
               <Input
                 placeholder={section === "website" ? "e.g. Joomla, Drupal, Ghost" : "e.g. AWS, DigitalOcean, Vercel"}
                 value={form.custom_type}

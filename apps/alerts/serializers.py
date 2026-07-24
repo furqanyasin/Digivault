@@ -18,11 +18,15 @@ class AlertSuppressionSerializer(BaseModelSerializer):
 
 
 class AlertRuleSerializer(BaseModelSerializer):
+    website_domain = serializers.SerializerMethodField()
+
     class Meta:
         model = AlertRule
         fields = (
             "id",
+            "name",
             "website",
+            "website_domain",
             "channel",
             "min_severity",
             "change_types",
@@ -32,10 +36,23 @@ class AlertRuleSerializer(BaseModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at")
+        read_only_fields = ("id", "website_domain", "created_at", "updated_at")
         extra_kwargs = {
             "slack_webhook_url": {"write_only": True},
         }
+
+    def get_website_domain(self, obj) -> str:
+        return obj.website.domain if obj.website_id else ""
+
+    def validate_website(self, value):
+        """A rule may only target a website on the requesting user's active team."""
+        if value is None:
+            return value
+        request = self.context.get("request")
+        team = getattr(request.user, "active_team", None) if request else None
+        if team is None or value.team_id != team.id:
+            raise serializers.ValidationError("Website not found on this team.")
+        return value
 
 
 class NotificationSerializer(BaseModelSerializer):

@@ -227,7 +227,10 @@ class FormSubmissionIngestView(APIView):
             website=website,
             page_url=data["page_url"],
             fingerprint=fingerprint,
-        ).update(submission_count=F("submission_count") + 1)
+        ).update(
+            submission_count=F("submission_count") + 1,
+            last_submission_at=timezone.now(),
+        )
         return Response(
             {"counted": bool(updated)}, status=status.HTTP_202_ACCEPTED
         )
