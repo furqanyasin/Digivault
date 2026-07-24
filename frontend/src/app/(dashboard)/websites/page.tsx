@@ -10,7 +10,7 @@ export default async function WebsitesPage() {
   const token = await getAccessToken();
   let websites: Website[] = [];
   try {
-    websites = await api.get<Website[]>("/api/v1/websites/", token ?? "");
+    websites = await api.getAll<Website>("/api/v1/websites/", token ?? "");
   } catch {
     // will show empty state
   }

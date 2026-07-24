@@ -42,9 +42,47 @@ async function request<T>(
   return (envelope?.data !== undefined ? envelope.data : envelope) as T;
 }
 
+/** One page plus the paginator metadata, for callers that need `next`. */
+async function requestPage<T>(
+  path: string,
+  accessToken?: string
+): Promise<{ data: T[]; next: string | null }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+  const res = await fetch(`${API_BASE}${path}`, { method: "GET", headers });
+  if (!res.ok) {
+    let data: unknown;
+    try { data = await res.json(); } catch { data = null; }
+    throw new ApiError(res.status, data);
+  }
+  const envelope = await res.json();
+  const data = (envelope?.data !== undefined ? envelope.data : envelope) as T[];
+  return { data: Array.isArray(data) ? data : [], next: envelope?.meta?.next ?? null };
+}
+
 export const api = {
   get: <T>(path: string, token?: string) =>
     request<T>(path, { method: "GET" }, token),
+
+  /** Fetch every page of a paginated list endpoint.
+   *
+   * List endpoints page at 25 (StandardPagination), so a plain get() silently
+   * truncates once a team passes 25 websites — the count and the grid both go
+   * wrong with no error. Follows meta.next until exhausted.
+   */
+  getAll: async <T>(path: string, token?: string): Promise<T[]> => {
+    const out: T[] = [];
+    let url: string | null = path;
+    // Hard stop so a malformed `next` can't spin forever.
+    for (let i = 0; url && i < 50; i++) {
+      const page: { data: T[]; next: string | null } = await requestPage<T>(url, token);
+      out.push(...page.data);
+      // `next` comes back absolute; strip the origin so API_BASE still applies.
+      url = page.next ? page.next.replace(/^https?:\/\/[^/]+/, "") : null;
+    }
+    return out;
+  },
 
   post: <T>(path: string, body: unknown, token?: string) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body) }, token),

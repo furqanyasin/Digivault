@@ -31,7 +31,7 @@ interface RenewalRow {
 async function getData(token: string) {
   const [websitesResult, monitorsResult, logsResult, sslResult, domainResult, hostingResult] =
     await Promise.allSettled([
-      api.get<Website[]>("/api/v1/websites/", token),
+      api.getAll<Website>("/api/v1/websites/", token),
       api.get<Monitor[]>("/api/v1/monitors/", token),
       api.get<LogEntry[]>("/api/v1/logs/", token),
       api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=30", token),
@@ -176,17 +176,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-8 space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">A live snapshot of every website your team is watching.</p>
-        </div>
-        <Link href="/websites/new">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            Add website
-          </Button>
-        </Link>
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+        <p className="text-muted-foreground mt-1">A live snapshot of every website your team is watching.</p>
       </div>
 
       {/* Stats */}
