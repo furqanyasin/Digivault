@@ -158,7 +158,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                     scripts__review_status="pending",
                 ) & not_internal,
             ),
-        ).select_related("team", "notification_channel")
+        ).select_related("team", "notification_channel", "client", "domain_info").prefetch_related("monitors")
 
     def get_serializer_class(self):
         if self.action == "create":

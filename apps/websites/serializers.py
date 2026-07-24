@@ -14,6 +14,8 @@ class WebsiteSerializer(BaseModelSerializer):
     # Never expose the secret itself — only whether SSO is set up.
     wp_sso_configured = serializers.SerializerMethodField()
     status_page = serializers.SerializerMethodField()
+    uptime_30d = serializers.SerializerMethodField()
+    ssl_days_until_expiry = serializers.SerializerMethodField()
 
     class Meta:
         model = Website
@@ -39,6 +41,8 @@ class WebsiteSerializer(BaseModelSerializer):
             "uptime_notification_channel_name",
             "wp_sso_configured",
             "status_page",
+            "uptime_30d",
+            "ssl_days_until_expiry",
             "created_at",
             "updated_at",
         )
@@ -65,6 +69,14 @@ class WebsiteSerializer(BaseModelSerializer):
 
     def get_wp_sso_configured(self, obj) -> bool:
         return bool(obj.wp_sso_secret)
+
+    def get_uptime_30d(self, obj) -> float | None:
+        monitor = next(iter(obj.monitors.all()), None)
+        return monitor.uptime_30d if monitor else None
+
+    def get_ssl_days_until_expiry(self, obj) -> int | None:
+        domain_info = getattr(obj, "domain_info", None)
+        return domain_info.ssl_days_until_expiry if domain_info else None
 
     def _validate_team_channel(self, value):
         if value is None:

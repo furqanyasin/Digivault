@@ -169,6 +169,39 @@ def _sync_hosting_to_websites(client) -> None:
             di.save(update_fields=["hosting_expires_at", "updated_at"])
 
 
+def _auto_create_website(client, request) -> None:
+    """Create a Website for a newly added client if it has a URL and none exists yet.
+
+    Matches by domain (case-insensitive) within the team so re-adding a client
+    that already has a tracked site never creates a duplicate. Website creation
+    triggers the usual post_save provisioning (uptime monitor, status page,
+    initial checks) via apps.websites.signals.
+    """
+    if not client.website_url:
+        return
+
+    from apps.websites.models import Website
+
+    domain = client.domain
+    if not domain:
+        return
+
+    if Website.objects.filter(team=client.team, domain__iexact=domain).exists():
+        return
+
+    website = Website.objects.create(
+        team=client.team,
+        client=client,
+        name=client.name,
+        domain=domain,
+    )
+    AuditService.log_request(
+        request, ActivityLog.Action.WEBSITE_CREATED,
+        description=f"Auto-created website '{website.domain}' for client '{client.name}'",
+        resource_type="website", resource_id=website.pk,
+    )
+
+
 class ClientListCreateView(generics.ListCreateAPIView):
     """GET /api/v1/clients/   POST /api/v1/clients/"""
 
@@ -190,6 +223,7 @@ class ClientListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         client = serializer.save(team=_team(self.request))
         _sync_hosting_to_websites(client)
+        _auto_create_website(client, self.request)
         AuditService.log_request(
             self.request, ActivityLog.Action.CLIENT_CREATED,
             description=f"Created client '{client.name}'",
@@ -372,6 +406,7 @@ class ClientImportView(APIView):
 
             if was_created:
                 created += 1
+                _auto_create_website(obj, request)
             else:
                 updated += 1
 
