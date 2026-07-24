@@ -122,6 +122,16 @@ class WebsiteCreateSerializer(BaseModelSerializer):
         fields = ("id", "name", "domain", "platform", "notes", "tags", "client")
         read_only_fields = ("id",)
 
+    def validate_client(self, value):
+        """A website may only be attached to a client on the user's active team."""
+        if value is None:
+            return value
+        request = self.context.get("request")
+        team = getattr(request.user, "active_team", None) if request else None
+        if team is None or value.team_id != team.id:
+            raise serializers.ValidationError("Client not found on this team.")
+        return value
+
 
 class SnippetInstructionSerializer(serializers.Serializer):
     platform = serializers.CharField()
