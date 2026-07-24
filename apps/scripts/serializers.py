@@ -146,11 +146,15 @@ class ScriptChangeSerializer(BaseModelSerializer):
     is_acknowledged = serializers.ReadOnlyField()
     # Who resolved the change — shown in the per-site change log.
     acknowledged_by_email = serializers.SerializerMethodField()
+    # Attribution for the team-wide change list, which mixes sites together.
+    website_name = serializers.SerializerMethodField()
 
     class Meta:
         model = ScriptChange
         fields = (
             "id",
+            "website",
+            "website_name",
             "change_type",
             "severity",
             "description",
@@ -167,3 +171,8 @@ class ScriptChangeSerializer(BaseModelSerializer):
 
     def get_acknowledged_by_email(self, obj) -> str | None:
         return obj.acknowledged_by.email if obj.acknowledged_by_id else None
+
+    def get_website_name(self, obj) -> str:
+        if not obj.website_id:
+            return ""
+        return obj.website.name or obj.website.domain

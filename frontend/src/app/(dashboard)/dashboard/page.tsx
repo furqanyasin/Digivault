@@ -29,15 +29,25 @@ interface RenewalRow {
 }
 
 async function getData(token: string) {
-  const [websitesResult, monitorsResult, logsResult, sslResult, domainResult, hostingResult] =
-    await Promise.allSettled([
-      api.getAll<Website>("/api/v1/websites/", token),
-      api.get<Monitor[]>("/api/v1/monitors/", token),
-      api.get<LogEntry[]>("/api/v1/logs/", token),
-      api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=30", token),
-      api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=30", token),
-      api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=30", token),
-    ]);
+  // Everything in one parallel batch. Changes/forms/form-errors used to be
+  // fetched per site in a SECOND wave that had to wait on the websites list —
+  // a 15-request waterfall before first paint. Team-wide endpoints make them
+  // 3 requests that start immediately.
+  const [
+    websitesResult, monitorsResult, logsResult,
+    sslResult, domainResult, hostingResult,
+    changesResult, formsResult, formErrorsResult,
+  ] = await Promise.allSettled([
+    api.getAll<Website>("/api/v1/websites/", token),
+    api.get<Monitor[]>("/api/v1/monitors/", token),
+    api.get<LogEntry[]>("/api/v1/logs/", token),
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=30", token),
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=30", token),
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=30", token),
+    api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
+    api.get<DetectedForm[]>("/api/v1/forms/", token),
+    api.get<FormSubmissionError[]>("/api/v1/form-errors/", token),
+  ]);
 
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
   const monitors = monitorsResult.status === "fulfilled" ? monitorsResult.value : [];
@@ -45,28 +55,9 @@ async function getData(token: string) {
   const expiringSsl = sslResult.status === "fulfilled" ? sslResult.value : [];
   const expiringDomains = domainResult.status === "fulfilled" ? domainResult.value : [];
   const expiringHosting = hostingResult.status === "fulfilled" ? hostingResult.value : [];
-
-  const dashboardSites = websites.filter((w) => !w.domain?.includes("digilaticsvps")).slice(0, 5);
-  const [changeSets, formSets, formErrorSets] = await Promise.all([
-    Promise.allSettled(
-      dashboardSites.map((site) => api.get<ScriptChange[]>(`/api/v1/websites/${site.id}/changes/`, token))
-    ),
-    Promise.allSettled(
-      dashboardSites.map((site) => api.get<DetectedForm[]>(`/api/v1/websites/${site.id}/forms/`, token))
-    ),
-    Promise.allSettled(
-      dashboardSites.map((site) => api.get<FormSubmissionError[]>(`/api/v1/websites/${site.id}/form-errors/`, token))
-    ),
-  ]);
-  const allChanges = changeSets
-    .filter((r) => r.status === "fulfilled")
-    .flatMap((r) => (r as PromiseFulfilledResult<ScriptChange[]>).value);
-  const detectedForms = formSets
-    .filter((r) => r.status === "fulfilled")
-    .flatMap((r) => (r as PromiseFulfilledResult<DetectedForm[]>).value);
-  const formErrors = formErrorSets
-    .filter((r) => r.status === "fulfilled")
-    .flatMap((r) => (r as PromiseFulfilledResult<FormSubmissionError[]>).value);
+  const allChanges = changesResult.status === "fulfilled" ? changesResult.value : [];
+  const detectedForms = formsResult.status === "fulfilled" ? formsResult.value : [];
+  const formErrors = formErrorsResult.status === "fulfilled" ? formErrorsResult.value : [];
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const newThisWeek = websites.filter((w) => new Date(w.created_at).getTime() >= weekAgo).length;
