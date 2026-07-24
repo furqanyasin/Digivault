@@ -74,3 +74,6 @@ dump.rdb
 
 # Generated Marp slide exports
 /security.pdf
+
+# Build artifacts
+extension.zip

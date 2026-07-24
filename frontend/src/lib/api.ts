@@ -100,12 +100,16 @@ export interface Website {
   unknown_script_count: number;
   snippet_html: string;
   last_seen_at: string | null;
+  client: string | null;
+  client_name: string | null;
   notification_channel: string | null;
   notification_channel_name: string | null;
   uptime_notification_channel: string | null;
   uptime_notification_channel_name: string | null;
   wp_sso_configured: boolean;
   status_page: { slug: string; name: string; status: string; monitor_count: number } | null;
+  uptime_30d: number | null;
+  ssl_days_until_expiry: number | null;
   created_at: string;
   updated_at: string;
 }

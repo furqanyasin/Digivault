@@ -1,32 +1,81 @@
 import Link from "next/link";
-import { Globe, AlertTriangle, Clock, Plus, ExternalLink, Activity, TrendingUp } from "lucide-react";
+import {
+  Globe, AlertTriangle, Clock, Plus, ExternalLink, Activity, TrendingUp,
+  Bell, CalendarClock, ShieldCheck, KeyRound, ShieldAlert,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, ScriptChange, Monitor } from "@/lib/api";
-import { fmtDate, fmtDateTime } from "@/lib/utils";
+import type { Website, ScriptChange, Monitor, DetectedForm, FormSubmissionError } from "@/lib/api";
+import { fmtDate, fmtDateTime, fmtRelative } from "@/lib/utils";
+
+interface LogEntry {
+  id: string;
+  actor_email: string | null;
+  actor_name: string;
+  action: string;
+  action_label: string;
+  description: string;
+  created_at: string;
+}
+
+interface RenewalRow {
+  id: string;
+  name: string;
+  domain: string;
+  days_until_expiry: number | null;
+}
 
 async function getData(token: string) {
-  const [websitesResult, monitorsResult] = await Promise.allSettled([
-    api.get<Website[]>("/api/v1/websites/", token),
-    api.get<Monitor[]>("/api/v1/monitors/", token),
-  ]);
+  const [websitesResult, monitorsResult, logsResult, sslResult, domainResult, hostingResult] =
+    await Promise.allSettled([
+      api.get<Website[]>("/api/v1/websites/", token),
+      api.get<Monitor[]>("/api/v1/monitors/", token),
+      api.get<LogEntry[]>("/api/v1/logs/", token),
+      api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=30", token),
+      api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=30", token),
+      api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=30", token),
+    ]);
+
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
   const monitors = monitorsResult.status === "fulfilled" ? monitorsResult.value : [];
+  const recentActivity = logsResult.status === "fulfilled" ? logsResult.value.slice(0, 5) : [];
+  const expiringSsl = sslResult.status === "fulfilled" ? sslResult.value : [];
+  const expiringDomains = domainResult.status === "fulfilled" ? domainResult.value : [];
+  const expiringHosting = hostingResult.status === "fulfilled" ? hostingResult.value : [];
 
   const dashboardSites = websites.filter((w) => !w.domain?.includes("digilaticsvps")).slice(0, 5);
-  const changeSets = await Promise.allSettled(
-    dashboardSites.map((site) =>
-      api.get<ScriptChange[]>(`/api/v1/websites/${site.id}/changes/`, token)
-    )
-  );
+  const [changeSets, formSets, formErrorSets] = await Promise.all([
+    Promise.allSettled(
+      dashboardSites.map((site) => api.get<ScriptChange[]>(`/api/v1/websites/${site.id}/changes/`, token))
+    ),
+    Promise.allSettled(
+      dashboardSites.map((site) => api.get<DetectedForm[]>(`/api/v1/websites/${site.id}/forms/`, token))
+    ),
+    Promise.allSettled(
+      dashboardSites.map((site) => api.get<FormSubmissionError[]>(`/api/v1/websites/${site.id}/form-errors/`, token))
+    ),
+  ]);
   const allChanges = changeSets
     .filter((r) => r.status === "fulfilled")
     .flatMap((r) => (r as PromiseFulfilledResult<ScriptChange[]>).value);
+  const detectedForms = formSets
+    .filter((r) => r.status === "fulfilled")
+    .flatMap((r) => (r as PromiseFulfilledResult<DetectedForm[]>).value);
+  const formErrors = formErrorSets
+    .filter((r) => r.status === "fulfilled")
+    .flatMap((r) => (r as PromiseFulfilledResult<FormSubmissionError[]>).value);
 
-  return { websites, allChanges, monitors };
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const newThisWeek = websites.filter((w) => new Date(w.created_at).getTime() >= weekAgo).length;
+
+  return {
+    websites, allChanges, monitors, recentActivity,
+    expiringSsl, expiringDomains, expiringHosting,
+    detectedForms, formErrors, newThisWeek,
+  };
 }
 
 const STATUS_DOT: Record<string, string> = {
@@ -43,9 +92,29 @@ const STATUS_BAR: Record<string, string> = {
   inactive: "bg-slate-300",
 };
 
+const ACTIVITY_STYLE: Record<string, { icon: typeof Activity; className: string }> = {
+  "auth.login": { icon: Activity, className: "bg-emerald-500/10 text-emerald-600" },
+  "auth.login_failed": { icon: ShieldAlert, className: "bg-red-500/10 text-red-600" },
+  "auth.2fa_enabled": { icon: ShieldCheck, className: "bg-emerald-500/10 text-emerald-600" },
+  "auth.2fa_disabled": { icon: ShieldAlert, className: "bg-red-500/10 text-red-600" },
+  "credential.revealed": { icon: KeyRound, className: "bg-amber-500/10 text-amber-600" },
+  "credential.deleted": { icon: KeyRound, className: "bg-red-500/10 text-red-600" },
+  "website.scan_triggered": { icon: Globe, className: "bg-violet-500/10 text-violet-600" },
+  "website.snippet_verified": { icon: ShieldCheck, className: "bg-emerald-500/10 text-emerald-600" },
+  "team.member_removed": { icon: ShieldAlert, className: "bg-red-500/10 text-red-600" },
+  "team.member_role_changed": { icon: Activity, className: "bg-sky-500/10 text-sky-600" },
+};
+function activityStyle(action: string) {
+  return ACTIVITY_STYLE[action] ?? { icon: Activity, className: "bg-slate-500/10 text-slate-600" };
+}
+
 export default async function DashboardPage() {
   const token = await getAccessToken();
-  const { websites, allChanges, monitors } = await getData(token ?? "");
+  const {
+    websites, allChanges, monitors, recentActivity,
+    expiringSsl, expiringDomains, expiringHosting,
+    detectedForms, formErrors, newThisWeek,
+  } = await getData(token ?? "");
 
   const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
   function isInternal(c: ScriptChange) {
@@ -53,51 +122,50 @@ export default async function DashboardPage() {
     return check(c.script?.src_url) || check(c.description);
   }
   const visibleChanges = allChanges.filter((c) => !isInternal(c));
-
   const pending = visibleChanges.filter((c) => !c.is_acknowledged);
   const highRisk = visibleChanges.filter(
     (c) => (c.severity === "critical" || c.severity === "high") && !c.is_acknowledged
   );
-  const withIssues = websites.filter((w) => w.status === "critical" || w.status === "warning").length;
+  const newScripts = visibleChanges.filter((c) => c.change_type === "added");
   const monitorsDown = monitors.filter((m) => m.status === "down" || m.status === "degraded").length;
+
+  const uptimeSamples = monitors.map((m) => m.uptime_30d).filter((v): v is number => v != null);
+  const avgUptime = uptimeSamples.length
+    ? uptimeSamples.reduce((sum, v) => sum + v, 0) / uptimeSamples.length
+    : null;
+
+  const renewalIds = new Set([
+    ...expiringSsl.map((r) => r.id),
+    ...expiringDomains.map((r) => r.id),
+    ...expiringHosting.map((r) => r.id),
+  ]);
+  const nextRenewalDays = [...expiringSsl, ...expiringDomains, ...expiringHosting]
+    .map((r) => r.days_until_expiry)
+    .filter((v): v is number => v != null)
+    .sort((a, b) => a - b)[0];
+
+  const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
+  const sslValid = Math.max(websites.length - expiringSsl.length, 0);
 
   const stats = [
     {
-      label: "Monitored Sites", value: websites.length, icon: Globe,
-      chip: "bg-violet-500/10", iconColor: "text-violet-600 dark:text-violet-400", bg: "",
+      label: "Websites monitored", value: websites.length, icon: Globe,
+      caption: newThisWeek > 0 ? `+${newThisWeek} this week` : "No new sites this week",
       href: "/websites",
     },
     {
-      label: "Sites with Issues", value: withIssues, icon: AlertTriangle,
-      chip: withIssues > 0 ? "bg-rose-500/10" : "bg-emerald-500/10",
-      iconColor: withIssues > 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400",
-      bg: withIssues > 0 ? "bg-rose-50/50 dark:bg-rose-950/20" : "",
-      href: "/websites",
+      label: "Active alerts", value: pending.length, icon: Bell,
+      caption: highRisk.length > 0 ? `${highRisk.length} critical` : "None critical",
+      href: "/alerts",
     },
     {
-      label: "Pending Changes", value: pending.length, icon: Clock,
-      chip: "bg-amber-500/10",
-      iconColor: pending.length > 0 ? "text-amber-600 dark:text-amber-400" : "text-amber-500/60",
-      bg: pending.length > 0 ? "bg-amber-50/50 dark:bg-amber-950/20" : "",
-      href: null,
+      label: "Upcoming renewals", value: renewalIds.size, icon: CalendarClock,
+      caption: nextRenewalDays != null ? `Next in ${nextRenewalDays} days` : "Nothing due soon",
+      href: "/renewals",
     },
     {
-      label: "High Risk", value: highRisk.length, icon: AlertTriangle,
-      chip: highRisk.length > 0 ? "bg-red-500/10" : "bg-emerald-500/10",
-      iconColor: highRisk.length > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400",
-      bg: highRisk.length > 0 ? "bg-red-50/50 dark:bg-red-950/20" : "",
-      href: null,
-    },
-    {
-      label: "Monitors", value: monitors.length, icon: Activity,
-      chip: "bg-sky-500/10", iconColor: "text-sky-600 dark:text-sky-400", bg: "",
-      href: "/monitors",
-    },
-    {
-      label: "Monitors Down", value: monitorsDown, icon: TrendingUp,
-      chip: monitorsDown > 0 ? "bg-red-500/10" : "bg-emerald-500/10",
-      iconColor: monitorsDown > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400",
-      bg: monitorsDown > 0 ? "bg-red-50/50 dark:bg-red-950/20" : "",
+      label: "Avg uptime (30d)", value: avgUptime != null ? `${avgUptime.toFixed(2)}%` : "—", icon: TrendingUp,
+      caption: monitorsDown > 0 ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down` : "All monitors up",
       href: "/monitors",
     },
   ];
@@ -107,7 +175,7 @@ export default async function DashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Overview of your script monitoring activity</p>
+          <p className="text-muted-foreground mt-1">A live snapshot of every website your team is watching.</p>
         </div>
         <Link href="/websites/new">
           <Button>
@@ -118,23 +186,110 @@ export default async function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {stats.map(({ label, value, icon: Icon, chip, iconColor, bg, href }) => {
-          const card = (
-            <Card key={label} className={`${bg} ${href ? "hover:border-primary/50 hover:shadow-md transition-all cursor-pointer" : ""}`}>
-              <CardContent className="flex items-center gap-3 p-4">
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${chip}`}>
-                  <Icon className={`h-5 w-5 ${iconColor}`} />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {stats.map(({ label, value, icon: Icon, caption, href }) => (
+          <Link key={label} href={href}>
+            <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span className="text-sm">{label}</span>
+                  <Icon className="h-4 w-4" />
                 </div>
-                <div className="min-w-0">
-                  <div className="text-2xl font-bold leading-none">{value}</div>
-                  <div className="text-xs font-medium text-muted-foreground mt-1 truncate">{label}</div>
-                </div>
+                <div className="text-2xl font-bold mt-2">{value}</div>
+                <div className="text-xs text-muted-foreground mt-1">{caption}</div>
               </CardContent>
             </Card>
-          );
-          return href ? <Link key={label} href={href}>{card}</Link> : <div key={label}>{card}</div>;
-        })}
+          </Link>
+        ))}
+      </div>
+
+      {/* Recent activity + fleet health */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="p-6">
+            <h2 className="text-base font-semibold mb-4">Recent activity</h2>
+            {recentActivity.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">No recent activity.</p>
+            ) : (
+              <div className="divide-y">
+                {recentActivity.map((entry) => {
+                  const { icon: Icon, className } = activityStyle(entry.action);
+                  return (
+                    <div key={entry.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
+                        <Icon className="h-3.5 w-3.5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm leading-snug">
+                          <span className="font-semibold">{entry.actor_name || entry.actor_email || "System"}</span>{" "}
+                          <span className="text-muted-foreground">{entry.description || entry.action_label}</span>
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5" title={fmtDateTime(entry.created_at)}>
+                          {fmtRelative(entry.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6 space-y-1">
+            <h2 className="text-base font-semibold mb-3">Fleet health</h2>
+
+            <div className="flex items-center justify-between py-2.5 border-b">
+              <div>
+                <p className="text-sm font-medium">Uptime</p>
+                <p className="text-xs text-muted-foreground">
+                  {avgUptime != null ? `${avgUptime.toFixed(2)}%` : "No monitors yet"}
+                </p>
+              </div>
+              <Badge variant={monitorsDown > 0 ? "destructive" : "default"}>
+                {monitorsDown > 0 ? `${monitorsDown} down` : "Operational"}
+              </Badge>
+            </div>
+
+            <div className="flex items-center justify-between py-2.5 border-b">
+              <div>
+                <p className="text-sm font-medium">SSL certificates</p>
+                <p className="text-xs text-muted-foreground">{sslValid} / {websites.length} valid</p>
+              </div>
+              <Badge variant={expiringSsl.length > 0 ? "warning" : "default"}>
+                {expiringSsl.length > 0 ? `${expiringSsl.length} expiring` : "All valid"}
+              </Badge>
+            </div>
+
+            <div className="flex items-center justify-between py-2.5 border-b">
+              <div>
+                <p className="text-sm font-medium">Third-party scripts</p>
+                <p className="text-xs text-muted-foreground">{totalScripts} tracked</p>
+              </div>
+              <Badge variant="secondary">
+                {newScripts.length > 0 ? `${newScripts.length} new` : "No new activity"}
+              </Badge>
+            </div>
+
+            <div className="flex items-center justify-between py-2.5">
+              <div>
+                <p className="text-sm font-medium">Forms</p>
+                <p className="text-xs text-muted-foreground">{detectedForms.length} monitored</p>
+              </div>
+              <Badge variant={formErrors.length > 0 ? "destructive" : "default"}>
+                {formErrors.length > 0 ? `${formErrors.length} broken` : "All healthy"}
+              </Badge>
+            </div>
+
+            <Link href="/renewals" className="block pt-3">
+              <Button variant="outline" className="w-full">
+                <ShieldCheck className="h-4 w-4 mr-2" />
+                Run fleet audit
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Website cards grid */}
