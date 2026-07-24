@@ -42,6 +42,9 @@ class Client(BaseModel):
         FULL_ADMIN = "full_admin", "Full admin"
         DELEGATE = "delegate", "Delegate access"
         NONE = "none", "No access"
+        # Credentials exist but don't get us in — distinct from "No access",
+        # which means we were never given any.
+        NOT_WORKING = "not_working", "Access not working"
         UNKNOWN = "", "Unknown"
 
     # Departments that may work on this client — controls who sees it (Phase 7).

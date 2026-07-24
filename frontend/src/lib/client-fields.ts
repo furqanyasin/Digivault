@@ -33,6 +33,7 @@ export const ACCESS_LEVEL_OPTIONS = [
   { value: "full_admin", label: "Full admin" },
   { value: "delegate", label: "Delegate access" },
   { value: "none", label: "No access" },
+  { value: "not_working", label: "Access not working" },
 ];
 
 export const ACCESS_LEVEL_TOOLTIP =

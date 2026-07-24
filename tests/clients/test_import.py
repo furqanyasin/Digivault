@@ -118,3 +118,62 @@ def test_import_still_reads_legacy_domain_access_header(auth_client):
     assert resp.data["created"] == 1
     client = Client.objects.get(name="Beta Co")
     assert client.domain_access_location == "Client SiteGround Account"
+
+
+@pytest.mark.django_db
+def test_reimport_creates_websites_for_existing_clients(auth_client, team):
+    """Re-importing a sheet must still provision websites.
+
+    Every client is an *update* on the second pass, and auto-create used to run
+    only on the create branch — so a re-import left clients with no website.
+    """
+    from apps.websites.models import Website
+
+    csv_text = (
+        "Client Name,Websites URL (short text)\n"
+        "Acme Co,https://acme.io\n"
+    )
+    # First pass creates the client, but pretend it predates auto-create by
+    # removing the website it provisioned.
+    resp = auth_client.post(
+        "/api/v1/clients/import/", {"file": _csv_upload(csv_text)}, format="multipart"
+    )
+    assert resp.status_code == 200
+    assert resp.data["created"] == 1
+    Website.objects.all().delete()
+
+    # Second pass: the client already exists, so this is an update.
+    resp = auth_client.post(
+        "/api/v1/clients/import/", {"file": _csv_upload(csv_text)}, format="multipart"
+    )
+    assert resp.status_code == 200
+    assert resp.data["updated"] == 1
+
+    website = Website.objects.get(team=team, domain="acme.io")
+    assert website.client.name == "Acme Co"
+
+
+@pytest.mark.django_db
+def test_import_maps_real_sheet_wording(auth_client):
+    """Wording from the live client sheet must not be silently dropped."""
+    csv_text = (
+        "Client Name,Hosting Platform (drop down),Website Access Level\n"
+        "Admin Co,Wp Engine,admin\n"
+        "Unmanaged Co,Not Manage by us,Not Have\n"
+        "Broken Co,SiteGround,Not Working\n"
+        "Limited Co,SiteGround,Limited\n"
+    )
+    resp = auth_client.post(
+        "/api/v1/clients/import/", {"file": _csv_upload(csv_text)}, format="multipart"
+    )
+    assert resp.status_code == 200, resp.data
+
+    assert Client.objects.get(name="Admin Co").website_access_level == "full_admin"
+    assert Client.objects.get(name="Limited Co").website_access_level == "delegate"
+    assert Client.objects.get(name="Broken Co").website_access_level == "not_working"
+
+    unmanaged = Client.objects.get(name="Unmanaged Co")
+    assert unmanaged.website_access_level == "none"
+    # Unrecognised platform wording is preserved rather than discarded.
+    assert unmanaged.hosting_platform == "other"
+    assert unmanaged.hosting_platform_other == "Not Manage by us"
