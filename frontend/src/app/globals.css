@@ -81,3 +81,147 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Third-party widget theming (Flatpickr, Choices.js, SweetAlert2).
+
+   These libraries ship CSS written for a light page with their own fonts and
+   greys. Left alone they read as foreign controls and are unusable in dark
+   mode, so their surfaces are remapped onto our design tokens. Scoped to the
+   widgets' own class names — no global element selectors.
+   --------------------------------------------------------------------------- */
+
+/* Flatpickr — selectors are `body`-prefixed on purpose: flatpickr's own CSS is
+   imported by the client component and so lands AFTER this file in the cascade.
+   At equal specificity its `background:#fff` wins and the picker renders white
+   on a dark card. `body ` (0,1,1) beats it without scattering !important. ---- */
+body .flatpickr-calendar {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.28);
+  font-family: inherit;
+  font-size: 0.8rem;
+}
+body .flatpickr-calendar.arrowTop::before,
+body .flatpickr-calendar.arrowTop::after,
+body .flatpickr-calendar.arrowBottom::before,
+body .flatpickr-calendar.arrowBottom::after {
+  display: none;
+}
+body .flatpickr-months,
+body .flatpickr-month,
+body .flatpickr-innerContainer,
+body .flatpickr-rContainer,
+body .flatpickr-days,
+body .flatpickr-weekdays,
+body .flatpickr-weekdaycontainer,
+body .dayContainer {
+  background: transparent;
+  color: var(--card-foreground);
+}
+body .flatpickr-current-month .flatpickr-monthDropdown-months,
+body .flatpickr-current-month input.cur-year {
+  background: transparent;
+  color: var(--card-foreground);
+}
+body .flatpickr-monthDropdown-month {
+  background: var(--card);
+  color: var(--card-foreground);
+}
+body .flatpickr-prev-month svg,
+body .flatpickr-next-month svg {
+  fill: var(--card-foreground);
+}
+body .flatpickr-prev-month:hover svg,
+body .flatpickr-next-month:hover svg {
+  fill: var(--primary);
+}
+body .flatpickr-weekday {
+  background: transparent;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+body .flatpickr-day {
+  color: var(--card-foreground);
+  border-radius: 0.5rem;
+  border-color: transparent;
+}
+body .flatpickr-day:hover {
+  background: var(--muted);
+  border-color: transparent;
+}
+body .flatpickr-day.today {
+  border-color: var(--primary);
+}
+body .flatpickr-day.selected,
+body .flatpickr-day.startRange,
+body .flatpickr-day.endRange {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+body .flatpickr-day.inRange {
+  background: color-mix(in oklab, var(--primary) 22%, transparent);
+  border-color: transparent;
+  box-shadow: none;
+}
+body .flatpickr-day.flatpickr-disabled,
+body .flatpickr-day.prevMonthDay,
+body .flatpickr-day.nextMonthDay {
+  color: var(--muted-foreground);
+  opacity: 0.45;
+}
+
+/* Choices.js -------------------------------------------------------------- */
+.dv-choices .choices { margin-bottom: 0; }
+.dv-choices .choices__inner {
+  min-height: 30px;
+  padding: 3px 7px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--card-foreground);
+  font-size: 0.75rem;
+}
+.dv-choices .choices.is-focused .choices__inner { border-color: var(--primary); }
+.dv-choices .choices__list--single { padding: 0 16px 0 0; }
+.dv-choices .choices__list--dropdown,
+.dv-choices .choices__list[aria-expanded] {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  color: var(--card-foreground);
+  font-size: 0.75rem;
+  z-index: 40;
+}
+.dv-choices .choices__list--dropdown .choices__item--selectable.is-highlighted,
+.dv-choices .choices__list[aria-expanded] .choices__item--selectable.is-highlighted {
+  background: var(--muted);
+}
+.dv-choices .choices__input {
+  background: var(--card);
+  color: var(--card-foreground);
+  font-size: 0.75rem;
+}
+.dv-choices .choices[data-type*="select-one"]::after { border-color: var(--muted-foreground) transparent transparent; }
+.dv-choices .choices[data-type*="select-one"].is-open::after { border-color: transparent transparent var(--muted-foreground); }
+
+/* SweetAlert2 ------------------------------------------------------------- */
+.swal2-popup.dv-swal {
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  font-family: inherit;
+}
+.swal2-popup.dv-swal .swal2-title { color: var(--card-foreground); font-size: 1.1rem; }
+.swal2-popup.dv-swal .swal2-html-container { color: var(--muted-foreground); font-size: 0.875rem; }
+.dv-swal-confirm, .dv-swal-cancel {
+  border-radius: 0.5rem !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+  box-shadow: none !important;
+}
+.dv-swal-cancel { background: var(--muted) !important; color: var(--foreground) !important; }

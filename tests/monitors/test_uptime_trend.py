@@ -114,3 +114,54 @@ class TestUptimeTrend:
         resp = auth_client.get(f"{URL}?days={requested}")
         assert resp.status_code == 200
         assert resp.data["days"] == expected
+
+
+@pytest.mark.django_db
+class TestUptimeTrendDateRange:
+    """`from`/`to` back the dashboard's Flatpickr range picker."""
+
+    def test_explicit_range_wins_over_days(self, auth_client, team):
+        resp = auth_client.get(f"{URL}?days=14&from=2026-07-01&to=2026-07-05")
+        assert resp.status_code == 200
+        dates = [p["date"] for p in resp.data["points"]]
+        assert dates == [
+            "2026-07-01", "2026-07-02", "2026-07-03", "2026-07-04", "2026-07-05",
+        ]
+        assert resp.data["days"] == 5
+
+    def test_single_day_range(self, auth_client, team):
+        resp = auth_client.get(f"{URL}?from=2026-07-03&to=2026-07-03")
+        assert [p["date"] for p in resp.data["points"]] == ["2026-07-03"]
+
+    def test_reversed_range_is_normalised(self, auth_client, team):
+        """A picker can hand back the two dates in either order."""
+        resp = auth_client.get(f"{URL}?from=2026-07-05&to=2026-07-01")
+        dates = [p["date"] for p in resp.data["points"]]
+        assert dates[0] == "2026-07-01" and dates[-1] == "2026-07-05"
+
+    def test_range_longer_than_max_is_truncated_from_the_end(self, auth_client, team):
+        resp = auth_client.get(f"{URL}?from=2020-01-01&to=2026-07-05")
+        assert resp.data["days"] == 90
+        assert resp.data["points"][-1]["date"] == "2026-07-05"
+
+    def test_garbage_dates_fall_back_to_days(self, auth_client, team):
+        resp = auth_client.get(f"{URL}?from=not-a-date&to=also-bad&days=5")
+        assert resp.status_code == 200
+        assert resp.data["days"] == 5
+        assert resp.data["points"][-1]["date"] == timezone.localdate().isoformat()
+
+    def test_only_from_falls_back_to_days(self, auth_client, team):
+        """Half a range is not a range."""
+        resp = auth_client.get(f"{URL}?from=2026-07-01&days=3")
+        assert resp.data["days"] == 3
+        assert resp.data["points"][-1]["date"] == timezone.localdate().isoformat()
+
+    def test_checks_inside_an_explicit_range_are_counted(self, auth_client, team):
+        m = _monitor(team)
+        _check(m, MonitorCheck.Status.DOWN, days_ago=3)
+        today = timezone.localdate()
+        start = (today - timedelta(days=5)).isoformat()
+        resp = auth_client.get(f"{URL}?from={start}&to={today.isoformat()}")
+        target = (today - timedelta(days=3)).isoformat()
+        point = next(p for p in resp.data["points"] if p["date"] == target)
+        assert point["value"] == 0.0

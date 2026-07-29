@@ -72,10 +72,21 @@ class FormSubmissionIngestSerializer(serializers.Serializer):
 
 
 class FormSubmissionErrorSerializer(BaseModelSerializer):
+    # Attribution for the team-wide /form-errors/ list, which mixes sites — the
+    # same reason ScriptChangeSerializer carries website_name. Without it a
+    # caller can see that N forms are broken but not on which site.
+    website_name = serializers.SerializerMethodField()
+
     class Meta:
         model = FormSubmissionError
-        fields = ("id", "source", "form_id", "page_url", "message", "created_at")
+        fields = (
+            "id", "website", "website_name", "source", "form_id",
+            "page_url", "message", "created_at",
+        )
         read_only_fields = fields
+
+    def get_website_name(self, obj) -> str:
+        return obj.website.name or obj.website.domain
 
 
 class IngestPayloadSerializer(serializers.Serializer):

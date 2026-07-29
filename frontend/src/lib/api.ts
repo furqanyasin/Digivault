@@ -319,6 +319,8 @@ export interface Monitor {
   uptime_30d: number | null;
   tags: string[];
   notes: string;
+  /** Set for auto-provisioned monitors; null for standalone ones. */
+  website: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -392,6 +394,9 @@ export interface DetectedForm {
 
 export interface FormSubmissionError {
   id: string;
+  /** Attribution for the team-wide /form-errors/ list, which mixes sites. */
+  website: string;
+  website_name: string;
   source: string;
   form_id: string;
   page_url: string;

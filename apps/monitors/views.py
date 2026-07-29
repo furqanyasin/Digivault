@@ -86,8 +86,9 @@ class MonitorCheckListView(generics.ListAPIView):
 
 class UptimeTrendView(APIView):
     """GET /api/v1/monitors/uptime-trend/?days=14
+       GET /api/v1/monitors/uptime-trend/?from=2026-07-01&to=2026-07-14
 
-    One team-wide uptime percentage per day, for the dashboard sparkline.
+    One team-wide uptime percentage per day, for the dashboard trend charts.
     Aggregated from MonitorCheck rather than the cached uptime_* fields, which
     only hold rolling 24h/7d/30d figures and so cannot draw a curve.
 
@@ -101,28 +102,59 @@ class UptimeTrendView(APIView):
     DEFAULT_DAYS = 14
     MAX_DAYS = 90
 
-    def get(self, request):
-        from datetime import timedelta
+    def _window(self, request):
+        """Resolve (first_day, last_day). An explicit from+to range wins.
 
-        from django.db.models import Count, Q
-        from django.db.models.functions import TruncDate
+        Both bounds are required — half a range is not a range, so a lone
+        `from` falls back to the rolling `days` window rather than silently
+        inventing an end date.
+        """
+        from datetime import date, timedelta
+
         from django.utils import timezone
+
+        raw_from = request.query_params.get("from")
+        raw_to = request.query_params.get("to")
+        if raw_from and raw_to:
+            try:
+                start, end = date.fromisoformat(raw_from), date.fromisoformat(raw_to)
+            except ValueError:
+                start = end = None
+            if start and end:
+                # A picker can hand the pair back in either order.
+                if start > end:
+                    start, end = end, start
+                # Truncate from the start so the range keeps its end date, which
+                # is the one the reader is looking at.
+                if (end - start).days + 1 > self.MAX_DAYS:
+                    start = end - timedelta(days=self.MAX_DAYS - 1)
+                return start, end
 
         try:
             days = int(request.query_params.get("days", self.DEFAULT_DAYS))
         except (TypeError, ValueError):
             days = self.DEFAULT_DAYS
         days = max(1, min(days, self.MAX_DAYS))
+        today = timezone.localdate()
+        return today - timedelta(days=days - 1), today
+
+    def get(self, request):
+        from datetime import timedelta
+
+        from django.db.models import Count, Q
+        from django.db.models.functions import TruncDate
 
         team = request.user.active_team
-        today = timezone.localdate()
-        first_day = today - timedelta(days=days - 1)
+        first_day, last_day = self._window(request)
+        days = (last_day - first_day).days + 1
 
         by_day: dict[str, float] = {}
         if team is not None:
             rows = (
                 MonitorCheck.objects.filter(
-                    monitor__team=team, checked_at__date__gte=first_day
+                    monitor__team=team,
+                    checked_at__date__gte=first_day,
+                    checked_at__date__lte=last_day,
                 )
                 .annotate(day=TruncDate("checked_at"))
                 .values("day")
