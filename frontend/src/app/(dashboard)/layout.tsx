@@ -1,4 +1,4 @@
-﻿import { Shield } from "lucide-react";
+﻿import Image from "next/image";
 import { LogoutButton } from "@/components/logout-button";
 import { NavLinks } from "@/components/nav-links";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -63,9 +63,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Sidebar — sticks to the top while the page body scrolls */}
       <aside className="w-64 shrink-0 border-r bg-card flex flex-col sticky top-0 h-screen self-start overflow-y-auto">
         <div className="flex items-center gap-2.5 px-6 py-5 border-b">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 shadow-sm">
-            <Shield className="h-4.5 w-4.5 text-white" />
-          </div>
+          {/* Intrinsic 872x635 is declared so the ratio is exact and nothing
+              shifts while it loads; CSS sizes it. A square box would squash it.
+              Local .svg is served unoptimized automatically — no config needed. */}
+          <Image
+            src="/digivault-icon.svg"
+            alt="Digivault"
+            width={872}
+            height={635}
+            priority
+            className="h-7 w-auto"
+          />
           <span className="font-bold text-lg tracking-tight">Digivault</span>
         </div>
 
