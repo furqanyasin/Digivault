@@ -217,6 +217,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "domains.check_all_domains",
         "schedule": crontab(hour=6, minute=0),
     },
+    # Runs after check-all-domains so it scores the freshest expiry data, and
+    # gives time-based deductions (expiry windows, reporting gap) a daily decay.
+    "recalculate-all-health-daily": {
+        "task": "websites.recalculate_all_health",
+        "schedule": crontab(hour=6, minute=30),
+    },
     "run-due-seo-checks": {
         "task": "site_health.run_due_seo_checks",
         "schedule": crontab(hour=4, minute=0),

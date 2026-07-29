@@ -284,8 +284,8 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
             website.save(update_fields=["last_seen_at"])
 
             # Always recalculate — noise cleanup may have shifted the status
-            # even when no new trackable changes occurred.
-            _update_website_status(website)
+            # even when no new trackable changes occurred. This writes both
+            # health_score and status.
             website.recalculate_health_score()
 
     except Exception as exc:
@@ -397,32 +397,15 @@ def _update_script_scopes(website: Website) -> None:
 
 
 def _update_website_status(website: Website) -> None:
-    """Set website status from open changes the user can actually see and clear.
+    """Refresh a website's status.
 
-    Changes on Digivault's own infra domains (e.g. the tracking snippet) are
-    hidden from the Change Log, so they must not drive the status — otherwise a
-    site shows 'critical' with nothing the user can acknowledge.
+    Status used to be derived here from open script-change severity alone, which
+    let it disagree with `health_score` — a site scoring 42 could still read
+    'active'. `Website.recalculate_health_score()` is now the single writer of
+    both fields; this stays as a thin delegate because a data migration
+    (scripts/0007) and several call sites reference it by name.
     """
-    internal = _internal_hosts()
-
-    def _is_internal(change) -> bool:
-        blob = f"{change.script.src_url if change.script_id else ''} {change.description or ''}".lower()
-        return any(host in blob for host in internal)
-
-    open_changes = (
-        ScriptChange.objects.filter(website=website, acknowledged_at__isnull=True)
-        .select_related("script")
-    )
-    severities = {c.severity for c in open_changes if not _is_internal(c)}
-
-    if severities & {ScriptChange.Severity.CRITICAL, ScriptChange.Severity.HIGH}:
-        new_status = Website.Status.CRITICAL
-    elif ScriptChange.Severity.MEDIUM in severities:
-        new_status = Website.Status.WARNING
-    else:
-        new_status = Website.Status.ACTIVE
-
-    Website.objects.filter(pk=website.pk).update(status=new_status)
+    website.recalculate_health_score()
 
 
 @shared_task(name="scripts.purge_old_snapshots")

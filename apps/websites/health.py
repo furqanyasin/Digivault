@@ -14,14 +14,31 @@ from django.utils import timezone
 
 
 def _security_score(vuln_counts: dict, php_errors: int, ssl_days) -> int:
-    """0–100 security score derived from vulnerabilities, PHP errors, SSL."""
+    """0–100 security-only sub-score from vulnerabilities, PHP errors, SSL.
+
+    Deliberately steeper on vulnerabilities than the overall health score. That
+    is not a disagreement: overall health caps vuln deductions low because vulns
+    are one of eight inputs, whereas this score has three, so it needs the range
+    to stay meaningful — flattening it to health's weights would give it a floor
+    of 31 and make a 10-critical-vuln site look survivable.
+
+    What did have to be reconciled is the SSL window. This used to deduct a flat
+    15 for anything inside 14 days while overall health used 7/14/30 tiers, so
+    the same certificate produced contradictory readings. Both now use the same
+    tiers.
+    """
     deductions = 0
     deductions += min(vuln_counts.get("critical", 0) * 25, 50)
     deductions += min(vuln_counts.get("high", 0) * 10, 30)
     deductions += min(vuln_counts.get("medium", 0) * 3, 15)
     deductions += min(php_errors, 10)
-    if ssl_days is not None and ssl_days <= 14:
-        deductions += 15
+    if ssl_days is not None:
+        if ssl_days <= 7:
+            deductions += 20
+        elif ssl_days <= 14:
+            deductions += 12
+        elif ssl_days <= 30:
+            deductions += 5
     return max(0, min(100, 100 - deductions))
 
 

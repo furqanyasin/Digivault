@@ -28,6 +28,29 @@ def run_initial_checks(website_pk: str) -> None:
     _run_performance_check(website)
 
 
+@shared_task(name="websites.recalculate_all_health")
+def recalculate_all_health() -> int:
+    """Nightly sweep so time-based health deductions actually decay.
+
+    Several deductions are functions of elapsed time — domain/SSL/hosting expiry
+    windows and the last_seen_at reporting gap. Event triggers (ingest,
+    acknowledge, monitor flip, domain check) never fire for a site that has
+    simply gone quiet, so without this sweep a site could drift past an expiry
+    date while still reporting yesterday's score. Idempotent.
+    """
+    from apps.websites.models import Website
+
+    count = 0
+    for website in Website.objects.exclude(status=Website.Status.INACTIVE).iterator():
+        try:
+            website.recalculate_health_score()
+            count += 1
+        except Exception:
+            logger.exception("recalculate_all_health failed for website %s", website.pk)
+    logger.info("recalculate_all_health: recalculated %d websites", count)
+    return count
+
+
 def _run_uptime_check(website) -> None:
     try:
         from apps.monitors.models import Monitor, MonitorCheck

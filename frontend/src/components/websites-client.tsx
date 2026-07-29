@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronLeft, ChevronRight, Star, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,15 +74,24 @@ export function WebsitesClient({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
 
+  // The dashboard's VIP section links here with ?vip=1. Held in state rather
+  // than read straight from the URL so the chip's clear button works without a
+  // navigation.
+  const searchParams = useSearchParams();
+  const [vipOnly, setVipOnly] = useState(searchParams.get("vip") === "1");
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return websites;
-    return websites.filter((w) =>
-      w.domain?.toLowerCase().includes(q) ||
-      w.name?.toLowerCase().includes(q) ||
-      w.client_name?.toLowerCase().includes(q)
-    );
-  }, [websites, query]);
+    let rows = vipOnly ? websites.filter((w) => w.is_vip) : websites;
+    if (q) {
+      rows = rows.filter((w) =>
+        w.domain?.toLowerCase().includes(q) ||
+        w.name?.toLowerCase().includes(q) ||
+        w.client_name?.toLowerCase().includes(q)
+      );
+    }
+    return rows;
+  }, [websites, query, vipOnly]);
 
   const missingFiltered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -110,6 +120,22 @@ export function WebsitesClient({
             className="pl-9"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => { setVipOnly((v) => !v); setPage(1); }}
+          aria-pressed={vipOnly}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            vipOnly
+              ? "border-amber-400 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+              : "text-muted-foreground hover:bg-muted"
+          )}
+        >
+          <Star className={cn("h-3.5 w-3.5", vipOnly && "fill-amber-400 text-amber-500")} />
+          VIP only
+          {vipOnly && <X className="h-3 w-3" />}
+        </button>
+
         <div className="flex items-center gap-2 text-xs ml-auto mr-2">
           <span className="text-muted-foreground">Per page:</span>
           {PAGE_SIZES.map((ps) => (

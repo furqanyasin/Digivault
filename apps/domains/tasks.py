@@ -125,9 +125,16 @@ def _deliver_unsent_alerts(domain_info: DomainInfo) -> None:
 
 @shared_task(name="domains.check_all_domains")
 def check_all_domains() -> int:
-    """Scheduled daily task — enqueue a check_domain task per active website."""
+    """Scheduled daily task — enqueue a check_domain task per live website.
+
+    Only 'inactive' is skipped. This used to also skip 'critical', which became a
+    trap once status started deriving from health_score: a site whose score fell
+    below 60 would stop receiving domain checks, so its expiry data froze and the
+    expiry deductions could never clear. 'critical' means "needs attention" — the
+    last status that should stop being checked.
+    """
     ids = list(
-        Website.objects.filter(status__in=[Website.Status.ACTIVE, Website.Status.WARNING])
+        Website.objects.exclude(status=Website.Status.INACTIVE)
         .values_list("pk", flat=True)
     )
     for website_id in ids:

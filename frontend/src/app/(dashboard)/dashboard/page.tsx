@@ -1,15 +1,16 @@
 import Link from "next/link";
 import {
-  Globe, AlertTriangle, Clock, Plus, ExternalLink, Activity, TrendingUp,
-  Bell, CalendarClock, ShieldCheck, KeyRound, ShieldAlert,
+  Globe, Plus, Activity, TrendingUp, Star, AlertTriangle,
+  Bell, CalendarClock, ShieldCheck, KeyRound, ShieldAlert, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { SiteHealthCard } from "@/components/site-health-card";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, ScriptChange, Monitor, DetectedForm, FormSubmissionError } from "@/lib/api";
-import { fmtDate, fmtDateTime, fmtRelative } from "@/lib/utils";
+import { fmtDateTime, fmtRelative } from "@/lib/utils";
 
 interface LogEntry {
   id: string;
@@ -73,19 +74,12 @@ async function getData(token: string) {
 // search and filtering — a 60-card wall on the dashboard is unusable.
 const DASHBOARD_SITE_LIMIT = 6;
 
-const STATUS_DOT: Record<string, string> = {
-  active: "bg-emerald-500",
-  warning: "bg-amber-500",
-  critical: "bg-red-500",
-  inactive: "bg-slate-400",
-};
+// One row each. These sections exist to name the few sites worth opening now;
+// a longer list would just be the grid again.
+const SPOTLIGHT_LIMIT = 3;
 
-const STATUS_BAR: Record<string, string> = {
-  active: "bg-emerald-500",
-  warning: "bg-amber-400",
-  critical: "bg-red-500",
-  inactive: "bg-slate-300",
-};
+// Mirrors Website.HEALTH_WARNING_BELOW.
+const ATTENTION_BELOW = 85;
 
 const ACTIVITY_STYLE: Record<string, { icon: typeof Activity; className: string }> = {
   "auth.login": { icon: Activity, className: "bg-emerald-500/10 text-emerald-600" },
@@ -142,6 +136,29 @@ export default async function DashboardPage() {
   const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
   const sslValid = Math.max(websites.length - expiringSsl.length, 0);
 
+  // Spotlight sections. Selected from the already-fetched list — no extra
+  // request. Worst score first, so the three shown are the three worth opening.
+  const byWorstScore = (a: Website, b: Website) =>
+    (a.health_score ?? 100) - (b.health_score ?? 100);
+
+  const vipSites = websites.filter((w) => w.is_vip).sort(byWorstScore);
+
+  // Driven by `status`, not by the score alone. Status is the backend's
+  // "how urgent is the worst open issue" verdict, so it catches sites with a
+  // real problem that barely dents the number — two broken contact forms score
+  // 88, which a `< 85` threshold would have quietly skipped. The score band is
+  // kept as a floor for anything status hasn't classified.
+  const needsAttention = websites
+    .filter(
+      (w) =>
+        !w.is_vip &&
+        w.status !== "inactive" &&
+        (w.status === "critical" ||
+          w.status === "warning" ||
+          (w.health_score ?? 100) < ATTENTION_BELOW)
+    )
+    .sort(byWorstScore);
+
   const stats = [
     {
       label: "Websites monitored", value: websites.length, icon: Globe,
@@ -151,6 +168,8 @@ export default async function DashboardPage() {
     {
       label: "Active alerts", value: pending.length, icon: Bell,
       caption: highRisk.length > 0 ? `${highRisk.length} critical` : "None critical",
+      // Critical alerts are the one caption that must not read as ambient text.
+      captionClass: highRisk.length > 0 ? "text-red-600 font-semibold" : undefined,
       href: "/alerts",
     },
     {
@@ -174,7 +193,7 @@ export default async function DashboardPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map(({ label, value, icon: Icon, caption, href }) => (
+        {stats.map(({ label, value, icon: Icon, caption, captionClass, href }) => (
           <Link key={label} href={href}>
             <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
               <CardContent className="p-5">
@@ -183,12 +202,82 @@ export default async function DashboardPage() {
                   <Icon className="h-4 w-4" />
                 </div>
                 <div className="text-2xl font-bold mt-2">{value}</div>
-                <div className="text-xs text-muted-foreground mt-1">{caption}</div>
+                <div className={`text-xs mt-1 ${captionClass ?? "text-muted-foreground"}`}>
+                  {caption}
+                </div>
               </CardContent>
             </Card>
           </Link>
         ))}
       </div>
+
+      {/* VIP websites — the sites where a problem costs the most. Always
+          rendered, even when empty, so the feature is discoverable. */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Star className="h-4 w-4 fill-amber-400 text-amber-500" />
+            VIP Websites
+          </h2>
+          {vipSites.length > SPOTLIGHT_LIMIT && (
+            <Link href="/websites?vip=1">
+              <Button variant="outline" size="sm">
+                View all {vipSites.length}
+              </Button>
+            </Link>
+          )}
+        </div>
+
+        {vipSites.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+              <Star className="h-8 w-8 text-muted-foreground" />
+              <p className="font-medium">No VIP websites yet</p>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Mark a site VIP from its page to pin it here — useful for the
+                handful of client sites where downtime costs the most.
+              </p>
+              <Link href="/websites">
+                <Button variant="outline" size="sm" className="mt-1">
+                  Choose a site
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {vipSites.slice(0, SPOTLIGHT_LIMIT).map((site) => (
+              <SiteHealthCard key={site.id} site={site} showVipMark />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Needs attention — non-VIP sites with a real problem. Hidden when
+          empty; "nothing is wrong" is better said by absence than by a card. */}
+      {needsAttention.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Needs Attention
+            </h2>
+            {needsAttention.length > SPOTLIGHT_LIMIT && (
+              <Link href="/websites">
+                <Button variant="outline" size="sm">
+                  View all {needsAttention.length}
+                </Button>
+              </Link>
+            )}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {needsAttention.slice(0, SPOTLIGHT_LIMIT).map((site) => (
+              <SiteHealthCard key={site.id} site={site} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Recent activity + fleet health */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -225,7 +314,7 @@ export default async function DashboardPage() {
 
         <Card>
           <CardContent className="p-6 space-y-1">
-            <h2 className="text-base font-semibold mb-3">Fleet health</h2>
+            <h2 className="text-base font-semibold mb-3">Renewal Center</h2>
 
             <div className="flex items-center justify-between py-2.5 border-b">
               <div>
@@ -272,7 +361,7 @@ export default async function DashboardPage() {
             <Link href="/renewals" className="block pt-3">
               <Button variant="outline" className="w-full">
                 <ShieldCheck className="h-4 w-4 mr-2" />
-                Run fleet audit
+                Open Renewal Center
               </Button>
             </Link>
           </CardContent>
@@ -306,80 +395,9 @@ export default async function DashboardPage() {
           </Card>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {websites.slice(0, DASHBOARD_SITE_LIMIT).map((site) => {
-              return (
-                <Card key={site.id} className="hover:border-primary/50 hover:shadow-md transition-all">
-                  <CardContent className="p-5 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${STATUS_DOT[site.status] ?? "bg-slate-400"}`} />
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm truncate">{site.name || site.domain}</p>
-                          <p className="text-xs text-muted-foreground font-mono truncate">{site.domain}</p>
-                        </div>
-                      </div>
-                      <Link href={`/websites/${site.id}`}>
-                        <Button variant="ghost" size="sm" className="shrink-0 ml-2 h-7 w-7 p-0">
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
-                    </div>
-
-                    {/* Health score */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Health</span>
-                        <div className="flex items-center gap-2">
-                          <span className={`font-bold text-sm ${
-                            site.status === "critical" ? "text-red-500" :
-                            site.status === "warning" ? "text-amber-500" :
-                            site.status === "active" ? "text-emerald-600" :
-                            "text-muted-foreground"
-                          }`}>
-                            {site.health_score ?? 100}
-                          </span>
-                          <Badge
-                            variant={
-                              site.status === "critical" ? "destructive" :
-                              site.status === "warning" ? "warning" :
-                              site.status === "active" ? "success" : "secondary"
-                            }
-                            className="text-xs h-5"
-                          >
-                            {site.status ?? "unknown"}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${STATUS_BAR[site.status ?? "inactive"] ?? "bg-slate-300"}`}
-                          style={{ width: `${site.health_score ?? 100}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Globe className="h-3 w-3" />
-                        {site.script_count ?? 0} scripts
-                      </span>
-                      {(site.unknown_script_count ?? 0) > 0 && (
-                        <span className="flex items-center gap-1 text-red-600 font-semibold">
-                          <AlertTriangle className="h-3 w-3" />
-                          {site.unknown_script_count} unknown
-                        </span>
-                      )}
-                      {site.last_seen_at && (
-                        <span className="ml-auto flex items-center gap-1" title={fmtDateTime(site.last_seen_at)}>
-                          <Clock className="h-3 w-3" />
-                          {fmtDate(site.last_seen_at)}
-                        </span>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {websites.slice(0, DASHBOARD_SITE_LIMIT).map((site) => (
+              <SiteHealthCard key={site.id} site={site} showVipMark />
+            ))}
           </div>
         )}
       </div>

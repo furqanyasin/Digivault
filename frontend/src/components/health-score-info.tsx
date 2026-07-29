@@ -21,16 +21,24 @@ function scoreColor(score: number): string {
 function barColor(score: number): string {
   if (score >= 85) return "bg-emerald-500";
   if (score >= 60) return "bg-amber-500";
-  return "bg-violet-600";
+  // Red, matching the score text and the dashboard card. This was violet, which
+  // read as a brand accent rather than as a failing score.
+  return "bg-red-500";
 }
 
 // Mirrors apps/websites/models.py → Website.recalculate_health_score so the
-// explanation always matches how the number is actually computed.
+// explanation always matches how the number is actually computed. Update both
+// together.
 const RUBRIC: { label: string; parts: string[] }[] = [
   { label: "Pending script changes", parts: ["critical −15", "high −10", "medium −3"] },
+  { label: "Uptime", parts: ["down −30", "degraded −12", "under 99% −5", "under 95% −15"] },
   { label: "Domain expiry", parts: ["−8 within 30d", "−20 within 7d"] },
-  { label: "SSL certificate", parts: ["−5 within 30d", "−12 within 14d"] },
+  { label: "SSL certificate", parts: ["−5 within 30d", "−12 within 14d", "−20 within 7d"] },
+  { label: "Hosting expiry", parts: ["−8 within 30d", "−20 within 7d"] },
   { label: "Open vulnerabilities", parts: ["critical −8", "high −4"] },
+  { label: "Broken forms (7d)", parts: ["−6 each", "max −18"] },
+  { label: "Snippet not reporting", parts: ["−10 over 7d", "−20 over 30d"] },
+  { label: "Unreviewed scripts", parts: ["−2 each", "max −10"] },
 ];
 
 export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInfo, vulns, websiteId }: Props) {
@@ -131,11 +139,16 @@ export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInf
           </div>
 
           <p className="text-xs text-muted-foreground">
-            The status badge follows the worst open change: an unacknowledged critical/high change marks the
-            site <span className="font-medium text-red-600">critical</span>, a medium change{" "}
-            <span className="font-medium text-amber-600">warning</span>, otherwise{" "}
-            <span className="font-medium text-emerald-600">active</span>. This site is{" "}
-            <span className="font-medium">{status}</span>.
+            The status badge answers a different question — how urgent is the worst open issue, rather
+            than how healthy overall. Downtime, an unacknowledged critical/high change, or anything
+            expiring within 7 days marks the site{" "}
+            <span className="font-medium text-red-600">critical</span>; a degraded monitor, a broken
+            form, a medium change, or an expiry within 30 days marks it{" "}
+            <span className="font-medium text-amber-600">warning</span>; otherwise{" "}
+            <span className="font-medium text-emerald-600">active</span>. A score below 85 also forces
+            at least <span className="font-medium text-amber-600">warning</span>, and below 60 at least{" "}
+            <span className="font-medium text-red-600">critical</span>, so the badge can never disagree
+            with the number. This site is <span className="font-medium">{status}</span>.
           </p>
         </CardContent>
       </Card>

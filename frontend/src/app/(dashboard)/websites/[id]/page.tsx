@@ -27,6 +27,7 @@ import { UptimeTab } from "@/components/uptime-tab";
 import { ReportsTab } from "@/components/reports-tab";
 import { WebsiteAssignments } from "@/components/website-assignments";
 import { HealthScoreInfo } from "@/components/health-score-info";
+import { VipToggleButton } from "@/components/vip-toggle-button";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 interface SiteActivityEntry {
@@ -241,6 +242,7 @@ export default async function WebsiteDetailPage({
           >
             {website.status}
           </Badge>
+          <VipToggleButton websiteId={id} initialIsVip={website.is_vip ?? false} />
           <Button asChild variant="outline" size="sm">
             <a href={siteUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="h-3.5 w-3.5 mr-1.5" />

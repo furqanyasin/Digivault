@@ -135,6 +135,7 @@ export interface Website {
   site_id: string;
   status: string;
   health_score: number;
+  is_vip: boolean;
   notes: string;
   tags: string[];
   script_count: number;

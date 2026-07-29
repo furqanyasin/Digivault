@@ -27,6 +27,8 @@ class WebsiteSerializer(BaseModelSerializer):
             "site_id",
             "status",
             "health_score",
+            # Writable — VIP is a user setting, not derived state.
+            "is_vip",
             "notes",
             "tags",
             "last_seen_at",

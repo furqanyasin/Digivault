@@ -94,14 +94,31 @@ traffic yet):
 
 Total deductions still clamp to `[0, 100]`.
 
-### 3. Status derived from score
+### 3. Status: the worse of urgency and score band
 
-`_update_website_status()` currently sets `status` from open script changes.
-Replace its body so status is a pure function of the freshly computed score:
+> **Revised during implementation.** The original plan made status a *pure*
+> function of the score. Implementing it showed that wrong: one unacknowledged
+> high-severity script change costs 10 points, so a site with an injected
+> unknown script scored 90 and read `active` — the exact event this product
+> exists to catch, averaged away. Severity does not survive being summed.
 
-- score < 60 → `critical`
-- score < 85 → `warning`
-- otherwise → `active`
+`status` and `health_score` answer different questions and both are kept:
+
+- `health_score` — cumulative, "how healthy overall".
+- `status` — "how urgent is the worst open issue".
+
+`recalculate_health_score()` collects urgency flags alongside the deductions and
+takes the worse of the flags and the score band:
+
+- `critical` if any of: open critical/high script change, a monitor `down`,
+  domain/SSL/hosting expiring within 7 days, **or** score < 60.
+- `warning` if any of: open medium change, a monitor `degraded`, a broken form in
+  the last 7 days, an expiry within 30 days, a reporting gap, **or** score < 85.
+- otherwise `active`.
+
+The score band is what stops a badge reading `active` beside a score of 42; the
+flags are what stop a single high-severity issue being averaged away. Both
+guarantees are required, which is why neither field is derived from the other.
 
 `inactive` is left alone — it is a manual/lifecycle state, not a health verdict,
 so a website already marked `inactive` is not overwritten.
@@ -137,14 +154,21 @@ are kept. Two additions:
   running daily (after the 06:00 domain check, at 06:30 UTC) so time-based
   decay is real rather than dependent on some other task firing.
 
-### 5. Unify `_security_score()`
+### 5. Reconcile `_security_score()`'s SSL window only
 
-`apps/websites/health.py::_security_score` keeps its role (a security-only
-sub-score for the Health Center panel) but its vulnerability and SSL weights are
-changed to match `recalculate_health_score()`, so the two numbers move together
-instead of disagreeing. It stays a separate function — a security sub-score is a
-legitimately different reading from overall health — but no longer uses a
-private weight table.
+> **Narrowed during implementation.** The original plan was to make the security
+> sub-score adopt overall health's vulnerability weights too. That is wrong:
+> overall health caps vuln deductions at −24 because vulns are one of eight
+> inputs, whereas this score has three. Flattening them gave the security score a
+> **floor of 31**, so a site with ten critical vulnerabilities still looked
+> survivable. Steeper vuln weights on a security-only score are correct, not a
+> disagreement.
+
+What genuinely disagreed was the SSL window: `_security_score` deducted a flat 15
+for anything inside 14 days, while `recalculate_health_score()` used 7/14/30-day
+tiers — so the same certificate produced contradictory readings. Only that is
+changed: both now use the same tiers (≤7d −20, ≤14d −12, ≤30d −5). The
+vulnerability and PHP-error weights stay as they were.
 
 ### 6. Dashboard restructuring
 
@@ -157,10 +181,15 @@ Order of sections on `/dashboard`, top to bottom:
    Header links to `/websites?vip=1`. When the team has no VIP sites, the section
    renders a short empty state explaining how to flag one (rather than being
    hidden, which would leave the feature undiscoverable).
-3. **Needs Attention** — up to 3 **non-VIP** sites with `health_score < 85` or a
-   pending critical/high change, sorted worst-score-first. Hidden entirely when
-   empty — "nothing needs attention" is better said by absence, and the VIP
-   section already anchors the layout.
+3. **Needs Attention** — up to 3 **non-VIP**, non-`inactive` sites whose `status`
+   is `warning` or `critical` (or whose score is below 85), sorted
+   worst-score-first. Hidden entirely when empty — "nothing needs attention" is
+   better said by absence, and the VIP section already anchors the layout.
+
+   Driven by `status`, not by a score threshold. A `health_score < 85` filter was
+   tried first and silently skipped a site with two broken contact forms: it
+   scores 88. Since `status` is now the "worst open issue" verdict, it is the
+   right signal; the score band is kept only as a floor.
 4. **Recent activity + Renewal Center** (the existing 2-column row).
 5. **Your Sites** grid (unchanged, 6-card cap).
 

@@ -364,11 +364,8 @@ class AcknowledgeChangeView(APIView):
             metadata={"website_id": str(change.website_id)},
         )
 
-        # Recalculate website status immediately so the dashboard reflects
-        # the acknowledgement without waiting for the next ingest.
-        from apps.scripts.tasks import _update_website_status
-        _update_website_status(change.website)
-
+        # Recalculate immediately so the dashboard reflects the acknowledgement
+        # without waiting for the next ingest. This writes status too.
         change.website.recalculate_health_score()
 
         return Response(ScriptChangeSerializer(change).data)
@@ -397,10 +394,8 @@ class BulkAcknowledgeChangesView(APIView):
         website_ids = list(qs.values_list("website_id", flat=True).distinct())
         updated = qs.update(acknowledged_at=timezone.now(), acknowledged_by=request.user)
 
-        from apps.scripts.tasks import _update_website_status
         from apps.websites.models import Website
         for website in Website.objects.filter(pk__in=website_ids):
-            _update_website_status(website)
             website.recalculate_health_score()
 
         if updated:
@@ -455,8 +450,6 @@ class ScriptReviewView(APIView):
         script.changes.filter(acknowledged_at__isnull=True).update(
             acknowledged_at=timezone.now(), acknowledged_by=user
         )
-        from apps.scripts.tasks import _update_website_status
-        _update_website_status(script.website)
         script.website.recalculate_health_score()
 
 
@@ -503,11 +496,9 @@ class BulkScriptReviewView(APIView):
                 acknowledged_at__isnull=True,
             ).update(acknowledged_at=timezone.now(), acknowledged_by=request.user)
 
-            from apps.scripts.tasks import _update_website_status
             from apps.websites.models import Website
             website = Website.objects.filter(pk=website_pk).first()
             if website:
-                _update_website_status(website)
                 website.recalculate_health_score()
 
         if updated:
