@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import {
   Globe, Bell, CalendarClock, TrendingUp, AlertTriangle, Activity, ShieldCheck,
-  ShieldAlert, KeyRound, ArrowRight, Star, ExternalLink, Clock,
+  ShieldAlert, KeyRound, ArrowRight, Star, ExternalLink,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ import { AcknowledgeAllButton } from "@/components/acknowledge-all-button";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import { healthBand } from "@/lib/chart-theme";
-import type { Website, ScriptChange, Monitor, DetectedForm, FormSubmissionError } from "@/lib/api";
+import type { Website, ScriptChange, Monitor } from "@/lib/api";
 import { fmtDateTime, fmtRelative } from "@/lib/utils";
 
 interface LogEntry {
@@ -97,11 +97,13 @@ const shortLabel = (day: string) =>
 async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
   const uptimeQuery = w.from && w.to ? `from=${w.from}&to=${w.to}` : `days=${w.days}`;
 
+  // Forms and form-errors used to be fetched here for the Coverage card. That
+  // card is gone, so the two requests went with it rather than being left to
+  // load data nothing renders.
   const [
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
-    changesResult, formsResult, formErrorsResult,
-    uptimeResult, clientsResult,
+    changesResult, uptimeResult, clientsResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
     api.get<Monitor[]>("/api/v1/monitors/", token),
@@ -111,8 +113,6 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=90", token),
     api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=90", token),
     api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
-    api.get<DetectedForm[]>("/api/v1/forms/", token),
-    api.get<FormSubmissionError[]>("/api/v1/form-errors/", token),
     api.get<UptimeTrend>(`/api/v1/monitors/uptime-trend/?${uptimeQuery}`, token),
     api.getAll<ClientRow>("/api/v1/clients/", token),
   ]);
@@ -128,8 +128,6 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     expiringDomains: val(domainResult, [] as RenewalRow[]),
     expiringHosting: val(hostingResult, [] as RenewalRow[]),
     allChanges: val(changesResult, [] as ScriptChange[]),
-    detectedForms: val(formsResult, [] as DetectedForm[]),
-    formErrors: val(formErrorsResult, [] as FormSubmissionError[]),
     uptimePoints: val(uptimeResult, { days: 0, points: [] } as UptimeTrend).points,
     clients: val(clientsResult, [] as ClientRow[]),
   };
@@ -173,7 +171,7 @@ export default async function DashboardPage({
   const {
     websites: allWebsites, monitors, activity,
     expiringSsl, expiringDomains, expiringHosting,
-    allChanges, detectedForms, formErrors, uptimePoints, clients,
+    allChanges, uptimePoints, clients,
   } = await getData(token ?? "", win);
 
   // --- client filter: scopes every number on the page ----------------------
@@ -223,10 +221,6 @@ export default async function DashboardPage({
     .map((r) => r.days_until_expiry)
     .filter((v): v is number => v != null)
     .sort((a, b) => a - b)[0];
-
-  const scopedFormErrors = scopedToClient
-    ? formErrors.filter((e) => siteIds.has(e.website))
-    : formErrors;
 
   // --- series, all real -----------------------------------------------------
   const days = windowDays(win);
@@ -415,6 +409,51 @@ export default async function DashboardPage({
         </Card>
       </div>
 
+      {/* Recent activity — full-width row, matching the rows above it */}
+      <Card>
+        <CardContent className="p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Recent activity</h2>
+            <Link href="/logs">
+              <Button variant="outline" size="sm">
+                Activity log
+              </Button>
+            </Link>
+          </div>
+          {activity.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
+          ) : (
+            <ul className="divide-y">
+              {activity.map((entry) => {
+                const { icon: Icon, className } = activityStyle(entry.action);
+                return (
+                  <li key={entry.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <p className="min-w-0 flex-1 truncate text-sm">
+                      <span className="font-medium">
+                        {entry.actor_name || entry.actor_email || "System"}
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {entry.description || entry.action_label}
+                      </span>
+                    </p>
+                    {/* Timestamp trails at the row end, as in Needs attention. */}
+                    <span
+                      className="shrink-0 text-xs text-muted-foreground"
+                      title={fmtDateTime(entry.created_at)}
+                    >
+                      {fmtRelative(entry.created_at)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Needs attention — a dense table now, not a wall of cards */}
       <Card>
         <CardContent className="p-5">
@@ -507,87 +546,6 @@ export default async function DashboardPage({
         </CardContent>
       </Card>
 
-      {/* Footer row: what changed lately, plus the health of the plumbing */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <h2 className="mb-3 text-sm font-semibold">Recent activity</h2>
-            {activity.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
-            ) : (
-              <ul className="divide-y">
-                {activity.map((entry) => {
-                  const { icon: Icon, className } = activityStyle(entry.action);
-                  return (
-                    <li key={entry.id} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
-                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
-                        <Icon className="h-3.5 w-3.5" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm leading-snug">
-                          <span className="font-medium">
-                            {entry.actor_name || entry.actor_email || "System"}
-                          </span>{" "}
-                          <span className="text-muted-foreground">
-                            {entry.description || entry.action_label}
-                          </span>
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground" title={fmtDateTime(entry.created_at)}>
-                          {fmtRelative(entry.created_at)}
-                        </p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <h2 className="mb-3 text-sm font-semibold">Coverage</h2>
-            <ul className="space-y-2.5 text-sm">
-              <li className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Monitors</span>
-                <Badge variant={monitorsDown > 0 ? "destructive" : "default"}>
-                  {monitorsDown > 0 ? `${monitorsDown} down` : "Operational"}
-                </Badge>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Forms monitored</span>
-                <Badge variant={scopedFormErrors.length > 0 ? "destructive" : "default"}>
-                  {scopedFormErrors.length > 0
-                    ? `${scopedFormErrors.length} broken`
-                    : `${detectedForms.length} healthy`}
-                </Badge>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Third-party scripts</span>
-                <Badge variant="secondary">
-                  {websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0)} tracked
-                </Badge>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Snippet reporting</span>
-                <Badge variant="secondary">
-                  {websites.filter((w) => w.last_seen_at).length} / {websites.length}
-                </Badge>
-              </li>
-            </ul>
-            <Link href="/renewals" className="mt-4 block">
-              <Button variant="outline" className="w-full">
-                <ShieldCheck className="mr-2 h-4 w-4" />
-                Open Renewal Center
-              </Button>
-            </Link>
-            <p className="mt-3 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Clock className="h-3 w-3" />
-              Ingest is traffic-driven — data arrives as real visitors load pages.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }
