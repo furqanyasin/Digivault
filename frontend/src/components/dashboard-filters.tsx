@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import flatpickr from "flatpickr";
+// Both widgets are imported dynamically inside their effects, NOT at module
+// scope: choices.js touches `document` while it evaluates, which throws
+// "document is not defined" during SSR, fails this subtree's server render and
+// makes React abort the Suspense boundary (#419) and re-render on the client.
+// Type-only imports are erased at compile time, so they are safe up here.
 import type { Instance as FlatpickrInstance } from "flatpickr/dist/types/instance";
-import Choices from "choices.js";
+import type ChoicesType from "choices.js";
 import { CalendarRange, Loader2, X } from "lucide-react";
 import "flatpickr/dist/flatpickr.min.css";
 import "choices.js/public/assets/styles/choices.min.css";
@@ -37,7 +41,7 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
   const dateRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<FlatpickrInstance | null>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
-  const choicesRef = useRef<Choices | null>(null);
+  const choicesRef = useRef<ChoicesType | null>(null);
 
   const from = params.get("from");
   const to = params.get("to");
@@ -55,56 +59,114 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
     startTransition(() => router.push(`?${next.toString()}`, { scroll: false }));
   };
 
+  // The vanilla widgets' listeners are bound inside effects that must not re-run
+  // on every navigation (that would tear the widget down mid-interaction), so
+  // they'd otherwise capture a stale `params` and silently drop whichever filter
+  // changed since. A ref keeps them calling the current version.
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+
   // --- Flatpickr: range mode, committing only once both ends are picked -----
   useEffect(() => {
-    const el = dateRef.current;
-    if (!el) return;
-    // flatpickr()'s signature allows an array return for selector input; given a
-    // single element it is always one instance.
-    const instance = flatpickr(el, {
-      mode: "range",
-      dateFormat: "Y-m-d",
-      maxDate: "today",
-      defaultDate: from && to ? [from, to] : undefined,
-      onClose: (selected) => {
-        // A single click in range mode leaves one date — half a range is not a
-        // range, so we wait rather than guessing the other end.
-        if (selected.length === 2) {
-          apply({ from: ISO(selected[0]), to: ISO(selected[1]), days: null });
-        }
-      },
-    });
-    pickerRef.current = instance;
-    return () => instance.destroy();
+    let cancelled = false;
+    let instance: FlatpickrInstance | null = null;
+
+    (async () => {
+      const el = dateRef.current;
+      if (!el) return;
+      const flatpickr = (await import("flatpickr")).default;
+      // A later run may have cleaned up while the chunk was loading.
+      if (cancelled || !dateRef.current) return;
+      // flatpickr()'s signature allows an array return for selector input; given
+      // a single element it is always one instance.
+      instance = flatpickr(el, {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        maxDate: "today",
+        defaultDate: from && to ? [from, to] : undefined,
+        onClose: (selected) => {
+          // A single click in range mode leaves one date — half a range is not a
+          // range, so we wait rather than guessing the other end.
+          if (selected.length === 2) {
+            applyRef.current({ from: ISO(selected[0]), to: ISO(selected[1]), days: null });
+          }
+        },
+      });
+      pickerRef.current = instance;
+    })();
+
+    return () => {
+      cancelled = true;
+      instance?.destroy();
+      pickerRef.current = null;
+    };
     // Re-created when the URL range changes so the input reflects the real state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to]);
 
   // --- Choices: searchable client filter ------------------------------------
+  // Built once per option list. The <select> is uncontrolled from React's point
+  // of view because Choices replaces its DOM, so the selected option is pushed
+  // in by the sync effect below rather than via a React value prop.
   useEffect(() => {
-    const el = selectRef.current;
-    if (!el) return;
-    const instance = new Choices(el, {
-      searchEnabled: true,
-      shouldSort: false,
-      itemSelectText: "",
-      allowHTML: false,
-      searchPlaceholderValue: "Search clients…",
-    });
-    choicesRef.current = instance;
+    let cancelled = false;
+    let instance: ChoicesType | null = null;
+    let el: HTMLSelectElement | null = null;
+
     const onChange = (e: Event) => {
       const value = (e.target as HTMLSelectElement).value;
-      apply({ client: value || null });
+      applyRef.current({ client: value || null });
     };
-    el.addEventListener("change", onChange);
+
+    (async () => {
+      const Choices = (await import("choices.js")).default;
+      el = selectRef.current;
+      if (cancelled || !el) return;
+      instance = new Choices(el, {
+        searchEnabled: true,
+        shouldSort: false,
+        itemSelectText: "",
+        allowHTML: false,
+        searchPlaceholderValue: "Search clients…",
+        searchResultLimit: 20,
+      });
+      choicesRef.current = instance;
+      el.addEventListener("change", onChange);
+      // The chunk may land after `client` was already read, so seed the visible
+      // selection here too rather than waiting for the sync effect to re-fire.
+      try {
+        instance.setChoiceByValue(client ?? "");
+      } catch {
+        /* value not in the list — leave the widget alone */
+      }
+    })();
+
     return () => {
-      el.removeEventListener("change", onChange);
-      instance.destroy();
+      cancelled = true;
+      el?.removeEventListener("change", onChange);
+      instance?.destroy();
+      choicesRef.current = null;
     };
     // Rebuilt only when the option list itself changes; re-running on every
     // param change would tear down the widget mid-interaction.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clients]);
+
+  // Keep the widget's visible selection in step with the URL. Without this the
+  // dropdown snaps back to "All clients" after the navigation it triggered —
+  // the filter is applied but the control looks like it reverted, which reads as
+  // a broken filter. `defaultValue` can't do this job: React only honours it on
+  // first render, and Choices owns the DOM afterwards.
+  useEffect(() => {
+    const instance = choicesRef.current;
+    if (!instance) return;
+    try {
+      instance.setChoiceByValue(client ?? "");
+    } catch {
+      // Value no longer in the list (e.g. the client was deleted) — leaving the
+      // widget as-is is better than throwing inside an effect.
+    }
+  }, [client, clients]);
 
   const rangeLabel = from && to ? `${from} → ${to}` : "";
 
@@ -136,7 +198,8 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
           readOnly
           placeholder="Custom range"
           aria-label="Custom date range"
-          className="h-[30px] w-[172px] cursor-pointer rounded-lg border bg-card pl-8 pr-2 text-xs outline-none focus:border-primary"
+          // Wide enough for "2026-07-03 to 2026-07-10" without truncating.
+          className="h-[30px] w-[210px] cursor-pointer rounded-lg border bg-card pl-8 pr-2 text-xs outline-none focus:border-primary"
         />
       </div>
 
@@ -152,7 +215,7 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
       )}
 
       <div className="dv-choices w-[196px]">
-        <select ref={selectRef} aria-label="Filter by client" defaultValue={client ?? ""}>
+        <select ref={selectRef} aria-label="Filter by client">
           <option value="">All clients</option>
           {clients.map((c) => (
             <option key={c.id} value={c.id}>

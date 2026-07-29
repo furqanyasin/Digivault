@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import {
   Globe, Bell, CalendarClock, TrendingUp, AlertTriangle, Activity, ShieldCheck,
@@ -289,7 +290,13 @@ export default async function DashboardPage({
             )}
           </p>
         </div>
-        <DashboardFilters clients={clients} />
+        {/* DashboardFilters calls useSearchParams, which Next requires to sit
+            under a Suspense boundary — without one React throws #419 during the
+            streamed render. The fallback reserves the row's height so the header
+            doesn't jump. */}
+        <Suspense fallback={<div className="h-[30px]" />}>
+          <DashboardFilters clients={clients} />
+        </Suspense>
       </div>
 
       {/* KPI row — animated values with a trend line each */}
@@ -344,7 +351,7 @@ export default async function DashboardPage({
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-2">
           <CardContent className="p-5">
-            <h2 className="text-sm font-semibold">Fleet health</h2>
+            <h2 className="text-sm font-semibold">Website health</h2>
             <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
               Every site by health band
             </p>
