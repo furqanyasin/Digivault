@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SiteHealthCard } from "@/components/site-health-card";
+import { Sparkline } from "@/components/sparkline";
+import { RenewalForecast } from "@/components/renewal-forecast";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, ScriptChange, Monitor, DetectedForm, FormSubmissionError } from "@/lib/api";
@@ -29,6 +31,12 @@ interface RenewalRow {
   days_until_expiry: number | null;
 }
 
+/** `value` is null for days with no checks — see monitors.UptimeTrendView. */
+interface UptimeTrend {
+  days: number;
+  points: { date: string; value: number | null }[];
+}
+
 async function getData(token: string) {
   // Everything in one parallel batch. Changes/forms/form-errors used to be
   // fetched per site in a SECOND wave that had to wait on the websites list —
@@ -38,16 +46,20 @@ async function getData(token: string) {
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
     changesResult, formsResult, formErrorsResult,
+    uptimeTrendResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
     api.get<Monitor[]>("/api/v1/monitors/", token),
     api.get<LogEntry[]>("/api/v1/logs/", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=30", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=30", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=30", token),
+    // 90 days, so the same three responses feed both the "due within 30 days"
+    // stat and the 90-day renewal forecast. The stat filters back down to 30.
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=90", token),
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=90", token),
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=90", token),
     api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
     api.get<DetectedForm[]>("/api/v1/forms/", token),
     api.get<FormSubmissionError[]>("/api/v1/form-errors/", token),
+    api.get<UptimeTrend>("/api/v1/monitors/uptime-trend/?days=14", token),
   ]);
 
   const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
@@ -60,14 +72,38 @@ async function getData(token: string) {
   const detectedForms = formsResult.status === "fulfilled" ? formsResult.value : [];
   const formErrors = formErrorsResult.status === "fulfilled" ? formErrorsResult.value : [];
 
+  const uptimeTrend =
+    uptimeTrendResult.status === "fulfilled" ? uptimeTrendResult.value.points : [];
+
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const newThisWeek = websites.filter((w) => new Date(w.created_at).getTime() >= weekAgo).length;
 
   return {
     websites, allChanges, monitors, recentActivity,
     expiringSsl, expiringDomains, expiringHosting,
-    detectedForms, formErrors, newThisWeek,
+    detectedForms, formErrors, newThisWeek, uptimeTrend,
   };
+}
+
+const TREND_DAYS = 14;
+
+/** The last N calendar days as YYYY-MM-DD, oldest first, in local time. */
+function lastDays(n: number): string[] {
+  const out: string[] = [];
+  const today = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    out.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    );
+  }
+  return out;
+}
+
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // Two full rows on the lg 3-column grid. The rest live on /websites, which has
@@ -102,7 +138,7 @@ export default async function DashboardPage() {
   const {
     websites, allChanges, monitors, recentActivity,
     expiringSsl, expiringDomains, expiringHosting,
-    detectedForms, formErrors, newThisWeek,
+    detectedForms, formErrors, newThisWeek, uptimeTrend,
   } = await getData(token ?? "");
 
   const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
@@ -123,10 +159,18 @@ export default async function DashboardPage() {
     ? uptimeSamples.reduce((sum, v) => sum + v, 0) / uptimeSamples.length
     : null;
 
+  // The renewal endpoints are now queried at 90 days to feed the forecast, so
+  // anything that used to mean "within 30 days" has to say so explicitly.
+  const within30 = (rows: RenewalRow[]) =>
+    rows.filter((r) => r.days_until_expiry != null && r.days_until_expiry <= 30);
+  const ssl30 = within30(expiringSsl);
+  const domains30 = within30(expiringDomains);
+  const hosting30 = within30(expiringHosting);
+
   const renewalIds = new Set([
-    ...expiringSsl.map((r) => r.id),
-    ...expiringDomains.map((r) => r.id),
-    ...expiringHosting.map((r) => r.id),
+    ...ssl30.map((r) => r.id),
+    ...domains30.map((r) => r.id),
+    ...hosting30.map((r) => r.id),
   ]);
   const nextRenewalDays = [...expiringSsl, ...expiringDomains, ...expiringHosting]
     .map((r) => r.days_until_expiry)
@@ -134,7 +178,46 @@ export default async function DashboardPage() {
     .sort((a, b) => a - b)[0];
 
   const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
-  const sslValid = Math.max(websites.length - expiringSsl.length, 0);
+  const sslValid = Math.max(websites.length - ssl30.length, 0);
+
+  // --- Trend series, all from data already on this page -------------------
+  const days = lastDays(TREND_DAYS);
+
+  // Sites under management, cumulative. Answers "is the fleet growing?".
+  const websiteTrend = days.map(
+    (d) => websites.filter((w) => dayKey(w.created_at) <= d).length
+  );
+
+  // Open alerts raised per day. Derived from the same filtered list as the
+  // tile's number, so the curve and the count can never disagree.
+  const alertTrend = days.map(
+    (d) => pending.filter((c) => dayKey(c.created_at) === d).length
+  );
+
+  // Uptime comes from the API because the monitors payload only carries rolling
+  // 24h/7d/30d figures. Null days stay null — see UptimeTrendView.
+  const uptimeByDay = new Map(uptimeTrend.map((p) => [p.date, p.value]));
+  const uptimeSeries = days.map((d) => uptimeByDay.get(d) ?? null);
+
+  // Renewals are forward-looking, so this one is a forecast, not a history:
+  // how many items fall due in each upcoming month.
+  const RENEWAL_BUCKETS = [
+    { label: "≤30d", from: 0, to: 30 },
+    { label: "31–60d", from: 31, to: 60 },
+    { label: "61–90d", from: 61, to: 90 },
+  ];
+  const countIn = (rows: RenewalRow[], from: number, to: number) =>
+    rows.filter(
+      (r) => r.days_until_expiry != null && r.days_until_expiry >= from && r.days_until_expiry <= to
+    ).length;
+  const renewalBuckets = RENEWAL_BUCKETS.map((b) => ({
+    label: b.label,
+    ssl: countIn(expiringSsl, b.from, b.to),
+    domain: countIn(expiringDomains, b.from, b.to),
+    hosting: countIn(expiringHosting, b.from, b.to),
+  }));
+  // Forward-looking totals per bucket give the renewals tile a real curve.
+  const renewalTrend = renewalBuckets.map((b) => b.ssl + b.domain + b.hosting);
 
   // Selected from the already-fetched list — no extra request. Worst score
   // first, so the three shown are the three worth opening.
@@ -165,6 +248,9 @@ export default async function DashboardPage() {
       label: "Websites monitored", value: websites.length, icon: Globe,
       caption: newThisWeek > 0 ? `+${newThisWeek} this week` : "No new sites this week",
       href: "/websites",
+      trend: websiteTrend,
+      trendLabel: `Sites under management over the last ${TREND_DAYS} days`,
+      goodDirection: "up" as const,
     },
     {
       label: "Active alerts", value: pending.length, icon: Bell,
@@ -172,16 +258,26 @@ export default async function DashboardPage() {
       // Critical alerts are the one caption that must not read as ambient text.
       captionClass: highRisk.length > 0 ? "text-red-600 font-semibold" : undefined,
       href: "/alerts",
+      trend: alertTrend,
+      trendLabel: `Open alerts raised per day over the last ${TREND_DAYS} days`,
+      // More open alerts is worse, so a rising line must not read as success.
+      goodDirection: "down" as const,
     },
     {
       label: "Upcoming renewals", value: renewalIds.size, icon: CalendarClock,
       caption: nextRenewalDays != null ? `Next in ${nextRenewalDays} days` : "Nothing due soon",
       href: "/renewals",
+      trend: renewalTrend,
+      trendLabel: "Renewals due per 30-day window over the next 90 days",
+      goodDirection: "down" as const,
     },
     {
       label: "Avg uptime (30d)", value: avgUptime != null ? `${avgUptime.toFixed(2)}%` : "—", icon: TrendingUp,
       caption: monitorsDown > 0 ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down` : "All monitors up",
       href: "/monitors",
+      trend: uptimeSeries,
+      trendLabel: `Daily uptime over the last ${TREND_DAYS} days`,
+      goodDirection: "up" as const,
     },
   ];
 
@@ -194,22 +290,41 @@ export default async function DashboardPage() {
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map(({ label, value, icon: Icon, caption, captionClass, href }) => (
-          <Link key={label} href={href}>
-            <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span className="text-sm">{label}</span>
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div className="text-2xl font-bold mt-2">{value}</div>
-                <div className={`text-xs mt-1 ${captionClass ?? "text-muted-foreground"}`}>
-                  {caption}
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+        {stats.map(({ label, value, icon: Icon, caption, captionClass, href, trend, trendLabel, goodDirection }) => {
+          const spark = (
+            <Sparkline points={trend} label={trendLabel} goodDirection={goodDirection} />
+          );
+          return (
+            <Link key={label} href={href}>
+              <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between text-muted-foreground">
+                    <span className="text-sm">{label}</span>
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  {/* Number leads; the trend is context beside it, never instead
+                      of it. When there aren't two real data points we say so
+                      rather than drawing a flat line that implies stability. */}
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-2xl font-bold">{value}</div>
+                      <div className={`text-xs mt-1 ${captionClass ?? "text-muted-foreground"}`}>
+                        {caption}
+                      </div>
+                    </div>
+                    {spark ?? (
+                      <span className="text-[10px] leading-tight text-muted-foreground/70 text-right shrink-0">
+                        No trend
+                        <br />
+                        data yet
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
       </div>
 
 
@@ -267,8 +382,8 @@ export default async function DashboardPage() {
                 <p className="text-sm font-medium">SSL certificates</p>
                 <p className="text-xs text-muted-foreground">{sslValid} / {websites.length} valid</p>
               </div>
-              <Badge variant={expiringSsl.length > 0 ? "warning" : "default"}>
-                {expiringSsl.length > 0 ? `${expiringSsl.length} expiring` : "All valid"}
+              <Badge variant={ssl30.length > 0 ? "warning" : "default"}>
+                {ssl30.length > 0 ? `${ssl30.length} expiring` : "All valid"}
               </Badge>
             </div>
 
@@ -290,6 +405,15 @@ export default async function DashboardPage() {
               <Badge variant={formErrors.length > 0 ? "destructive" : "default"}>
                 {formErrors.length > 0 ? `${formErrors.length} broken` : "All healthy"}
               </Badge>
+            </div>
+
+            {/* Forecast, not history: what falls due over the next 90 days, so
+                the card answers "what's coming" and not just "what's true now". */}
+            <div className="pt-3 border-t">
+              <p className="text-sm font-medium">Due in the next 90 days</p>
+              <div className="mt-2">
+                <RenewalForecast buckets={renewalBuckets} />
+              </div>
             </div>
 
             <Link href="/renewals" className="block pt-3">

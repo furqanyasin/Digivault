@@ -84,6 +84,68 @@ class MonitorCheckListView(generics.ListAPIView):
         ).order_by("-checked_at")[:200]
 
 
+class UptimeTrendView(APIView):
+    """GET /api/v1/monitors/uptime-trend/?days=14
+
+    One team-wide uptime percentage per day, for the dashboard sparkline.
+    Aggregated from MonitorCheck rather than the cached uptime_* fields, which
+    only hold rolling 24h/7d/30d figures and so cannot draw a curve.
+
+    A day with no checks returns `null`, never 0 or 100: no data means we were
+    blind, and inventing either number would draw a cliff or a clean run that
+    never happened.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    DEFAULT_DAYS = 14
+    MAX_DAYS = 90
+
+    def get(self, request):
+        from datetime import timedelta
+
+        from django.db.models import Count, Q
+        from django.db.models.functions import TruncDate
+        from django.utils import timezone
+
+        try:
+            days = int(request.query_params.get("days", self.DEFAULT_DAYS))
+        except (TypeError, ValueError):
+            days = self.DEFAULT_DAYS
+        days = max(1, min(days, self.MAX_DAYS))
+
+        team = request.user.active_team
+        today = timezone.localdate()
+        first_day = today - timedelta(days=days - 1)
+
+        by_day: dict[str, float] = {}
+        if team is not None:
+            rows = (
+                MonitorCheck.objects.filter(
+                    monitor__team=team, checked_at__date__gte=first_day
+                )
+                .annotate(day=TruncDate("checked_at"))
+                .values("day")
+                .annotate(
+                    total=Count("id"),
+                    up=Count("id", filter=Q(status=MonitorCheck.Status.UP)),
+                )
+                .order_by("day")
+            )
+            for row in rows:
+                if row["total"]:
+                    by_day[row["day"].isoformat()] = round(
+                        row["up"] * 100.0 / row["total"], 2
+                    )
+
+        points = []
+        for offset in range(days):
+            day = (first_day + timedelta(days=offset)).isoformat()
+            points.append({"date": day, "value": by_day.get(day)})
+
+        return Response({"days": days, "points": points})
+
+
 class MonitorPauseView(APIView):
     """POST /api/v1/monitors/<pk>/pause/"""
 
