@@ -65,8 +65,10 @@ Rejected alternatives:
   typo-prone (`vip` vs `VIP` vs `Vip`).
 
 Exposed as a writable field on `WebsiteSerializer` (it is a user setting, not
-derived state) and added to the frontend `Website` interface. Toggleable from
-the website detail page settings area.
+derived state) and added to the frontend `Website` interface. Toggled from the
+website detail page header, and used by the `?vip=1` "VIP only" filter on
+`/websites`. See the note in §6 — the dedicated dashboard section it was
+originally built for was removed, but the flag itself remains in use.
 
 ### 2. Health score v2
 
@@ -172,33 +174,42 @@ vulnerability and PHP-error weights stay as they were.
 
 ### 6. Dashboard restructuring
 
+> **Revised after review of the running page.** A dedicated VIP Websites section
+> was built, shown to the user, and then removed at their request. Its empty
+> state occupied a full row above the fold for any team that had not flagged a
+> site, which is most of them. The `is_vip` field, the detail-page toggle, and
+> the `?vip=1` filter on `/websites` are all kept — flagging sites and filtering
+> the list by them still works, and the star still appears on dashboard cards.
+> Dropping the column would need a second migration and would discard data for no
+> gain.
+
 Order of sections on `/dashboard`, top to bottom:
 
 1. **Stats row** (unchanged, 4 cards) — the "Active alerts" caption renders
    `N critical` in red (`text-red-600 font-semibold`) when `highRisk.length > 0`,
    muted otherwise.
-2. **VIP Websites** — up to 3 sites where `is_vip`, sorted worst-score-first.
-   Header links to `/websites?vip=1`. When the team has no VIP sites, the section
-   renders a short empty state explaining how to flag one (rather than being
-   hidden, which would leave the feature undiscoverable).
-3. **Needs Attention** — up to 3 **non-VIP**, non-`inactive` sites whose `status`
-   is `warning` or `critical` (or whose score is below 85), sorted
-   worst-score-first. Hidden entirely when empty — "nothing needs attention" is
-   better said by absence, and the VIP section already anchors the layout.
+2. **Recent activity + Renewal Center** (the existing 2-column row).
+3. **Needs Attention** — up to 3 non-`inactive` sites whose `status` is `warning`
+   or `critical` (or whose score is below 85), sorted worst-score-first. Hidden
+   entirely when empty — "nothing needs attention" is better said by absence.
+   Placed directly above Your Sites so it reads as a shortlist pulled out of the
+   grid below it.
 
    Driven by `status`, not by a score threshold. A `health_score < 85` filter was
    tried first and silently skipped a site with two broken contact forms: it
    scores 88. Since `status` is now the "worst open issue" verdict, it is the
    right signal; the score band is kept only as a floor.
-4. **Recent activity + Renewal Center** (the existing 2-column row).
-5. **Your Sites** grid (unchanged, 6-card cap).
 
-VIP and Needs Attention reuse a single extracted `SiteHealthCard` component —
-the existing inline card markup in `dashboard/page.tsx` lifted into
-`frontend/src/components/site-health-card.tsx`. Both new sections and the
-existing grid render it, so the three stay visually identical. The card's
-health colour is driven by `health_score` thresholds (85/60), matching
-`health-score-info.tsx`, not by `status`.
+   **VIP sites are included.** With the VIP section gone this is the dashboard's
+   only problem list, so excluding them would hide exactly the sites that matter
+   most. Their cards still carry the star.
+4. **Your Sites** grid (unchanged, 6-card cap).
+
+Needs Attention and Your Sites share a single extracted `SiteHealthCard`
+component — the existing inline card markup in `dashboard/page.tsx` lifted into
+`frontend/src/components/site-health-card.tsx` — so the two stay visually
+identical. The card's health colour is driven by `health_score` thresholds
+(85/60), matching `health-score-info.tsx`, not by `status`.
 
 Selection happens client-side from the already-fetched `websites` array — no new
 API request. The dashboard already fetches all websites via `api.getAll`.

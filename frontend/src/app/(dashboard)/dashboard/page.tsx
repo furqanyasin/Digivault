@@ -1,7 +1,7 @@
 import Link from "next/link";
 import {
-  Globe, Plus, Activity, TrendingUp, Star, AlertTriangle,
-  Bell, CalendarClock, ShieldCheck, KeyRound, ShieldAlert, ArrowRight,
+  Globe, Plus, Activity, TrendingUp, AlertTriangle,
+  Bell, CalendarClock, ShieldCheck, KeyRound, ShieldAlert,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -74,8 +74,8 @@ async function getData(token: string) {
 // search and filtering — a 60-card wall on the dashboard is unusable.
 const DASHBOARD_SITE_LIMIT = 6;
 
-// One row each. These sections exist to name the few sites worth opening now;
-// a longer list would just be the grid again.
+// One row. Needs Attention exists to name the few sites worth opening now; a
+// longer list would just be the grid again.
 const SPOTLIGHT_LIMIT = 3;
 
 // Mirrors Website.HEALTH_WARNING_BELOW.
@@ -136,22 +136,23 @@ export default async function DashboardPage() {
   const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
   const sslValid = Math.max(websites.length - expiringSsl.length, 0);
 
-  // Spotlight sections. Selected from the already-fetched list — no extra
-  // request. Worst score first, so the three shown are the three worth opening.
+  // Selected from the already-fetched list — no extra request. Worst score
+  // first, so the three shown are the three worth opening.
   const byWorstScore = (a: Website, b: Website) =>
     (a.health_score ?? 100) - (b.health_score ?? 100);
-
-  const vipSites = websites.filter((w) => w.is_vip).sort(byWorstScore);
 
   // Driven by `status`, not by the score alone. Status is the backend's
   // "how urgent is the worst open issue" verdict, so it catches sites with a
   // real problem that barely dents the number — two broken contact forms score
   // 88, which a `< 85` threshold would have quietly skipped. The score band is
   // kept as a floor for anything status hasn't classified.
+  //
+  // VIP sites are included: this is the dashboard's only problem list, so
+  // filtering them out would hide exactly the sites that matter most. Their
+  // cards still carry the star.
   const needsAttention = websites
     .filter(
       (w) =>
-        !w.is_vip &&
         w.status !== "inactive" &&
         (w.status === "critical" ||
           w.status === "warning" ||
@@ -211,73 +212,6 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      {/* VIP websites — the sites where a problem costs the most. Always
-          rendered, even when empty, so the feature is discoverable. */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Star className="h-4 w-4 fill-amber-400 text-amber-500" />
-            VIP Websites
-          </h2>
-          {vipSites.length > SPOTLIGHT_LIMIT && (
-            <Link href="/websites?vip=1">
-              <Button variant="outline" size="sm">
-                View all {vipSites.length}
-              </Button>
-            </Link>
-          )}
-        </div>
-
-        {vipSites.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-              <Star className="h-8 w-8 text-muted-foreground" />
-              <p className="font-medium">No VIP websites yet</p>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Mark a site VIP from its page to pin it here — useful for the
-                handful of client sites where downtime costs the most.
-              </p>
-              <Link href="/websites">
-                <Button variant="outline" size="sm" className="mt-1">
-                  Choose a site
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {vipSites.slice(0, SPOTLIGHT_LIMIT).map((site) => (
-              <SiteHealthCard key={site.id} site={site} showVipMark />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Needs attention — non-VIP sites with a real problem. Hidden when
-          empty; "nothing is wrong" is better said by absence than by a card. */}
-      {needsAttention.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
-              Needs Attention
-            </h2>
-            {needsAttention.length > SPOTLIGHT_LIMIT && (
-              <Link href="/websites">
-                <Button variant="outline" size="sm">
-                  View all {needsAttention.length}
-                </Button>
-              </Link>
-            )}
-          </div>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {needsAttention.slice(0, SPOTLIGHT_LIMIT).map((site) => (
-              <SiteHealthCard key={site.id} site={site} />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Recent activity + fleet health */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -367,6 +301,32 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Needs attention — sits directly above Your Sites so the problem sites
+          read as a shortlist pulled out of the full grid below. Hidden when
+          empty; "nothing is wrong" is better said by absence than by a card. */}
+      {needsAttention.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+              Needs Attention
+            </h2>
+            {needsAttention.length > SPOTLIGHT_LIMIT && (
+              <Link href="/websites">
+                <Button variant="outline" size="sm">
+                  View all {needsAttention.length}
+                </Button>
+              </Link>
+            )}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {needsAttention.slice(0, SPOTLIGHT_LIMIT).map((site) => (
+              <SiteHealthCard key={site.id} site={site} showVipMark />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Website cards grid */}
       <div>
