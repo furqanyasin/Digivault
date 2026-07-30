@@ -225,3 +225,13 @@ body .flatpickr-day.nextMonthDay {
   box-shadow: none !important;
 }
 .dv-swal-cancel { background: var(--muted) !important; color: var(--foreground) !important; }
+
+/* Ordinal severity ramp for the dashboard's severity strip. The two steps are
+   *selected* per mode (a dark surface needs its own steps, not an inverted
+   copy), so the value is carried in custom properties and swapped here rather
+   than by hard-coding a single hex in the component. */
+.dv-sev { background-color: var(--sev-light); }
+@media (prefers-color-scheme: dark) {
+  :root:where(:not(.light)) .dv-sev { background-color: var(--sev-dark); }
+}
+:root.dark .dv-sev { background-color: var(--sev-dark); }

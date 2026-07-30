@@ -1,17 +1,18 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import {
-  Globe, Bell, CalendarClock, TrendingUp, AlertTriangle, Activity, ShieldCheck,
-  ShieldAlert, KeyRound, ArrowRight, Star, ExternalLink,
+  Globe, AlertTriangle, Activity, ShieldCheck, ShieldAlert, KeyRound,
+  Star, ExternalLink, Users, UserCog, Code2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { KpiTile } from "@/components/charts/kpi-tile";
+import { ChartCardHeader } from "@/components/charts/chart-card-header";
+import { SummaryChunk } from "@/components/charts/summary-chunk";
 import { FleetHealthDonut } from "@/components/charts/fleet-health-donut";
 import { ActivityAreaChart } from "@/components/charts/activity-area-chart";
 import { RenewalBars } from "@/components/charts/renewal-bars";
-import { SeverityBars } from "@/components/charts/severity-bars";
+import { SeverityStrip } from "@/components/charts/severity-strip";
 import { SnippetCoverage } from "@/components/charts/snippet-coverage";
 import { DashboardFilters } from "@/components/dashboard-filters";
 import { AcknowledgeAllButton } from "@/components/acknowledge-all-button";
@@ -42,6 +43,12 @@ interface RenewalRow {
 interface UptimeTrend {
   days: number;
   points: { date: string; value: number | null }[];
+}
+
+interface ClientRow {
+  id: string;
+  name: string;
+  status: string;
 }
 
 const DEFAULT_DAYS = 14;
@@ -106,20 +113,35 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
     changesResult, uptimeResult,
+    clientsResult, credentialsResult, meResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
     api.get<Monitor[]>("/api/v1/monitors/", token),
     api.get<LogEntry[]>("/api/v1/logs/", token),
-    // 90 days feeds the renewal forecast; the KPI filters back down to 30.
+    // 90 days feeds the renewal forecast; the card's own figure filters to 30.
     api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=90", token),
     api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=90", token),
     api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=90", token),
     api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
     api.get<UptimeTrend>(`/api/v1/monitors/uptime-trend/?${uptimeQuery}`, token),
+    // These three back the summary chunks for the sidebar sections that have no
+    // chart of their own, so the dashboard covers the whole product rather than
+    // showing the same four website metrics repeatedly.
+    api.getAll<ClientRow>("/api/v1/clients/", token),
+    api.getAll<{ id: string }>("/api/v1/credentials/", token),
+    api.get<{ active_team: string | null }>("/api/v1/auth/me/", token),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
     r.status === "fulfilled" ? r.value : fallback;
+
+  // Member count needs the active team id, so it can only run once /me resolves.
+  const activeTeam = val(meResult, { active_team: null }).active_team;
+  const members = activeTeam
+    ? await api
+        .getAll<{ id: string }>(`/api/v1/auth/teams/${activeTeam}/members/`, token)
+        .catch(() => [] as { id: string }[])
+    : [];
 
   return {
     websites: val(websitesResult, [] as Website[]),
@@ -130,6 +152,9 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     expiringHosting: val(hostingResult, [] as RenewalRow[]),
     allChanges: val(changesResult, [] as ScriptChange[]),
     uptimePoints: val(uptimeResult, { days: 0, points: [] } as UptimeTrend).points,
+    clients: val(clientsResult, [] as ClientRow[]),
+    credentialCount: val(credentialsResult, [] as { id: string }[]).length,
+    memberCount: members.length,
   };
 }
 
@@ -170,7 +195,7 @@ export default async function DashboardPage({
   const {
     websites, monitors, activity,
     expiringSsl, expiringDomains, expiringHosting,
-    allChanges, uptimePoints,
+    allChanges, uptimePoints, clients, credentialCount, memberCount,
   } = await getData(token ?? "", win);
 
   // Digivault's own infra is hidden from the Change Log and can never be
@@ -220,7 +245,6 @@ export default async function DashboardPage({
   const days = windowDays(win);
   const labels = days.map(shortLabel);
 
-  const websiteTrend = days.map((d) => websites.filter((w) => dayKey(w.created_at) <= d).length);
   const alertTrend = days.map((d) => pending.filter((c) => dayKey(c.created_at) === d).length);
   const uptimeByDay = new Map(uptimePoints.map((p) => [p.date, p.value]));
   const uptimeSeries = days.map((d) => uptimeByDay.get(d) ?? null);
@@ -240,7 +264,6 @@ export default async function DashboardPage({
     domain: countIn(domains, b.from, b.to),
     hosting: countIn(hosting, b.from, b.to),
   }));
-  const renewalTrend = renewalBuckets.map((b) => b.ssl + b.domain + b.hosting);
 
   // Health bands for the donut. `inactive` is a lifecycle state, so it is
   // counted separately rather than folded into a score band.
@@ -261,6 +284,21 @@ export default async function DashboardPage({
 
   const rangeCaption = win.from && win.to ? `${win.from} → ${win.to}` : `last ${win.days} days`;
 
+  // --- summary chunks for the sidebar sections without a chart -------------
+  const activeClients = clients.filter((c) => c.status === "active").length;
+  const inactiveClients = clients.length - activeClients;
+  const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
+
+  // Share of the fleet that reported in the last 7 days. Mirrors the window
+  // SnippetCoverage uses, so the headline and the meter can't disagree.
+  const STALE_MS = 7 * 24 * 60 * 60 * 1000;
+  const reporting = websites.filter(
+    (w) => w.last_seen_at && renderedAt - new Date(w.last_seen_at).getTime() < STALE_MS
+  ).length;
+  const reportingPct = websites.length
+    ? Math.round((reporting / websites.length) * 100)
+    : 0;
+
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Header + the single filter row that scopes everything below it */}
@@ -280,191 +318,44 @@ export default async function DashboardPage({
         </Suspense>
       </div>
 
-      {/* KPI row — animated values with a trend line each */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiTile
-          label="Websites"
-          value={websites.length}
-          caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
+      {/* The sidebar sections that have no chart of their own. One line each —
+          a number and the thing you'd act on — so the dashboard covers the whole
+          product instead of restating the same four website metrics. */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryChunk
+          label="Clients"
+          value={activeClients}
+          caption={
+            inactiveClients > 0 ? `${inactiveClients} paused or offboarded` : "All active"
+          }
+          href="/clients"
+          icon={<Users className="h-4 w-4" />}
+        />
+        <SummaryChunk
+          label="Credentials"
+          value={credentialCount}
+          caption="Encrypted in the vault"
+          href="/credentials"
+          icon={<KeyRound className="h-4 w-4" />}
+        />
+        <SummaryChunk
+          label="Team"
+          value={memberCount}
+          caption={memberCount === 1 ? "Just you" : "With vault access"}
+          href="/team"
+          icon={<UserCog className="h-4 w-4" />}
+        />
+        <SummaryChunk
+          label="Third-party scripts"
+          value={totalScripts}
+          caption={`Across ${websites.length} site${websites.length === 1 ? "" : "s"}`}
           href="/websites"
-          icon={<Globe className="h-4 w-4" />}
-          trend={websiteTrend}
-          trendLabel="Sites under management"
-          goodDirection="up"
-        />
-        <KpiTile
-          label="Open alerts"
-          value={pending.length}
-          caption={highRisk.length > 0 ? `${highRisk.length} critical` : "None critical"}
-          captionTone={highRisk.length > 0 ? "critical" : "muted"}
-          href="/alerts"
-          icon={<Bell className="h-4 w-4" />}
-          trend={alertTrend}
-          trendLabel="Alerts raised per day"
-          goodDirection="down"
-        />
-        <KpiTile
-          label="Renewals due"
-          value={renewalIds.size}
-          caption={nextRenewalDays != null ? `Next in ${nextRenewalDays} days` : "Nothing due soon"}
-          href="/renewals"
-          icon={<CalendarClock className="h-4 w-4" />}
-          trend={renewalTrend}
-          trendLabel="Renewals due per 30-day window"
-          goodDirection="down"
-        />
-        <KpiTile
-          label="Avg uptime"
-          value={avgUptime ?? 0}
-          suffix="%"
-          decimals={2}
-          caption={monitorsDown > 0 ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down` : "All monitors up"}
-          captionTone={monitorsDown > 0 ? "critical" : "muted"}
-          href="/monitors"
-          icon={<TrendingUp className="h-4 w-4" />}
-          trend={uptimeSeries}
-          trendLabel="Daily uptime"
-          goodDirection="up"
+          icon={<Code2 className="h-4 w-4" />}
         />
       </div>
 
-      {/* Fleet composition beside alert volume */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <h2 className="text-sm font-semibold">Website health</h2>
-            <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
-              Every site by health band
-            </p>
-            <FleetHealthDonut counts={bands} />
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold">Alert volume</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Open alerts raised per day · {rangeCaption}
-                </p>
-              </div>
-              <AcknowledgeAllButton
-                changeIds={pending.map((c) => c.id)}
-                highRiskCount={highRisk.length}
-              />
-            </div>
-            <ActivityAreaChart
-              labels={labels}
-              series={[{ label: "Alerts raised", data: alertTrend, tone: "critical" }]}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Uptime beside the renewal forecast */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <h2 className="text-sm font-semibold">Uptime</h2>
-            <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
-              Daily uptime across all monitors · gaps mean no checks ran
-            </p>
-            <ActivityAreaChart
-              labels={labels}
-              series={[{ label: "Uptime", data: uptimeSeries, unit: "percent" }]}
-            />
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <div className="mb-4 flex items-start justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold">Renewals due</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">Next 90 days</p>
-              </div>
-              <Link href="/renewals">
-                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
-                  Open
-                  <ArrowRight className="ml-1 h-3 w-3" />
-                </Button>
-              </Link>
-            </div>
-            <RenewalBars buckets={renewalBuckets} />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Alert composition beside how much of the fleet is actually reporting */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <h2 className="text-sm font-semibold">Alerts by severity</h2>
-            <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
-              What the open backlog is made of
-            </p>
-            <SeverityBars counts={severityCounts} />
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <h2 className="text-sm font-semibold">Snippet coverage</h2>
-            <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
-              Ingest is traffic-driven, so a silent site means stale data
-            </p>
-            <SnippetCoverage websites={websites} nowMs={renderedAt} />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent activity — full-width row, matching the rows above it */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">Recent activity</h2>
-            <Link href="/logs">
-              <Button variant="outline" size="sm">
-                Activity log
-              </Button>
-            </Link>
-          </div>
-          {activity.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
-          ) : (
-            <ul className="divide-y">
-              {activity.map((entry) => {
-                const { icon: Icon, className } = activityStyle(entry.action);
-                return (
-                  <li key={entry.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <p className="min-w-0 flex-1 truncate text-sm">
-                      <span className="font-medium">
-                        {entry.actor_name || entry.actor_email || "System"}
-                      </span>{" "}
-                      <span className="text-muted-foreground">
-                        {entry.description || entry.action_label}
-                      </span>
-                    </p>
-                    {/* Timestamp trails at the row end, as in Needs attention. */}
-                    <span
-                      className="shrink-0 text-xs text-muted-foreground"
-                      title={fmtDateTime(entry.created_at)}
-                    >
-                      {fmtRelative(entry.created_at)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Needs attention — a dense table now, not a wall of cards */}
+      {/* Needs attention sits high on purpose: it is the only list on the page
+          you can act on, so it outranks the charts that describe the situation. */}
       <Card>
         <CardContent className="p-5">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -548,6 +439,160 @@ export default async function DashboardPage({
                         <ExternalLink className="h-3.5 w-3.5" />
                       </Button>
                     </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Fleet composition beside alert volume. Each card owns its headline
+          figure — the KPI tiles that used to sit above restated exactly these
+          four numbers, which is what made the page feel padded. */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Website health"
+              subtitle="Every site by health band"
+              value={websites.length}
+              caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
+              captionTone={bands.critical > 0 ? "critical" : "muted"}
+              href="/websites"
+            />
+            <FleetHealthDonut counts={bands} />
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-3">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Open alerts"
+              subtitle={`Raised per day · ${rangeCaption}`}
+              value={pending.length}
+              caption={highRisk.length > 0 ? `${highRisk.length} critical or high` : "None critical"}
+              captionTone={highRisk.length > 0 ? "critical" : "good"}
+              href="/alerts"
+              action={
+                <AcknowledgeAllButton
+                  changeIds={pending.map((c) => c.id)}
+                  highRiskCount={highRisk.length}
+                />
+              }
+            />
+            <ActivityAreaChart
+              labels={labels}
+              series={[{ label: "Alerts raised", data: alertTrend, tone: "critical" }]}
+              height={150}
+            />
+            {/* The severity breakdown used to be its own card, restating this
+                card's total. As a strip it adds the mix without repeating it. */}
+            <SeverityStrip counts={severityCounts} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Uptime beside the renewal forecast */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Uptime"
+              subtitle="Across all monitors · gaps mean no checks ran"
+              value={avgUptime ?? 0}
+              suffix="%"
+              decimals={2}
+              caption={
+                monitorsDown > 0
+                  ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down`
+                  : "All monitors up"
+              }
+              captionTone={monitorsDown > 0 ? "critical" : "good"}
+              href="/monitors"
+            />
+            <ActivityAreaChart
+              labels={labels}
+              series={[{ label: "Uptime", data: uptimeSeries, unit: "percent" }]}
+              height={150}
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Renewals due"
+              subtitle="Within 30 days · forecast to 90"
+              value={renewalIds.size}
+              caption={
+                nextRenewalDays != null
+                  ? `Next in ${nextRenewalDays} days`
+                  : "Nothing due soon"
+              }
+              captionTone={
+                nextRenewalDays != null && nextRenewalDays <= 7 ? "critical" : "muted"
+              }
+              href="/renewals"
+            />
+            <RenewalBars buckets={renewalBuckets} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* How much of the fleet is actually reporting. Not a duplicate of any
+          figure above — it measures whether the rest of the page is current. */}
+      <Card>
+        <CardContent className="p-5">
+          <ChartCardHeader
+            title="Snippet coverage"
+            subtitle="Ingest is traffic-driven, so a silent site means stale data"
+            value={reportingPct}
+            suffix="%"
+            caption={`of ${websites.length} site${websites.length === 1 ? "" : "s"} reporting in the last 7 days`}
+            captionTone={reportingPct < 60 ? "critical" : reportingPct < 90 ? "muted" : "good"}
+          />
+          <SnippetCoverage websites={websites} nowMs={renderedAt} />
+        </CardContent>
+      </Card>
+
+      {/* Recent activity — full-width row, matching the rows above it */}
+      <Card>
+        <CardContent className="p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Recent activity</h2>
+            <Link href="/logs">
+              <Button variant="outline" size="sm">
+                Activity log
+              </Button>
+            </Link>
+          </div>
+          {activity.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
+          ) : (
+            <ul className="divide-y">
+              {activity.map((entry) => {
+                const { icon: Icon, className } = activityStyle(entry.action);
+                return (
+                  <li key={entry.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
+                      <Icon className="h-3.5 w-3.5" />
+                    </span>
+                    <p className="min-w-0 flex-1 truncate text-sm">
+                      <span className="font-medium">
+                        {entry.actor_name || entry.actor_email || "System"}
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {entry.description || entry.action_label}
+                      </span>
+                    </p>
+                    {/* Timestamp trails at the row end, as in Needs attention. */}
+                    <span
+                      className="shrink-0 text-xs text-muted-foreground"
+                      title={fmtDateTime(entry.created_at)}
+                    >
+                      {fmtRelative(entry.created_at)}
+                    </span>
                   </li>
                 );
               })}
