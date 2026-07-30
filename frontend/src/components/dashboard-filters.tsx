@@ -27,6 +27,26 @@ interface Props {
 const ISO = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+/** Point the widget at `value` only if it isn't already there.
+ *
+ *  Calling setChoiceByValue unconditionally fights the user: right after they
+ *  pick "All clients", the effect would re-assert the value it was mounted with
+ *  and the reset would appear to do nothing. Comparing first makes the sync
+ *  idempotent, so it only ever corrects a genuine mismatch (a back-button
+ *  navigation, say).
+ */
+function syncSelection(instance: ChoicesType, value: string) {
+  try {
+    const current = (instance.getValue(true) as string | undefined) ?? "";
+    if (current === value) return;
+    if (value) instance.setChoiceByValue(value);
+    else instance.removeActiveItems(-1);
+  } catch {
+    // Value no longer in the list (e.g. the client was deleted) — leaving the
+    // widget as-is beats throwing inside an effect.
+  }
+}
+
 /** One filter row above everything it scopes — never per-chart filters.
  *
  *  State lives in the URL rather than component state, so the server component
@@ -49,9 +69,17 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
   const client = params.get("client");
   const activeDays = !from && !to ? Number(days) || 14 : null;
 
-  /** Writes params and lets the server re-render. Nulls delete the key. */
+  /** Writes params and lets the server re-render. Nulls delete the key.
+   *
+   *  Reads the live URL rather than the `params` render snapshot: during a
+   *  transition the snapshot can lag the address bar, so a second filter change
+   *  landing mid-navigation would be computed against stale values and appear to
+   *  do nothing. window.location is always current.
+   */
   const apply = (patch: Record<string, string | null>) => {
-    const next = new URLSearchParams(params.toString());
+    const current =
+      typeof window === "undefined" ? params.toString() : window.location.search;
+    const next = new URLSearchParams(current);
     for (const [k, v] of Object.entries(patch)) {
       if (v == null || v === "") next.delete(k);
       else next.set(k, v);
@@ -64,9 +92,20 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
   // they'd otherwise capture a stale `params` and silently drop whichever filter
   // changed since. A ref keeps them calling the current version.
   const applyRef = useRef(apply);
-  applyRef.current = apply;
+  // Updated in an effect, not during render: writing to a ref while rendering is
+  // a side effect and React can discard or replay that render.
+  useEffect(() => {
+    applyRef.current = apply;
+  });
 
   // --- Flatpickr: range mode, committing only once both ends are picked -----
+  // Created ONCE, then kept in step by the sync effect below.
+  //
+  // It used to be keyed on [from, to] so the input would show the current range.
+  // That silently broke the preset buttons: switching to a preset re-ran this
+  // effect, and flatpickr's destroy() fires onClose, which re-committed the range
+  // it still held and undid the click. Creating the instance once removes that
+  // teardown-commit loop entirely.
   useEffect(() => {
     let cancelled = false;
     let instance: FlatpickrInstance | null = null;
@@ -83,8 +122,8 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
         mode: "range",
         dateFormat: "Y-m-d",
         maxDate: "today",
-        defaultDate: from && to ? [from, to] : undefined,
         onClose: (selected) => {
+          if (cancelled) return;
           // A single click in range mode leaves one date — half a range is not a
           // range, so we wait rather than guessing the other end.
           if (selected.length === 2) {
@@ -93,6 +132,13 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
         },
       });
       pickerRef.current = instance;
+      // Seed from the URL, without firing onChange. Read off the URL directly
+      // rather than the render-scope values so this effect stays mount-only —
+      // re-running it is exactly the bug described above.
+      const sp = new URLSearchParams(window.location.search);
+      const f = sp.get("from");
+      const t = sp.get("to");
+      if (f && t) instance.setDate([f, t], false);
     })();
 
     return () => {
@@ -100,8 +146,15 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
       instance?.destroy();
       pickerRef.current = null;
     };
-    // Re-created when the URL range changes so the input reflects the real state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reflect the URL in the input — including clearing it when a preset takes
+  // over. `false` suppresses onChange so this never loops back into apply().
+  useEffect(() => {
+    const instance = pickerRef.current;
+    if (!instance) return;
+    if (from && to) instance.setDate([from, to], false);
+    else instance.clear(false);
   }, [from, to]);
 
   // --- Choices: searchable client filter ------------------------------------
@@ -133,12 +186,10 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
       choicesRef.current = instance;
       el.addEventListener("change", onChange);
       // The chunk may land after `client` was already read, so seed the visible
-      // selection here too rather than waiting for the sync effect to re-fire.
-      try {
-        instance.setChoiceByValue(client ?? "");
-      } catch {
-        /* value not in the list — leave the widget alone */
-      }
+      // selection here rather than waiting for the sync effect to re-fire. Read
+      // the URL directly so this stays independent of render scope.
+      const seed = new URLSearchParams(window.location.search).get("client");
+      if (seed) syncSelection(instance, seed);
     })();
 
     return () => {
@@ -159,13 +210,7 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
   // first render, and Choices owns the DOM afterwards.
   useEffect(() => {
     const instance = choicesRef.current;
-    if (!instance) return;
-    try {
-      instance.setChoiceByValue(client ?? "");
-    } catch {
-      // Value no longer in the list (e.g. the client was deleted) — leaving the
-      // widget as-is is better than throwing inside an effect.
-    }
+    if (instance) syncSelection(instance, client ?? "");
   }, [client, clients]);
 
   const rangeLabel = from && to ? `${from} → ${to}` : "";

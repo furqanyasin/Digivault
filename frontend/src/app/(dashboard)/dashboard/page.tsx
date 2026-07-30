@@ -11,6 +11,8 @@ import { KpiTile } from "@/components/charts/kpi-tile";
 import { FleetHealthDonut } from "@/components/charts/fleet-health-donut";
 import { ActivityAreaChart } from "@/components/charts/activity-area-chart";
 import { RenewalBars } from "@/components/charts/renewal-bars";
+import { SeverityBars } from "@/components/charts/severity-bars";
+import { SnippetCoverage } from "@/components/charts/snippet-coverage";
 import { DashboardFilters } from "@/components/dashboard-filters";
 import { AcknowledgeAllButton } from "@/components/acknowledge-all-button";
 import { getAccessToken } from "@/lib/server-token";
@@ -90,6 +92,11 @@ function windowDays(w: ReturnType<typeof resolveWindow>): string[] {
   return out;
 }
 
+/** The instant this render represents. Read through a function so it isn't a
+ *  bare clock call in a component body (react-hooks/purity), and read once so
+ *  every "how long ago" on the page agrees. */
+const now = () => Date.now();
+
 /** Short axis label — "12 Jul". Full dates live in the tooltip. */
 const shortLabel = (day: string) =>
   new Date(`${day}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
@@ -162,6 +169,7 @@ export default async function DashboardPage({
   // Next 16: searchParams is a Promise and must be awaited.
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  const renderedAt = now();
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const win = resolveWindow(one(sp.from), one(sp.to), one(sp.days));
@@ -192,6 +200,14 @@ export default async function DashboardPage({
   );
   const pending = visibleChanges.filter((c) => !c.is_acknowledged);
   const highRisk = pending.filter((c) => c.severity === "critical" || c.severity === "high");
+
+  // Composition of the same list the KPI counts, so the two can't disagree.
+  const severityCounts = {
+    critical: pending.filter((c) => c.severity === "critical").length,
+    high: pending.filter((c) => c.severity === "high").length,
+    medium: pending.filter((c) => c.severity === "medium").length,
+    low: pending.filter((c) => c.severity === "low").length,
+  };
 
   const scopedMonitors = scopedToClient
     ? monitors.filter((m) => m.website && siteIds.has(m.website))
@@ -405,6 +421,29 @@ export default async function DashboardPage({
               </Link>
             </div>
             <RenewalBars buckets={renewalBuckets} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Alert composition beside how much of the fleet is actually reporting */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <h2 className="text-sm font-semibold">Alerts by severity</h2>
+            <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
+              What the open backlog is made of
+            </p>
+            <SeverityBars counts={severityCounts} />
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-3">
+          <CardContent className="p-5">
+            <h2 className="text-sm font-semibold">Snippet coverage</h2>
+            <p className="mb-4 mt-0.5 text-xs text-muted-foreground">
+              Ingest is traffic-driven, so a silent site means stale data
+            </p>
+            <SnippetCoverage websites={websites} nowMs={renderedAt} />
           </CardContent>
         </Card>
       </div>
