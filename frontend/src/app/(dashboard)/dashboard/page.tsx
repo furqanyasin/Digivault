@@ -340,8 +340,10 @@ export default async function DashboardPage({
           figure — the KPI tiles that used to sit above restated exactly these
           four numbers, which is what made the page feel padded. */}
       <div className="grid gap-4 lg:grid-cols-5">
+        {/* h-full + flex-col so the donut can claim the height this card gets
+            from its taller neighbour, rather than leaving a gap beneath it. */}
         <Card className="lg:col-span-2">
-          <CardContent className="p-5">
+          <CardContent className="flex h-full flex-col p-5">
             <ChartCardHeader
               title="Website health"
               subtitle="Every site by health band"
@@ -350,7 +352,9 @@ export default async function DashboardPage({
               captionTone={bands.critical > 0 ? "critical" : "muted"}
               href="/websites"
             />
-            <FleetHealthDonut counts={bands} />
+            <div className="min-h-0 flex-1">
+              <FleetHealthDonut counts={bands} />
+            </div>
           </CardContent>
         </Card>
 
