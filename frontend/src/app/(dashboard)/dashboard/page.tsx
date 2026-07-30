@@ -337,10 +337,103 @@ export default async function DashboardPage({
         />
       </div>
 
-      {/* The two lists share one row, on the same 5-column grid the chart rows
-          below use so the column edges line up. Needs attention takes the wider
-          half and the pair stays above the charts: it is the only list here you
-          can act on, so it outranks the charts that describe the situation. */}
+
+      {/* Fleet composition beside alert volume. Each card owns its headline
+          figure — the KPI tiles that used to sit above restated exactly these
+          four numbers, which is what made the page feel padded. */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Website health"
+              subtitle="Every site by health band"
+              value={websites.length}
+              caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
+              captionTone={bands.critical > 0 ? "critical" : "muted"}
+              href="/websites"
+            />
+            <FleetHealthDonut counts={bands} />
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-3">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Open alerts"
+              subtitle={`Raised per day · ${rangeCaption}`}
+              value={pending.length}
+              caption={highRisk.length > 0 ? `${highRisk.length} critical or high` : "None critical"}
+              captionTone={highRisk.length > 0 ? "critical" : "good"}
+              href="/alerts"
+              action={
+                <AcknowledgeAllButton
+                  changeIds={pending.map((c) => c.id)}
+                  highRiskCount={highRisk.length}
+                />
+              }
+            />
+            <ActivityAreaChart
+              labels={labels}
+              series={[{ label: "Alerts raised", data: alertTrend, tone: "critical" }]}
+              height={150}
+            />
+            {/* The severity breakdown used to be its own card, restating this
+                card's total. As a strip it adds the mix without repeating it. */}
+            <SeverityStrip counts={severityCounts} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Uptime beside the renewal forecast */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Uptime"
+              subtitle="Across all monitors · gaps mean no checks ran"
+              value={avgUptime ?? 0}
+              suffix="%"
+              decimals={2}
+              caption={
+                monitorsDown > 0
+                  ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down`
+                  : "All monitors up"
+              }
+              captionTone={monitorsDown > 0 ? "critical" : "good"}
+              href="/monitors"
+            />
+            <ActivityAreaChart
+              labels={labels}
+              series={[{ label: "Uptime", data: uptimeSeries, unit: "percent" }]}
+              height={150}
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <ChartCardHeader
+              title="Renewals due"
+              subtitle="Within 30 days · forecast to 90"
+              value={renewalIds.size}
+              caption={
+                nextRenewalDays != null
+                  ? `Next in ${nextRenewalDays} days`
+                  : "Nothing due soon"
+              }
+              captionTone={
+                nextRenewalDays != null && nextRenewalDays <= 7 ? "critical" : "muted"
+              }
+              href="/renewals"
+            />
+            <RenewalBars buckets={renewalBuckets} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* The two lists close the page, sharing one row on the same 5-column
+          grid the chart rows use so the column edges line up. The charts read
+          first as the summary; these two are the detail you drop into. */}
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-3">
           <CardContent className="p-5">
@@ -473,99 +566,6 @@ export default async function DashboardPage({
                 })}
               </ul>
             )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Fleet composition beside alert volume. Each card owns its headline
-          figure — the KPI tiles that used to sit above restated exactly these
-          four numbers, which is what made the page feel padded. */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <ChartCardHeader
-              title="Website health"
-              subtitle="Every site by health band"
-              value={websites.length}
-              caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
-              captionTone={bands.critical > 0 ? "critical" : "muted"}
-              href="/websites"
-            />
-            <FleetHealthDonut counts={bands} />
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <ChartCardHeader
-              title="Open alerts"
-              subtitle={`Raised per day · ${rangeCaption}`}
-              value={pending.length}
-              caption={highRisk.length > 0 ? `${highRisk.length} critical or high` : "None critical"}
-              captionTone={highRisk.length > 0 ? "critical" : "good"}
-              href="/alerts"
-              action={
-                <AcknowledgeAllButton
-                  changeIds={pending.map((c) => c.id)}
-                  highRiskCount={highRisk.length}
-                />
-              }
-            />
-            <ActivityAreaChart
-              labels={labels}
-              series={[{ label: "Alerts raised", data: alertTrend, tone: "critical" }]}
-              height={150}
-            />
-            {/* The severity breakdown used to be its own card, restating this
-                card's total. As a strip it adds the mix without repeating it. */}
-            <SeverityStrip counts={severityCounts} />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Uptime beside the renewal forecast */}
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <ChartCardHeader
-              title="Uptime"
-              subtitle="Across all monitors · gaps mean no checks ran"
-              value={avgUptime ?? 0}
-              suffix="%"
-              decimals={2}
-              caption={
-                monitorsDown > 0
-                  ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down`
-                  : "All monitors up"
-              }
-              captionTone={monitorsDown > 0 ? "critical" : "good"}
-              href="/monitors"
-            />
-            <ActivityAreaChart
-              labels={labels}
-              series={[{ label: "Uptime", data: uptimeSeries, unit: "percent" }]}
-              height={150}
-            />
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <ChartCardHeader
-              title="Renewals due"
-              subtitle="Within 30 days · forecast to 90"
-              value={renewalIds.size}
-              caption={
-                nextRenewalDays != null
-                  ? `Next in ${nextRenewalDays} days`
-                  : "Nothing due soon"
-              }
-              captionTone={
-                nextRenewalDays != null && nextRenewalDays <= 7 ? "critical" : "muted"
-              }
-              href="/renewals"
-            />
-            <RenewalBars buckets={renewalBuckets} />
           </CardContent>
         </Card>
       </div>
