@@ -169,8 +169,6 @@ const activityStyle = (action: string) =>
 
 const SCORE_TONE = (s: number) =>
   s >= 85 ? "text-emerald-600" : s >= 60 ? "text-amber-600" : "text-red-600";
-const SCORE_BAR = (s: number) =>
-  s >= 85 ? "bg-emerald-500" : s >= 60 ? "bg-amber-400" : "bg-red-500";
 const STATUS_BADGE: Record<string, "destructive" | "warning" | "success" | "secondary"> = {
   active: "success", warning: "warning", critical: "destructive", inactive: "secondary",
 };
@@ -431,11 +429,12 @@ export default async function DashboardPage({
         </Card>
       </div>
 
-      {/* The two lists close the page, sharing one row on the same 5-column
-          grid the chart rows use so the column edges line up. The charts read
-          first as the summary; these two are the detail you drop into. */}
+      {/* The two lists close the page, on the same 5-column grid the chart
+          rows use. The 2/3 split mirrors the first chart row rather than the
+          second, so the three rows alternate instead of the last two reading
+          as one repeated block. */}
       <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
+        <Card className="lg:col-span-2">
           <CardContent className="p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -478,23 +477,11 @@ export default async function DashboardPage({
                         <p className="truncate font-mono text-xs text-muted-foreground">{site.domain}</p>
                       </div>
 
-                      {/* A meter, not a chart: one ratio against a limit. */}
-                      <div className="hidden w-28 shrink-0 sm:block">
-                        <div
-                          className="h-1.5 overflow-hidden rounded-full bg-muted"
-                          role="progressbar"
-                          aria-valuenow={score}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-label={`Health score for ${site.name || site.domain}`}
-                        >
-                          <div
-                            className={`h-full rounded-full ${SCORE_BAR(score)}`}
-                            style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
-                          />
-                        </div>
-                      </div>
-
+                      {/* The meter bar that used to sit here is gone. In the
+                          narrower column it was the widest fixed element (112px)
+                          and pushed site names into an ellipsis — and it was a
+                          third encoding of a value the number and the badge
+                          already carry. The score keeps its band colour. */}
                       <span className={`w-8 shrink-0 text-right text-sm font-semibold ${SCORE_TONE(score)}`}>
                         {score}
                       </span>
@@ -525,7 +512,7 @@ export default async function DashboardPage({
             )}
           </CardContent>
         </Card>
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-3">
           <CardContent className="p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold">Recent activity</h2>
