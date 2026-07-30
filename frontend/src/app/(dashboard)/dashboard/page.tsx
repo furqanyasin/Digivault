@@ -13,7 +13,6 @@ import { FleetHealthDonut } from "@/components/charts/fleet-health-donut";
 import { ActivityAreaChart } from "@/components/charts/activity-area-chart";
 import { RenewalBars } from "@/components/charts/renewal-bars";
 import { SeverityStrip } from "@/components/charts/severity-strip";
-import { SnippetCoverage } from "@/components/charts/snippet-coverage";
 import { DashboardFilters } from "@/components/dashboard-filters";
 import { AcknowledgeAllButton } from "@/components/acknowledge-all-button";
 import { getAccessToken } from "@/lib/server-token";
@@ -93,11 +92,6 @@ function windowDays(w: ReturnType<typeof resolveWindow>): string[] {
   }
   return out;
 }
-
-/** The instant this render represents. Read through a function so it isn't a
- *  bare clock call in a component body (react-hooks/purity), and read once so
- *  every "how long ago" on the page agrees. */
-const now = () => Date.now();
 
 /** Short axis label — "12 Jul". Full dates live in the tooltip. */
 const shortLabel = (day: string) =>
@@ -187,7 +181,6 @@ export default async function DashboardPage({
   // Next 16: searchParams is a Promise and must be awaited.
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const renderedAt = now();
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const win = resolveWindow(one(sp.from), one(sp.to), one(sp.days));
@@ -289,16 +282,6 @@ export default async function DashboardPage({
   const inactiveClients = clients.length - activeClients;
   const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
 
-  // Share of the fleet that reported in the last 7 days. Mirrors the window
-  // SnippetCoverage uses, so the headline and the meter can't disagree.
-  const STALE_MS = 7 * 24 * 60 * 60 * 1000;
-  const reporting = websites.filter(
-    (w) => w.last_seen_at && renderedAt - new Date(w.last_seen_at).getTime() < STALE_MS
-  ).length;
-  const reportingPct = websites.length
-    ? Math.round((reporting / websites.length) * 100)
-    : 0;
-
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Header + the single filter row that scopes everything below it */}
@@ -354,98 +337,145 @@ export default async function DashboardPage({
         />
       </div>
 
-      {/* Needs attention sits high on purpose: it is the only list on the page
-          you can act on, so it outranks the charts that describe the situation. */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
-              Needs attention
-              {needsAttention.length > 0 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-                  {needsAttention.length}
-                </span>
-              )}
-            </h2>
-            <Link href="/websites">
-              <Button variant="outline" size="sm">
-                All {websites.length} sites
-              </Button>
-            </Link>
-          </div>
-
-          {needsAttention.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-10 text-center">
-              <ShieldCheck className="h-8 w-8 text-emerald-500" />
-              <p className="text-sm font-medium">Nothing needs attention</p>
-              <p className="text-xs text-muted-foreground">
-                Every site is above 85 with no open critical issues.
-              </p>
+      {/* The two lists share one row, on the same 5-column grid the chart rows
+          below use so the column edges line up. Needs attention takes the wider
+          half and the pair stays above the charts: it is the only list here you
+          can act on, so it outranks the charts that describe the situation. */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Needs attention
+                {needsAttention.length > 0 && (
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {needsAttention.length}
+                  </span>
+                )}
+              </h2>
+              <Link href="/websites">
+                <Button variant="outline" size="sm">
+                  All {websites.length} sites
+                </Button>
+              </Link>
             </div>
-          ) : (
-            <ul className="divide-y">
-              {needsAttention.slice(0, ATTENTION_LIMIT).map((site) => {
-                const score = site.health_score ?? 100;
-                return (
-                  <li key={site.id} className="flex items-center gap-3 py-2.5 first:pt-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="flex items-center gap-1.5 truncate text-sm font-medium">
-                        {site.is_vip && (
-                          <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" aria-label="VIP" />
-                        )}
-                        <span className="truncate">{site.name || site.domain}</span>
-                      </p>
-                      <p className="truncate font-mono text-xs text-muted-foreground">{site.domain}</p>
-                    </div>
 
-                    {/* A meter, not a chart: one ratio against a limit. */}
-                    <div className="hidden w-28 shrink-0 sm:block">
-                      <div
-                        className="h-1.5 overflow-hidden rounded-full bg-muted"
-                        role="progressbar"
-                        aria-valuenow={score}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-label={`Health score for ${site.name || site.domain}`}
-                      >
-                        <div
-                          className={`h-full rounded-full ${SCORE_BAR(score)}`}
-                          style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
-                        />
+            {needsAttention.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <ShieldCheck className="h-8 w-8 text-emerald-500" />
+                <p className="text-sm font-medium">Nothing needs attention</p>
+                <p className="text-xs text-muted-foreground">
+                  Every site is above 85 with no open critical issues.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y">
+                {needsAttention.slice(0, ATTENTION_LIMIT).map((site) => {
+                  const score = site.health_score ?? 100;
+                  return (
+                    <li key={site.id} className="flex items-center gap-3 py-2.5 first:pt-0">
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                          {site.is_vip && (
+                            <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" aria-label="VIP" />
+                          )}
+                          <span className="truncate">{site.name || site.domain}</span>
+                        </p>
+                        <p className="truncate font-mono text-xs text-muted-foreground">{site.domain}</p>
                       </div>
-                    </div>
 
-                    <span className={`w-8 shrink-0 text-right text-sm font-semibold ${SCORE_TONE(score)}`}>
-                      {score}
-                    </span>
+                      {/* A meter, not a chart: one ratio against a limit. */}
+                      <div className="hidden w-28 shrink-0 sm:block">
+                        <div
+                          className="h-1.5 overflow-hidden rounded-full bg-muted"
+                          role="progressbar"
+                          aria-valuenow={score}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-label={`Health score for ${site.name || site.domain}`}
+                        >
+                          <div
+                            className={`h-full rounded-full ${SCORE_BAR(score)}`}
+                            style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
+                          />
+                        </div>
+                      </div>
 
-                    <Badge
-                      variant={STATUS_BADGE[site.status] ?? "secondary"}
-                      className="h-5 w-[64px] shrink-0 justify-center text-xs"
-                    >
-                      {site.status}
-                    </Badge>
-
-                    {(site.unknown_script_count ?? 0) > 0 && (
-                      <span className="hidden shrink-0 items-center gap-1 text-xs font-semibold text-red-600 md:flex">
-                        <AlertTriangle className="h-3 w-3" />
-                        {site.unknown_script_count}
+                      <span className={`w-8 shrink-0 text-right text-sm font-semibold ${SCORE_TONE(score)}`}>
+                        {score}
                       </span>
-                    )}
 
-                    <Link href={`/websites/${site.id}`} aria-label={`Open ${site.name || site.domain}`}>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0">
-                        <ExternalLink className="h-3.5 w-3.5" />
-                      </Button>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
+                      <Badge
+                        variant={STATUS_BADGE[site.status] ?? "secondary"}
+                        className="h-5 w-[64px] shrink-0 justify-center text-xs"
+                      >
+                        {site.status}
+                      </Badge>
+
+                      {(site.unknown_script_count ?? 0) > 0 && (
+                        <span className="hidden shrink-0 items-center gap-1 text-xs font-semibold text-red-600 md:flex">
+                          <AlertTriangle className="h-3 w-3" />
+                          {site.unknown_script_count}
+                        </span>
+                      )}
+
+                      <Link href={`/websites/${site.id}`} aria-label={`Open ${site.name || site.domain}`}>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0">
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Button>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold">Recent activity</h2>
+              <Link href="/logs">
+                <Button variant="outline" size="sm">
+                  Activity log
+                </Button>
+              </Link>
+            </div>
+            {activity.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
+            ) : (
+              <ul className="divide-y">
+                {activity.map((entry) => {
+                  const { icon: Icon, className } = activityStyle(entry.action);
+                  return (
+                    <li key={entry.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
+                        <Icon className="h-3.5 w-3.5" />
+                      </span>
+                      <p className="min-w-0 flex-1 truncate text-sm">
+                        <span className="font-medium">
+                          {entry.actor_name || entry.actor_email || "System"}
+                        </span>{" "}
+                        <span className="text-muted-foreground">
+                          {entry.description || entry.action_label}
+                        </span>
+                      </p>
+                      {/* Timestamp trails at the row end, as in Needs attention. */}
+                      <span
+                        className="shrink-0 text-xs text-muted-foreground"
+                        title={fmtDateTime(entry.created_at)}
+                      >
+                        {fmtRelative(entry.created_at)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Fleet composition beside alert volume. Each card owns its headline
           figure — the KPI tiles that used to sit above restated exactly these
@@ -539,68 +569,6 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
       </div>
-
-      {/* How much of the fleet is actually reporting. Not a duplicate of any
-          figure above — it measures whether the rest of the page is current. */}
-      <Card>
-        <CardContent className="p-5">
-          <ChartCardHeader
-            title="Snippet coverage"
-            subtitle="Ingest is traffic-driven, so a silent site means stale data"
-            value={reportingPct}
-            suffix="%"
-            caption={`of ${websites.length} site${websites.length === 1 ? "" : "s"} reporting in the last 7 days`}
-            captionTone={reportingPct < 60 ? "critical" : reportingPct < 90 ? "muted" : "good"}
-          />
-          <SnippetCoverage websites={websites} nowMs={renderedAt} />
-        </CardContent>
-      </Card>
-
-      {/* Recent activity — full-width row, matching the rows above it */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">Recent activity</h2>
-            <Link href="/logs">
-              <Button variant="outline" size="sm">
-                Activity log
-              </Button>
-            </Link>
-          </div>
-          {activity.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
-          ) : (
-            <ul className="divide-y">
-              {activity.map((entry) => {
-                const { icon: Icon, className } = activityStyle(entry.action);
-                return (
-                  <li key={entry.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <p className="min-w-0 flex-1 truncate text-sm">
-                      <span className="font-medium">
-                        {entry.actor_name || entry.actor_email || "System"}
-                      </span>{" "}
-                      <span className="text-muted-foreground">
-                        {entry.description || entry.action_label}
-                      </span>
-                    </p>
-                    {/* Timestamp trails at the row end, as in Needs attention. */}
-                    <span
-                      className="shrink-0 text-xs text-muted-foreground"
-                      title={fmtDateTime(entry.created_at)}
-                    >
-                      {fmtRelative(entry.created_at)}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
     </div>
   );
 }
