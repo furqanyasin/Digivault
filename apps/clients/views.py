@@ -107,9 +107,46 @@ def _parse_access_level(raw: str) -> str:
     return _ACCESS_LEVEL_ALIASES.get(r, "")
 
 
+#     stored code -> the spellings a hand-maintained sheet actually uses
+_DEPARTMENT_LABELS = {
+    "seo": ("seo",),
+    "ads": ("ads", "paid ads", "ppc"),
+    "dev": ("dev", "development", "web dev"),
+    "content": ("content",),
+    "lead_insight": ("lead insight", "lead insights", "leadinsight"),
+    "social_media": ("social media", "social", "socials"),
+}
+_DEPARTMENT_LOOKUP = {
+    spelling: code
+    for code, spellings in _DEPARTMENT_LABELS.items()
+    for spelling in spellings
+}
+
+
 def _parse_departments(raw: str) -> list:
-    parts = [p.strip().lower() for p in (raw or "").split(",")]
-    return [p for p in parts if p in Client.DEPARTMENTS]
+    """Parse a Departments cell into stored codes, order preserved, deduped.
+
+    Accepts the stored codes ("lead_insight") AND the labels a human types
+    ("Lead Insight"). It used to match codes only, so a sheet written by hand
+    imported the row and silently lost its departments — a multi-word department
+    could never survive, since "Lead Insight".lower() is not "lead_insight".
+    Commas, semicolons and slashes all separate.
+    """
+    import re
+
+    out: list[str] = []
+    for part in re.split(r"[,;/]", raw or ""):
+        # Collapse runs of whitespace and underscores so "LEAD   insight" and
+        # "lead_insight" land on the same key.
+        key = re.sub(r"[\s_]+", " ", part).strip().lower()
+        if not key:
+            continue
+        code = _DEPARTMENT_LOOKUP.get(key)
+        if code is None and key.replace(" ", "_") in Client.DEPARTMENTS:
+            code = key.replace(" ", "_")
+        if code and code not in out:
+            out.append(code)
+    return out
 
 
 def _parse_date(raw: str):

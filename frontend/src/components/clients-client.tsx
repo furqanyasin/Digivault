@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { DEPARTMENT_LABELS } from "@/lib/client-fields";
 import type { ClientRecord } from "@/app/(dashboard)/clients/page";
 
 const HOSTING_LABELS: Record<string, string> = {
@@ -26,6 +27,54 @@ const ACCESS_LEVEL_TABLE_LABELS: Record<string, string> = {
   full_admin: "Full admin", delegate: "Delegate", none: "No access",
   not_working: "Not working",
 };
+
+/** Keep in step with the header/body cell counts below — it drives the colSpan
+ *  on the loading and empty rows, which otherwise stop spanning the table. */
+const COLUMN_COUNT = 14;
+
+// The pinned column needs an opaque background of its own: without it the
+// scrolling columns slide visibly underneath. `bg-card` matches the Card.
+const STICKY_HEAD =
+  "sticky left-0 z-20 bg-card min-w-[220px] after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border";
+const STICKY_CELL =
+  "sticky left-0 z-10 bg-card min-w-[220px] after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border";
+
+const TIER_TONE: Record<string, string> = {
+  gold: "border-amber-400 text-amber-700 dark:text-amber-400",
+  silver: "border-slate-400 text-slate-600 dark:text-slate-300",
+  bronze: "border-orange-400 text-orange-700 dark:text-orange-400",
+};
+
+function hostingLabel(c: ClientRecord): string {
+  if (c.hosting_platform === "other") return c.hosting_platform_other || "Other";
+  return HOSTING_LABELS[c.hosting_platform] === "—"
+    ? ""
+    : HOSTING_LABELS[c.hosting_platform] ?? c.hosting_platform;
+}
+
+/** A renewal date, flagged once it is close. Dates are stored as plain
+ *  YYYY-MM-DD, so they're compared as strings to avoid a timezone shifting the
+ *  day — `new Date("2026-07-30")` is UTC midnight and can render as the 29th. */
+function RenewalDate({ value }: { value: string | null }) {
+  if (!value) return <span className="text-muted-foreground">—</span>;
+  const today = new Date();
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const soon = new Date(today);
+  soon.setDate(today.getDate() + 30);
+  const overdue = value < iso(today);
+  const dueSoon = !overdue && value <= iso(soon);
+  return (
+    <span
+      className={
+        overdue ? "font-semibold text-red-600" : dueSoon ? "font-semibold text-amber-600" : ""
+      }
+      title={overdue ? "Past due" : dueSoon ? "Due within 30 days" : undefined}
+    >
+      {value}
+    </span>
+  );
+}
 
 interface LookupResult {
   id: string;
@@ -312,85 +361,161 @@ export function ClientsClient({ initialClients }: Props) {
         </div>
       </div>
 
-      {/* Clients table */}
+      {/* Clients table.
+          The client name is pinned left and everything else scrolls, so a row
+          stays identifiable however far across you are. The scroll lives on this
+          wrapper — not the page — so the sidebar and filters never move. */}
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Client</TableHead>
-                <TableHead>Hosting</TableHead>
-                <TableHead>Domain Access</TableHead>
-                <TableHead>Website Access</TableHead>
-                <TableHead>Built by Digi</TableHead>
-                <TableHead>Maintained by Digi</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-10" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading && (
+          <div className="overflow-x-auto">
+            <Table className="min-w-[1500px]">
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">Loading…</TableCell>
+                  <TableHead className={STICKY_HEAD}>Client</TableHead>
+                  <TableHead className="min-w-[150px]">Package</TableHead>
+                  <TableHead className="min-w-[190px]">Departments</TableHead>
+                  <TableHead className="min-w-[140px]">Hosting</TableHead>
+                  <TableHead className="min-w-[130px]">Hosting renewal</TableHead>
+                  <TableHead className="min-w-[180px]">Domain Access</TableHead>
+                  <TableHead className="min-w-[130px]">Domain renewal</TableHead>
+                  <TableHead className="min-w-[150px]">Website Access</TableHead>
+                  <TableHead className="min-w-[200px]">Website URL</TableHead>
+                  <TableHead className="min-w-[150px]">Built By Digilatics</TableHead>
+                  <TableHead className="min-w-[170px]">Maintained By Digilatics</TableHead>
+                  <TableHead className="min-w-[90px]">PPC ads</TableHead>
+                  <TableHead className="min-w-[110px]">Status</TableHead>
+                  <TableHead className="w-16" />
                 </TableRow>
-              )}
-              {!loading && clients.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">No clients found.</TableCell>
-                </TableRow>
-              )}
-              {!loading && pageClients.map((c) => (
-                <TableRow key={c.id} className={c.status === "offboarded" ? "opacity-50" : ""}>
-                  <TableCell>
-                    <div className="font-medium text-sm">{c.name}</div>
-                    <a
-                      href={`https://${c.domain}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-muted-foreground hover:underline flex items-center gap-1"
-                    >
-                      {c.domain} <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </TableCell>
-                  <TableCell className="text-sm">{(HOSTING_LABELS[c.hosting_platform] ?? c.hosting_platform) || "—"}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">
-                    {c.domain_access_location || "—"}
-                  </TableCell>
-                  <TableCell>
-                    {c.website_access_level ? (
-                      <Badge
-                        variant={
-                          c.website_access_level === "full_admin" ? "success" :
-                          c.website_access_level === "delegate" ? "warning" :
-                          c.website_access_level === "not_working" ? "destructive" : "secondary"
-                        }
+              </TableHeader>
+              <TableBody>
+                {loading && (
+                  <TableRow>
+                    <TableCell colSpan={COLUMN_COUNT} className="text-center text-muted-foreground py-8">
+                      Loading…
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!loading && clients.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={COLUMN_COUNT} className="text-center text-muted-foreground py-8">
+                      No clients found.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {!loading && pageClients.map((c) => (
+                  <TableRow key={c.id} className={c.status === "offboarded" ? "opacity-50" : ""}>
+                    {/* Sticky cell needs its own background, or the scrolling
+                        columns show through underneath it. */}
+                    <TableCell className={STICKY_CELL}>
+                      <div className="font-medium text-sm">{c.name}</div>
+                      <a
+                        href={`https://${c.domain}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-muted-foreground hover:underline flex items-center gap-1"
                       >
-                        {ACCESS_LEVEL_TABLE_LABELS[c.website_access_level] ?? c.website_access_level}
+                        {c.domain} <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </TableCell>
+
+                    <TableCell>
+                      {c.tier ? (
+                        <Badge variant="outline" className={`capitalize ${TIER_TONE[c.tier] ?? ""}`}>
+                          {c.tier}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+
+                    <TableCell>
+                      {c.departments?.length ? (
+                        <div className="flex flex-wrap gap-1">
+                          {c.departments.map((d) => (
+                            <Badge key={d} variant="secondary" className="text-xs font-normal">
+                              {DEPARTMENT_LABELS[d] ?? d}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+
+                    <TableCell className="text-sm">
+                      {hostingLabel(c) || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      <RenewalDate value={c.hosting_renewal_date} />
+                    </TableCell>
+
+                    <TableCell className="text-xs text-muted-foreground max-w-[220px] truncate"
+                      title={c.domain_access_location || undefined}>
+                      {c.domain_access_location || "—"}
+                    </TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      <RenewalDate value={c.domain_renewal_date} />
+                    </TableCell>
+
+                    <TableCell>
+                      {c.website_access_level ? (
+                        <Badge
+                          variant={
+                            c.website_access_level === "full_admin" ? "success" :
+                            c.website_access_level === "delegate" ? "warning" :
+                            c.website_access_level === "not_working" ? "destructive" : "secondary"
+                          }
+                        >
+                          {ACCESS_LEVEL_TABLE_LABELS[c.website_access_level] ?? c.website_access_level}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+
+                    <TableCell className="max-w-[220px]">
+                      {c.website_url ? (
+                        <a
+                          href={c.website_url.startsWith("http") ? c.website_url : `https://${c.website_url}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 truncate text-xs text-muted-foreground hover:underline"
+                          title={c.website_url}
+                        >
+                          <span className="truncate">{c.website_url}</span>
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+
+                    <TableCell className="text-sm">{c.website_built_by_digi || "—"}</TableCell>
+                    <TableCell className="text-sm">{c.website_maintained_by_digi || "—"}</TableCell>
+
+                    <TableCell className="text-sm capitalize">
+                      {c.running_ppc_ads || <span className="text-muted-foreground">—</span>}
+                    </TableCell>
+
+                    <TableCell>
+                      <Badge
+                        variant={c.status === "active" ? "success" : c.status === "paused" ? "warning" : "secondary"}
+                        className="capitalize"
+                      >
+                        {c.status}
                       </Badge>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">{c.website_built_by_digi || "—"}</TableCell>
-                  <TableCell className="text-sm">{c.website_maintained_by_digi || "—"}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={c.status === "active" ? "success" : c.status === "paused" ? "warning" : "secondary"}
-                      className="capitalize"
-                    >
-                      {c.status}
-                    </Badge>
-                    {c.tier && <Badge variant="outline" className="capitalize ml-1">{c.tier}</Badge>}
-                  </TableCell>
-                  <TableCell>
-                    <Link href={`/clients/${c.id}`} className="text-xs text-muted-foreground hover:text-foreground underline">
-                      Edit
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                    </TableCell>
+
+                    <TableCell>
+                      <Link href={`/clients/${c.id}`} className="text-xs text-muted-foreground hover:text-foreground underline">
+                        Edit
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

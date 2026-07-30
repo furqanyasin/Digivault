@@ -42,9 +42,18 @@ export const ACCESS_LEVEL_TOOLTIP =
   "feature (e.g. GoDaddy Delegate, Cloudflare member) — no shared passwords. " +
   "No access = client manages it themselves.";
 
+// Mirrors Client.DEPARTMENTS on the backend — the serializer validates against
+// that tuple, so a value only present here would be rejected on save.
 export const DEPARTMENT_OPTIONS = [
   { value: "seo", label: "SEO" },
   { value: "ads", label: "Ads" },
   { value: "dev", label: "Development" },
   { value: "content", label: "Content" },
+  { value: "lead_insight", label: "Lead Insight" },
+  { value: "social_media", label: "Social Media" },
 ];
+
+/** Short labels for table cells, keyed by stored value. */
+export const DEPARTMENT_LABELS: Record<string, string> = Object.fromEntries(
+  DEPARTMENT_OPTIONS.map((d) => [d.value, d.label])
+);
