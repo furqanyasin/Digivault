@@ -44,11 +44,6 @@ interface UptimeTrend {
   points: { date: string; value: number | null }[];
 }
 
-interface ClientRow {
-  id: string;
-  name: string;
-}
-
 const DEFAULT_DAYS = 14;
 const MAX_DAYS = 90;
 const ATTENTION_LIMIT = 6;
@@ -110,7 +105,7 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
   const [
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
-    changesResult, uptimeResult, clientsResult,
+    changesResult, uptimeResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
     api.get<Monitor[]>("/api/v1/monitors/", token),
@@ -121,7 +116,6 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=90", token),
     api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
     api.get<UptimeTrend>(`/api/v1/monitors/uptime-trend/?${uptimeQuery}`, token),
-    api.getAll<ClientRow>("/api/v1/clients/", token),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -136,7 +130,6 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     expiringHosting: val(hostingResult, [] as RenewalRow[]),
     allChanges: val(changesResult, [] as ScriptChange[]),
     uptimePoints: val(uptimeResult, { days: 0, points: [] } as UptimeTrend).points,
-    clients: val(clientsResult, [] as ClientRow[]),
   };
 }
 
@@ -173,20 +166,12 @@ export default async function DashboardPage({
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   const win = resolveWindow(one(sp.from), one(sp.to), one(sp.days));
-  const clientId = one(sp.client) ?? "";
-
   const token = await getAccessToken();
   const {
-    websites: allWebsites, monitors, activity,
+    websites, monitors, activity,
     expiringSsl, expiringDomains, expiringHosting,
-    allChanges, uptimePoints, clients,
+    allChanges, uptimePoints,
   } = await getData(token ?? "", win);
-
-  // --- client filter: scopes every number on the page ----------------------
-  const websites = clientId ? allWebsites.filter((w) => w.client === clientId) : allWebsites;
-  const siteIds = new Set(websites.map((w) => w.id));
-  const scopedToClient = Boolean(clientId);
-  const activeClientName = clients.find((c) => c.id === clientId)?.name;
 
   // Digivault's own infra is hidden from the Change Log and can never be
   // acknowledged, so it must not be counted as an alert either.
@@ -195,9 +180,7 @@ export default async function DashboardPage({
     const hit = (s?: string) => s && INTERNAL_DOMAINS.some((d) => s.includes(d));
     return hit(c.script?.src_url) || hit(c.description);
   };
-  const visibleChanges = allChanges.filter(
-    (c) => !isInternal(c) && (!scopedToClient || siteIds.has(c.website))
-  );
+  const visibleChanges = allChanges.filter((c) => !isInternal(c));
   const pending = visibleChanges.filter((c) => !c.is_acknowledged);
   const highRisk = pending.filter((c) => c.severity === "critical" || c.severity === "high");
 
@@ -209,22 +192,17 @@ export default async function DashboardPage({
     low: pending.filter((c) => c.severity === "low").length,
   };
 
-  const scopedMonitors = scopedToClient
-    ? monitors.filter((m) => m.website && siteIds.has(m.website))
-    : monitors;
-  const monitorsDown = scopedMonitors.filter(
+  const monitorsDown = monitors.filter(
     (m) => m.status === "down" || m.status === "degraded"
   ).length;
-  const uptimeSamples = scopedMonitors.map((m) => m.uptime_30d).filter((v): v is number => v != null);
+  const uptimeSamples = monitors.map((m) => m.uptime_30d).filter((v): v is number => v != null);
   const avgUptime = uptimeSamples.length
     ? uptimeSamples.reduce((a, b) => a + b, 0) / uptimeSamples.length
     : null;
 
-  const scopedRenewals = (rows: RenewalRow[]) =>
-    scopedToClient ? rows.filter((r) => siteIds.has(r.id)) : rows;
-  const ssl = scopedRenewals(expiringSsl);
-  const domains = scopedRenewals(expiringDomains);
-  const hosting = scopedRenewals(expiringHosting);
+  const ssl = expiringSsl;
+  const domains = expiringDomains;
+  const hosting = expiringHosting;
 
   const within30 = (rows: RenewalRow[]) =>
     rows.filter((r) => r.days_until_expiry != null && r.days_until_expiry <= 30);
@@ -290,14 +268,7 @@ export default async function DashboardPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight lg:text-3xl">Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {scopedToClient && activeClientName ? (
-              <>
-                Showing <span className="font-medium text-foreground">{activeClientName}</span> ·{" "}
-                {rangeCaption}
-              </>
-            ) : (
-              <>Every website your team is watching · {rangeCaption}</>
-            )}
+            Every website your team is watching · {rangeCaption}
           </p>
         </div>
         {/* DashboardFilters calls useSearchParams, which Next requires to sit
@@ -305,7 +276,7 @@ export default async function DashboardPage({
             streamed render. The fallback reserves the row's height so the header
             doesn't jump. */}
         <Suspense fallback={<div className="h-[30px]" />}>
-          <DashboardFilters clients={clients} />
+          <DashboardFilters />
         </Suspense>
       </div>
 

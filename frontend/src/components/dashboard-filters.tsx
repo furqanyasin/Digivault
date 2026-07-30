@@ -2,24 +2,16 @@
 
 import { useEffect, useRef, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-// Both widgets are imported dynamically inside their effects, NOT at module
-// scope: choices.js touches `document` while it evaluates, which throws
+// flatpickr is imported dynamically inside the effect, NOT at module scope:
+// these vanilla widgets touch `document` while they evaluate, which throws
 // "document is not defined" during SSR, fails this subtree's server render and
 // makes React abort the Suspense boundary (#419) and re-render on the client.
 // Type-only imports are erased at compile time, so they are safe up here.
 import type { Instance as FlatpickrInstance } from "flatpickr/dist/types/instance";
-import type ChoicesType from "choices.js";
 import { CalendarRange, Loader2, X } from "lucide-react";
 import "flatpickr/dist/flatpickr.min.css";
-import "choices.js/public/assets/styles/choices.min.css";
-
-export interface ClientOption {
-  id: string;
-  name: string;
-}
 
 interface Props {
-  clients: ClientOption[];
   /** Rolling-window presets, in days. */
   presets?: number[];
 }
@@ -27,46 +19,28 @@ interface Props {
 const ISO = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-/** Point the widget at `value` only if it isn't already there.
- *
- *  Calling setChoiceByValue unconditionally fights the user: right after they
- *  pick "All clients", the effect would re-assert the value it was mounted with
- *  and the reset would appear to do nothing. Comparing first makes the sync
- *  idempotent, so it only ever corrects a genuine mismatch (a back-button
- *  navigation, say).
- */
-function syncSelection(instance: ChoicesType, value: string) {
-  try {
-    const current = (instance.getValue(true) as string | undefined) ?? "";
-    if (current === value) return;
-    if (value) instance.setChoiceByValue(value);
-    else instance.removeActiveItems(-1);
-  } catch {
-    // Value no longer in the list (e.g. the client was deleted) — leaving the
-    // widget as-is beats throwing inside an effect.
-  }
-}
-
 /** One filter row above everything it scopes — never per-chart filters.
  *
  *  State lives in the URL rather than component state, so the server component
  *  re-renders with the new window and every chart on the page moves together.
  *  That also makes a filtered view linkable and survives a refresh.
+ *
+ *  The client dropdown that used to live here was removed: on a team whose
+ *  websites aren't assigned to clients, every selection scoped the page to zero
+ *  sites, which reads as a broken control. Filter by client on /clients and
+ *  /websites, where the rows carry the assignment.
  */
-export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) {
+export function DashboardFilters({ presets = [7, 14, 30, 90] }: Props) {
   const router = useRouter();
   const params = useSearchParams();
   const [pending, startTransition] = useTransition();
 
   const dateRef = useRef<HTMLInputElement>(null);
   const pickerRef = useRef<FlatpickrInstance | null>(null);
-  const selectRef = useRef<HTMLSelectElement>(null);
-  const choicesRef = useRef<ChoicesType | null>(null);
 
   const from = params.get("from");
   const to = params.get("to");
   const days = params.get("days");
-  const client = params.get("client");
   const activeDays = !from && !to ? Number(days) || 14 : null;
 
   /** Writes params and lets the server re-render. Nulls delete the key.
@@ -87,10 +61,9 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
     startTransition(() => router.push(`?${next.toString()}`, { scroll: false }));
   };
 
-  // The vanilla widgets' listeners are bound inside effects that must not re-run
-  // on every navigation (that would tear the widget down mid-interaction), so
-  // they'd otherwise capture a stale `params` and silently drop whichever filter
-  // changed since. A ref keeps them calling the current version.
+  // The picker's listener is bound inside a mount-only effect, so it would
+  // otherwise capture a stale `apply` and silently drop whichever filter changed
+  // since. A ref keeps it calling the current version.
   const applyRef = useRef(apply);
   // Updated in an effect, not during render: writing to a ref while rendering is
   // a side effect and React can discard or replay that render.
@@ -157,62 +130,6 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
     else instance.clear(false);
   }, [from, to]);
 
-  // --- Choices: searchable client filter ------------------------------------
-  // Built once per option list. The <select> is uncontrolled from React's point
-  // of view because Choices replaces its DOM, so the selected option is pushed
-  // in by the sync effect below rather than via a React value prop.
-  useEffect(() => {
-    let cancelled = false;
-    let instance: ChoicesType | null = null;
-    let el: HTMLSelectElement | null = null;
-
-    const onChange = (e: Event) => {
-      const value = (e.target as HTMLSelectElement).value;
-      applyRef.current({ client: value || null });
-    };
-
-    (async () => {
-      const Choices = (await import("choices.js")).default;
-      el = selectRef.current;
-      if (cancelled || !el) return;
-      instance = new Choices(el, {
-        searchEnabled: true,
-        shouldSort: false,
-        itemSelectText: "",
-        allowHTML: false,
-        searchPlaceholderValue: "Search clients…",
-        searchResultLimit: 20,
-      });
-      choicesRef.current = instance;
-      el.addEventListener("change", onChange);
-      // The chunk may land after `client` was already read, so seed the visible
-      // selection here rather than waiting for the sync effect to re-fire. Read
-      // the URL directly so this stays independent of render scope.
-      const seed = new URLSearchParams(window.location.search).get("client");
-      if (seed) syncSelection(instance, seed);
-    })();
-
-    return () => {
-      cancelled = true;
-      el?.removeEventListener("change", onChange);
-      instance?.destroy();
-      choicesRef.current = null;
-    };
-    // Rebuilt only when the option list itself changes; re-running on every
-    // param change would tear down the widget mid-interaction.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clients]);
-
-  // Keep the widget's visible selection in step with the URL. Without this the
-  // dropdown snaps back to "All clients" after the navigation it triggered —
-  // the filter is applied but the control looks like it reverted, which reads as
-  // a broken filter. `defaultValue` can't do this job: React only honours it on
-  // first render, and Choices owns the DOM afterwards.
-  useEffect(() => {
-    const instance = choicesRef.current;
-    if (instance) syncSelection(instance, client ?? "");
-  }, [client, clients]);
-
   const rangeLabel = from && to ? `${from} → ${to}` : "";
 
   return (
@@ -258,17 +175,6 @@ export function DashboardFilters({ clients, presets = [7, 14, 30, 90] }: Props) 
           <X className="h-3 w-3" />
         </button>
       )}
-
-      <div className="dv-choices w-[196px]">
-        <select ref={selectRef} aria-label="Filter by client">
-          <option value="">All clients</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
 
       {pending && (
         <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-label="Updating" />
