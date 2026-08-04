@@ -36,10 +36,17 @@ services:
       args:
         REQ: production.txt
     restart: always
+    # uvicorn, not daphne: daphne is a single process and Django runs sync views
+    # under ASGI in one shared thread, so every concurrent request queued behind
+    # the last. Worker count defaults to 4; override by exporting
+    # UVICORN_WORKERS in the deploy shell or putting it in `.env` — compose
+    # interpolates from those, NOT from the .env.production below (that file is
+    # env_file, which only reaches the container). Rule of thumb: 2x CPU cores.
     command: >
       sh -c "python manage.py migrate --settings=config.settings.production &&
              python manage.py collectstatic --noinput --settings=config.settings.production &&
-             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+             uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+             --workers ${UVICORN_WORKERS:-4} --proxy-headers --forwarded-allow-ips='*'"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media

@@ -16,6 +16,11 @@ gunicorn==23.0.0
 channels==4.1.0
 channels-redis==4.2.0
 daphne==4.1.2
+# Serves ASGI (HTTP + websockets) with real worker processes. Daphne is a
+# single process, and Django runs sync views under ASGI in one shared thread,
+# so concurrent requests queued behind each other — 18 parallel API calls took
+# 1179ms while one took 103ms. Multiple workers remove that ceiling.
+uvicorn[standard]==0.34.0
 requests==2.32.3
 pyotp==2.9.0
 qrcode[pil]==7.4.2

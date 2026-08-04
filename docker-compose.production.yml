@@ -31,10 +31,13 @@ services:
       args:
         REQ: production.txt
     restart: always
+    # See docker-compose.production.cloudpanel.yml — daphne's single process
+    # serialised concurrent requests; uvicorn workers remove that ceiling.
     command: >
       sh -c "python manage.py migrate --settings=config.settings.production &&
              python manage.py collectstatic --noinput --settings=config.settings.production &&
-             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+             uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+             --workers ${UVICORN_WORKERS:-4} --proxy-headers --forwarded-allow-ips='*'"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
