@@ -11,6 +11,7 @@ from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService, site_meta
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
+from apps.integrations.clickup import ClickUpClient
 from apps.monitors.models import Monitor, MonitorCheck, MonitorNotificationRule, NotificationChannel
 from apps.monitors.serializers import (
     MonitorCheckSerializer,
@@ -390,13 +391,9 @@ def _test_clickup(channel) -> tuple[bool, str]:
     task_id = channel.config.get("task_id", "")
     if not api_token or not task_id:
         return False, "Missing api_token or task_id in config."
-    url = f"https://api.clickup.com/api/v2/task/{task_id}"
-    req = urllib.request.Request(url, headers={"Authorization": api_token})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status == 200:
-                return True, f"ClickUp task '{task_id}' verified successfully."
-            return False, f"ClickUp returned HTTP {resp.status}."
+        ClickUpClient(api_token).get_task(task_id)
+        return True, f"ClickUp task '{task_id}' verified successfully."
     except Exception as e:
         return False, str(e)
 

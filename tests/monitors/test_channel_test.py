@@ -70,18 +70,22 @@ class TestChannelTest:
         assert data["success"] is False
         assert "SMTP error" in data["message"]
 
-    @patch("apps.monitors.views.urllib.request.urlopen")
-    def test_clickup_channel_test_calls_api(self, mock_urlopen, auth_client, clickup_channel):
+    @patch("apps.integrations.clickup.requests.request")
+    def test_clickup_channel_test_calls_api(self, mock_request, auth_client, clickup_channel):
         mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.__enter__ = lambda s: s
-        mock_resp.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_resp
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"id": "abc123"}
+        mock_request.return_value = mock_resp
+
         resp = auth_client.post(f"/api/v1/notification-channels/{clickup_channel.pk}/test/")
+
         assert resp.status_code == 200
         data = resp.data.get("data", resp.data)
         assert data["success"] is True
-        mock_urlopen.assert_called_once()
+        mock_request.assert_called_once()
+        # Verifying the task means GETting it, not commenting on it.
+        assert mock_request.call_args[0][0] == "GET"
+        assert mock_request.call_args[0][1].endswith("/api/v2/task/abc123")
 
     def test_channel_test_requires_auth(self, api_client, email_channel):
         resp = api_client.post(f"/api/v1/notification-channels/{email_channel.pk}/test/")

@@ -1,18 +1,38 @@
-"""ClickUp delivery routing — Chat channel (v3) vs task comment (v2)."""
+"""ClickUp delivery routing — Chat channel (v3) vs task comment (v2).
 
-import urllib.request
+Routing lives in post_clickup; the HTTP call itself now goes through
+ClickUpClient, so these patch the client's transport rather than urllib.
+The assertions are unchanged: same URLs, same auth header, same return value.
+"""
+
+import pytest
 
 from apps.monitors.notifications import parse_clickup_chat, post_clickup
 
 
 class _FakeResp:
-    status = 200
+    status_code = 200
+    text = ""
 
-    def __enter__(self):
-        return self
+    def json(self):
+        return {}
 
-    def __exit__(self, *a):
-        return False
+
+class _RecordingSession:
+    def __init__(self):
+        self.calls = []
+
+    def request(self, method, url, headers=None, json=None, timeout=None):
+        self.calls.append({"method": method, "url": url, "headers": headers or {}, "json": json})
+        return _FakeResp()
+
+
+@pytest.fixture
+def session(monkeypatch):
+    """Swap the transport ClickUpClient defaults to."""
+    rec = _RecordingSession()
+    monkeypatch.setattr("apps.integrations.clickup.requests", rec)
+    return rec
 
 
 def test_parse_clickup_chat_link():
@@ -23,37 +43,26 @@ def test_parse_clickup_chat_link():
     assert parse_clickup_chat("https://example.com/x") == (None, None)
 
 
-def test_post_clickup_returns_false_without_target():
+def test_post_clickup_returns_false_without_target(session):
     assert post_clickup({"api_token": "pk_1"}, "hi") is False
     assert post_clickup({}, "hi") is False
+    assert session.calls == []
 
 
-def test_post_clickup_uses_chat_v3(monkeypatch):
-    seen = {}
-
-    def fake_urlopen(req, timeout=10):
-        seen["url"] = req.full_url
-        seen["auth"] = req.headers.get("Authorization")
-        return _FakeResp()
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+def test_post_clickup_uses_chat_v3(session):
     ok = post_clickup(
         {"api_token": "pk_1", "chat_url": "https://x.clickup.com/123/chat/r/abc-1", "task_id": "ignored"},
         "hello",
     )
     assert ok is True
-    assert seen["url"] == "https://api.clickup.com/api/v3/workspaces/123/chat/channels/abc-1/messages"
-    assert seen["auth"] == "pk_1"
+    assert session.calls[-1]["url"] == (
+        "https://api.clickup.com/api/v3/workspaces/123/chat/channels/abc-1/messages"
+    )
+    assert session.calls[-1]["headers"]["Authorization"] == "pk_1"
 
 
-def test_post_clickup_falls_back_to_task_comment(monkeypatch):
-    seen = {}
-
-    def fake_urlopen(req, timeout=10):
-        seen["url"] = req.full_url
-        return _FakeResp()
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+def test_post_clickup_falls_back_to_task_comment(session):
     ok = post_clickup({"api_token": "pk_1", "task_id": "86evnnba3"}, "hello")
     assert ok is True
-    assert seen["url"] == "https://api.clickup.com/api/v2/task/86evnnba3/comment"
+    assert session.calls[-1]["url"] == "https://api.clickup.com/api/v2/task/86evnnba3/comment"
+    assert session.calls[-1]["json"] == {"comment_text": "hello"}

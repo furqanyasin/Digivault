@@ -11,6 +11,8 @@ import re
 import urllib.request
 from typing import TYPE_CHECKING
 
+from apps.integrations.clickup import ClickUpClient
+
 if TYPE_CHECKING:
     from apps.monitors.models import Monitor, NotificationChannel
 
@@ -71,34 +73,25 @@ def parse_clickup_chat(url: str) -> tuple[str | None, str | None]:
 def post_clickup(config: dict, text: str) -> bool:
     """Post `text` to a ClickUp target. Prefers a Chat channel (v3 API) when the
     config has a `chat_url`; otherwise comments on a `task_id` (v2). Returns True
-    if a request was sent, False if the config has no usable target. Raises on a
-    non-2xx response so callers can log/retry."""
+    if a request was sent, False if the config has no usable target. Raises
+    ClickUpError on a non-2xx response so callers can log/retry."""
     config = config or {}
     api_token = config.get("api_token", "")
     if not api_token:
         return False
-    headers = {"Content-Type": "application/json", "Authorization": api_token}
+
+    api = ClickUpClient(api_token)
 
     chat_url = config.get("chat_url", "")
     if chat_url:
         ws, ch = parse_clickup_chat(chat_url)
         if ws and ch:
-            url = f"https://api.clickup.com/api/v3/workspaces/{ws}/chat/channels/{ch}/messages"
-            data = json.dumps({"type": "message", "content": text, "content_format": "text/md"}).encode("utf-8")
-            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                if resp.status not in (200, 201):
-                    raise RuntimeError(f"ClickUp chat returned HTTP {resp.status}")
+            api.post_chat(ws, ch, text)
             return True
 
     task_id = config.get("task_id", "")
     if task_id:
-        url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
-        data = json.dumps({"comment_text": text}).encode("utf-8")
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status not in (200, 201):
-                raise RuntimeError(f"ClickUp comment returned HTTP {resp.status}")
+        api.comment(task_id, text)
         return True
 
     return False

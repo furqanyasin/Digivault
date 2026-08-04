@@ -15,6 +15,7 @@ interface TeamSettings {
   clickup_api_token: string;
   clickup_api_token_masked: string;
   clickup_connected: boolean;
+  clickup_list_id: string;
 }
 
 interface Props {
@@ -31,6 +32,35 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
   const [connected, setConnected] = useState<boolean | null>(settings?.clickup_connected ?? null);
   const [clickupUser, setClickupUser] = useState<string | null>(null);
   const maskedToken = settings?.clickup_api_token_masked ?? "";
+  const [listId, setListId] = useState(settings?.clickup_list_id ?? "");
+  const [savingList, setSavingList] = useState(false);
+
+  async function handleSaveListId() {
+    if (!activeTeamId) return;
+    setSavingList(true);
+    try {
+      const res = await fetch(`/api/teams/${activeTeamId}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clickup_list_id: listId.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ variant: "destructive", title: "Error", description: data?.detail || "Failed to save." });
+        return;
+      }
+      toast({
+        title: "Saved",
+        description: listId.trim()
+          ? "Digivault will open issue tasks in that list."
+          : "Issue list cleared — no tasks will be created.",
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    } finally {
+      setSavingList(false);
+    }
+  }
 
   async function handleSave() {
     if (!activeTeamId) return;
@@ -194,6 +224,36 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
                 Disconnect
               </Button>
             )}
+          </div>
+
+          {/* Issue list — where Digivault opens tasks. Separate from the token
+              because it is a different question: the token says who we are,
+              this says where our work goes. */}
+          <div className="space-y-2 border-t pt-5">
+            <Label htmlFor="clickup-list">Issue list</Label>
+            <p className="text-xs text-muted-foreground">
+              Digivault opens a task here when a website has a problem. Open the list in
+              ClickUp and copy the ID from the URL —{" "}
+              <code className="font-mono bg-muted px-1 rounded">app.clickup.com/…/li/901234</code>{" "}
+              means the ID is <code className="font-mono bg-muted px-1 rounded">901234</code>.
+              Leave it blank and no tasks are created.
+            </p>
+            <div className="flex gap-3 flex-wrap">
+              <Input
+                id="clickup-list"
+                placeholder="901234"
+                value={listId}
+                onChange={(e) => setListId(e.target.value)}
+                className="max-w-xs"
+              />
+              <Button
+                variant="outline"
+                onClick={handleSaveListId}
+                disabled={savingList || listId.trim() === (settings?.clickup_list_id ?? "")}
+              >
+                {savingList ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : "Save list"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -1,13 +1,13 @@
 """Outbound delivery of domain / SSL expiry alerts to a team's notification channels."""
 from __future__ import annotations
 
-import json
 import logging
-import urllib.request
 
 from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
+
+from apps.integrations.clickup import ClickUpClient
 
 logger = logging.getLogger(__name__)
 
@@ -51,17 +51,7 @@ def _send_clickup(channel, subject: str, body: str) -> None:
     if not api_token or not task_id:
         logger.warning("ClickUp channel %s missing api_token or task_id", channel.id)
         return
-    comment_text = f"**{subject}**\n{body}"
-    url = f"https://api.clickup.com/api/v2/task/{task_id}/comment"
-    data = json.dumps({"comment_text": comment_text}).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=data,
-        headers={"Content-Type": "application/json", "Authorization": api_token},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        if resp.status not in (200, 201):
-            raise RuntimeError(f"ClickUp delivery returned HTTP {resp.status}")
+    ClickUpClient(api_token).comment(task_id, f"**{subject}**\n{body}")
 
 
 _SENDERS = {

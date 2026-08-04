@@ -848,14 +848,29 @@ class TeamSettingsView(APIView):
         if my_level < ROLE_LEVELS["manager"]:
             return Response({"detail": "Manager or higher required to update settings."}, status=status.HTTP_403_FORBIDDEN)
 
-        token = request.data.get("clickup_api_token", "").strip()
-        team.clickup_api_token = token
-        team.save(update_fields=["_clickup_api_token"])
-        AuditService.log_request(
-            request, ActivityLog.Action.SETTINGS_INTEGRATION_UPDATED,
-            description="Updated ClickUp integration token",
-            resource_type="team", resource_id=str(team.pk),
-        )
+        # Each field updates independently. Reading them unconditionally would
+        # mean saving one silently clears the other — a PATCH that only carries
+        # the list id must not log the team out of ClickUp.
+        updated: list[str] = []
+        changed_fields: list[str] = []
+
+        if "clickup_api_token" in request.data:
+            team.clickup_api_token = (request.data.get("clickup_api_token") or "").strip()
+            changed_fields.append("_clickup_api_token")
+            updated.append("token")
+
+        if "clickup_list_id" in request.data:
+            team.clickup_list_id = (request.data.get("clickup_list_id") or "").strip()
+            changed_fields.append("clickup_list_id")
+            updated.append("issue list")
+
+        if changed_fields:
+            team.save(update_fields=changed_fields)
+            AuditService.log_request(
+                request, ActivityLog.Action.SETTINGS_INTEGRATION_UPDATED,
+                description=f"Updated ClickUp integration ({', '.join(updated)})",
+                resource_type="team", resource_id=str(team.pk),
+            )
         return Response(TeamSettingsSerializer(team).data)
 
 
@@ -877,19 +892,13 @@ class ClickUpTestView(APIView):
             return Response({"detail": "No ClickUp API token configured.", "connected": False}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            import requests as http_requests
-            resp = http_requests.get(
-                "https://api.clickup.com/api/v2/user",
-                headers={"Authorization": token},
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                user_data = resp.json().get("user", {})
-                return Response({
-                    "connected": True,
-                    "clickup_user": user_data.get("username") or user_data.get("email", ""),
-                })
-            return Response({"connected": False, "detail": f"ClickUp returned {resp.status_code}."}, status=status.HTTP_400_BAD_REQUEST)
+            from apps.integrations.clickup import ClickUpClient
+
+            user_data = ClickUpClient(token).whoami().get("user", {})
+            return Response({
+                "connected": True,
+                "clickup_user": user_data.get("username") or user_data.get("email", ""),
+            })
         except Exception as exc:
             logger.warning("ClickUp connectivity check failed for team %s: %s", pk, exc)
             return Response({"connected": False, "detail": "Could not reach ClickUp. Check your API token."}, status=status.HTTP_400_BAD_REQUEST)
