@@ -3,7 +3,7 @@ import io
 import logging
 from datetime import datetime
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from rest_framework import generics, permissions, status
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -286,7 +286,11 @@ class ClientListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         team = _team(self.request)
-        qs = Client.objects.for_team(team)
+        # Annotate the website tally in the same query — serializing it per row
+        # was one COUNT per client (40 clients = 41 queries for one page).
+        qs = Client.objects.for_team(team).annotate(
+            assigned_websites_count_annotated=Count("websites", distinct=True)
+        )
         q = self.request.query_params.get("q", "").strip()
         status_filter = self.request.query_params.get("status", "").strip()
         if q:
@@ -297,8 +301,11 @@ class ClientListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         client = serializer.save(team=_team(self.request))
-        _sync_hosting_to_websites(client)
+        # Website first: syncing before it exists finds nothing to write to, so
+        # the hosting date only landed when the client was next edited. The CSV
+        # import already does these in this order.
         _auto_create_website(client, self.request)
+        _sync_hosting_to_websites(client)
         AuditService.log_request(
             self.request, ActivityLog.Action.CLIENT_CREATED,
             description=f"Created client '{client.name}'",
