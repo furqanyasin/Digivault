@@ -1,15 +1,26 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import {
-  Globe, AlertTriangle, Clock, Plus, ExternalLink, Activity, TrendingUp,
-  Bell, CalendarClock, ShieldCheck, KeyRound, ShieldAlert,
+  Globe, AlertTriangle, Activity, ShieldCheck, ShieldAlert, KeyRound,
+  Star, ExternalLink, Users, UserCog, Code2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ChartCardHeader } from "@/components/charts/chart-card-header";
+import { SummaryChunk } from "@/components/charts/summary-chunk";
+import { FleetHealthDonut } from "@/components/charts/fleet-health-donut";
+import { RenewalUrgencyBars } from "@/components/charts/renewal-urgency-bars";
+import { UptimeCard } from "@/components/charts/uptime-card";
+import { FleetChecksRow, type FleetSummary } from "@/components/charts/fleet-checks-row";
+import { SetupChecklist, type SetupStep } from "@/components/charts/setup-checklist";
+import { AlertsCard } from "@/components/charts/alerts-card";
+import { DashboardFilters } from "@/components/dashboard-filters";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, ScriptChange, Monitor, DetectedForm, FormSubmissionError } from "@/lib/api";
-import { fmtDate, fmtDateTime, fmtRelative } from "@/lib/utils";
+import { healthBand } from "@/lib/chart-theme";
+import type { Website, ScriptChange, Monitor } from "@/lib/api";
+import { fmtDateTime, fmtRelative } from "@/lib/utils";
 
 interface LogEntry {
   id: string;
@@ -28,64 +39,101 @@ interface RenewalRow {
   days_until_expiry: number | null;
 }
 
+/** `value` is null for days with no checks — see monitors.UptimeTrendView. */
+interface UptimeTrend {
+  days: number;
+  points: { date: string; value: number | null }[];
+}
+
+interface TeamRow {
+  id: string;
+  member_count: number;
+  my_role?: string | null;
+}
+
+interface ClientRow {
+  id: string;
+  name: string;
+  status: string;
+}
+
+const ATTENTION_LIMIT = 6;
+
+/** Widest window the trend cards can be asked for. Fetched once; the cards
+ *  slice it client-side. */
+const MAX_DAYS = 90;
+
 async function getData(token: string) {
-  // Everything in one parallel batch. Changes/forms/form-errors used to be
-  // fetched per site in a SECOND wave that had to wait on the websites list —
-  // a 15-request waterfall before first paint. Team-wide endpoints make them
-  // 3 requests that start immediately.
+  // Always the widest window. The trend cards slice it client-side, so a
+  // preset click costs nothing — it used to refetch all ten of these.
+  const uptimeQuery = `days=${MAX_DAYS}`;
+
+  // Forms and form-errors used to be fetched here for the Coverage card. That
+  // card is gone, so the two requests went with it rather than being left to
+  // load data nothing renders.
   const [
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
-    changesResult, formsResult, formErrorsResult,
+    changesResult, uptimeResult,
+    clientsResult, credentialsResult, teamsResult, fleetResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
-    api.get<Monitor[]>("/api/v1/monitors/", token),
+    // getAll, not get: the list pages at 25, so a plain get silently dropped
+    // monitors past the first page and under-reported how many were down.
+    api.getAll<Monitor>("/api/v1/monitors/", token),
     api.get<LogEntry[]>("/api/v1/logs/", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=30", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=30", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=30", token),
+    // 90 days feeds the renewal forecast; the card's own figure filters to 30.
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=90", token),
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=90", token),
+    api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=90", token),
     api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
-    api.get<DetectedForm[]>("/api/v1/forms/", token),
-    api.get<FormSubmissionError[]>("/api/v1/form-errors/", token),
+    api.get<UptimeTrend>(`/api/v1/monitors/uptime-trend/?${uptimeQuery}`, token),
+    // These back the summary chunks for the sidebar sections that have no chart
+    // of their own, so the dashboard covers the whole product rather than
+    // showing the same four website metrics repeatedly.
+    api.getAll<ClientRow>("/api/v1/clients/", token),
+    api.getAll<{ id: string }>("/api/v1/credentials/", token),
+    // /auth/teams/ already carries member_count per team, so the member figure
+    // costs nothing extra. This used to fetch /auth/me/ and then, sequentially,
+    // that team's members — two round trips in series after the parallel batch,
+    // on every page load and every filter change.
+    api.get<TeamRow[]>("/api/v1/auth/teams/", token),
+    // One aggregate call for fleet-wide SEO / performance / security. Asking per
+    // site would be three requests times the site count.
+    api.get<FleetSummary>("/api/v1/websites/fleet-summary/", token),
   ]);
 
-  const websites = websitesResult.status === "fulfilled" ? websitesResult.value : [];
-  const monitors = monitorsResult.status === "fulfilled" ? monitorsResult.value : [];
-  const recentActivity = logsResult.status === "fulfilled" ? logsResult.value.slice(0, 5) : [];
-  const expiringSsl = sslResult.status === "fulfilled" ? sslResult.value : [];
-  const expiringDomains = domainResult.status === "fulfilled" ? domainResult.value : [];
-  const expiringHosting = hostingResult.status === "fulfilled" ? hostingResult.value : [];
-  const allChanges = changesResult.status === "fulfilled" ? changesResult.value : [];
-  const detectedForms = formsResult.status === "fulfilled" ? formsResult.value : [];
-  const formErrors = formErrorsResult.status === "fulfilled" ? formErrorsResult.value : [];
+  const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
+    r.status === "fulfilled" ? r.value : fallback;
 
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const newThisWeek = websites.filter((w) => new Date(w.created_at).getTime() >= weekAgo).length;
+  const teams = val(teamsResult, [] as TeamRow[]);
+  const allWebsites = val(websitesResult, [] as Website[]);
+  // A site is "reporting" if its snippet has phoned home in the last week.
+  // Computed here, not during render: Date.now() in a component body is not
+  // idempotent, which React's purity rule rightly rejects.
+  const staleBefore = Date.now() - 7 * 86400000;
+  const reportingCount = allWebsites.filter(
+    (w) => w.last_seen_at && new Date(w.last_seen_at).getTime() >= staleBefore
+  ).length;
 
   return {
-    websites, allChanges, monitors, recentActivity,
-    expiringSsl, expiringDomains, expiringHosting,
-    detectedForms, formErrors, newThisWeek,
+    websites: allWebsites,
+    reportingCount,
+    monitors: val(monitorsResult, [] as Monitor[]),
+    activity: val(logsResult, [] as LogEntry[]).slice(0, 6),
+    expiringSsl: val(sslResult, [] as RenewalRow[]),
+    expiringDomains: val(domainResult, [] as RenewalRow[]),
+    expiringHosting: val(hostingResult, [] as RenewalRow[]),
+    allChanges: val(changesResult, [] as ScriptChange[]),
+    uptimePoints: val(uptimeResult, { days: 0, points: [] } as UptimeTrend).points,
+    clients: val(clientsResult, [] as ClientRow[]),
+    credentialCount: val(credentialsResult, [] as { id: string }[]).length,
+    // The active team is the one the sidebar is showing; fall back to the
+    // first so the chunk still reads sensibly if `my_role` is absent.
+    memberCount: (teams.find((t) => t.my_role) ?? teams[0])?.member_count ?? 0,
+    fleet: val(fleetResult, null as FleetSummary | null),
   };
 }
-
-// Two full rows on the lg 3-column grid. The rest live on /websites, which has
-// search and filtering — a 60-card wall on the dashboard is unusable.
-const DASHBOARD_SITE_LIMIT = 6;
-
-const STATUS_DOT: Record<string, string> = {
-  active: "bg-emerald-500",
-  warning: "bg-amber-500",
-  critical: "bg-red-500",
-  inactive: "bg-slate-400",
-};
-
-const STATUS_BAR: Record<string, string> = {
-  active: "bg-emerald-500",
-  warning: "bg-amber-400",
-  critical: "bg-red-500",
-  inactive: "bg-slate-300",
-};
 
 const ACTIVITY_STYLE: Record<string, { icon: typeof Activity; className: string }> = {
   "auth.login": { icon: Activity, className: "bg-emerald-500/10 text-emerald-600" },
@@ -99,289 +147,370 @@ const ACTIVITY_STYLE: Record<string, { icon: typeof Activity; className: string 
   "team.member_removed": { icon: ShieldAlert, className: "bg-red-500/10 text-red-600" },
   "team.member_role_changed": { icon: Activity, className: "bg-sky-500/10 text-sky-600" },
 };
-function activityStyle(action: string) {
-  return ACTIVITY_STYLE[action] ?? { icon: Activity, className: "bg-slate-500/10 text-slate-600" };
-}
+const activityStyle = (action: string) =>
+  ACTIVITY_STYLE[action] ?? { icon: Activity, className: "bg-slate-500/10 text-slate-600" };
+
+const SCORE_TONE = (s: number) =>
+  s >= 85 ? "text-emerald-600" : s >= 60 ? "text-amber-600" : "text-red-600";
+const STATUS_BADGE: Record<string, "destructive" | "warning" | "success" | "secondary"> = {
+  active: "success", warning: "warning", critical: "destructive", inactive: "secondary",
+};
 
 export default async function DashboardPage() {
   const token = await getAccessToken();
   const {
-    websites, allChanges, monitors, recentActivity,
+    websites, monitors, activity,
     expiringSsl, expiringDomains, expiringHosting,
-    detectedForms, formErrors, newThisWeek,
+    allChanges, uptimePoints, clients, credentialCount, memberCount,
+    reportingCount, fleet,
   } = await getData(token ?? "");
 
+  // Digivault's own infra is hidden from the Change Log and can never be
+  // acknowledged, so it must not be counted as an alert either.
   const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
-  function isInternal(c: ScriptChange) {
-    const check = (s?: string) => s && INTERNAL_DOMAINS.some((d) => s.includes(d));
-    return check(c.script?.src_url) || check(c.description);
-  }
+  const isInternal = (c: ScriptChange) => {
+    const hit = (s?: string) => s && INTERNAL_DOMAINS.some((d) => s.includes(d));
+    return hit(c.script?.src_url) || hit(c.description);
+  };
   const visibleChanges = allChanges.filter((c) => !isInternal(c));
   const pending = visibleChanges.filter((c) => !c.is_acknowledged);
-  const highRisk = visibleChanges.filter(
-    (c) => (c.severity === "critical" || c.severity === "high") && !c.is_acknowledged
-  );
-  const newScripts = visibleChanges.filter((c) => c.change_type === "added");
-  const monitorsDown = monitors.filter((m) => m.status === "down" || m.status === "degraded").length;
+  // Composition of the same list the KPI counts, so the two can't disagree.
+  const severityCounts = {
+    critical: pending.filter((c) => c.severity === "critical").length,
+    high: pending.filter((c) => c.severity === "high").length,
+    medium: pending.filter((c) => c.severity === "medium").length,
+    low: pending.filter((c) => c.severity === "low").length,
+  };
 
+  const monitorsDown = monitors.filter(
+    (m) => m.status === "down" || m.status === "degraded"
+  ).length;
   const uptimeSamples = monitors.map((m) => m.uptime_30d).filter((v): v is number => v != null);
   const avgUptime = uptimeSamples.length
-    ? uptimeSamples.reduce((sum, v) => sum + v, 0) / uptimeSamples.length
+    ? uptimeSamples.reduce((a, b) => a + b, 0) / uptimeSamples.length
     : null;
 
+  const ssl = expiringSsl;
+  const domains = expiringDomains;
+  const hosting = expiringHosting;
+
+  const within30 = (rows: RenewalRow[]) =>
+    rows.filter((r) => r.days_until_expiry != null && r.days_until_expiry <= 30);
   const renewalIds = new Set([
-    ...expiringSsl.map((r) => r.id),
-    ...expiringDomains.map((r) => r.id),
-    ...expiringHosting.map((r) => r.id),
+    ...within30(ssl).map((r) => r.id),
+    ...within30(domains).map((r) => r.id),
+    ...within30(hosting).map((r) => r.id),
   ]);
-  const nextRenewalDays = [...expiringSsl, ...expiringDomains, ...expiringHosting]
+  const nextRenewalDays = [...ssl, ...domains, ...hosting]
     .map((r) => r.days_until_expiry)
     .filter((v): v is number => v != null)
     .sort((a, b) => a - b)[0];
 
-  const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
-  const sslValid = Math.max(websites.length - expiringSsl.length, 0);
 
-  const stats = [
-    {
-      label: "Websites monitored", value: websites.length, icon: Globe,
-      caption: newThisWeek > 0 ? `+${newThisWeek} this week` : "No new sites this week",
-      href: "/websites",
-    },
-    {
-      label: "Active alerts", value: pending.length, icon: Bell,
-      caption: highRisk.length > 0 ? `${highRisk.length} critical` : "None critical",
-      href: "/alerts",
-    },
-    {
-      label: "Upcoming renewals", value: renewalIds.size, icon: CalendarClock,
-      caption: nextRenewalDays != null ? `Next in ${nextRenewalDays} days` : "Nothing due soon",
-      href: "/renewals",
-    },
-    {
-      label: "Avg uptime (30d)", value: avgUptime != null ? `${avgUptime.toFixed(2)}%` : "—", icon: TrendingUp,
-      caption: monitorsDown > 0 ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down` : "All monitors up",
-      href: "/monitors",
-    },
+  // One row per renewal type, split by urgency — matches the Renewal Center.
+  // Time buckets left the near bands empty, because most renewals sit far out.
+  const tallyUrgency = (rows: RenewalRow[]) => {
+    const d = (r: RenewalRow) => r.days_until_expiry;
+    return {
+      urgent: rows.filter((r) => d(r) != null && d(r)! <= 7).length,
+      soon: rows.filter((r) => d(r) != null && d(r)! > 7 && d(r)! <= 30).length,
+      later: rows.filter((r) => d(r) != null && d(r)! > 30 && d(r)! <= 90).length,
+    };
+  };
+  const renewalUrgency = [
+    { label: "Domain", ...tallyUrgency(domains) },
+    { label: "SSL", ...tallyUrgency(ssl) },
+    { label: "Hosting", ...tallyUrgency(hosting) },
+  ];
+
+  // Health bands for the donut. `inactive` is a lifecycle state, so it is
+  // counted separately rather than folded into a score band.
+  const bands = { healthy: 0, warning: 0, critical: 0, inactive: 0 };
+  for (const w of websites) {
+    if (w.status === "inactive") bands.inactive += 1;
+    else bands[healthBand(w.health_score ?? 100)] += 1;
+  }
+
+  // Sites worth opening now: worst score first.
+  const needsAttention = websites
+    .filter(
+      (w) =>
+        w.status !== "inactive" &&
+        (w.status === "critical" || w.status === "warning" || (w.health_score ?? 100) < 85)
+    )
+    .sort((a, b) => (a.health_score ?? 100) - (b.health_score ?? 100));
+
+
+  // --- summary chunks for the sidebar sections without a chart -------------
+  const activeClients = clients.filter((c) => c.status === "active").length;
+  const inactiveClients = clients.length - activeClients;
+
+  const setupSteps: SetupStep[] = [
+    { label: "Add a client", hint: "Who the sites belong to", done: clients.length > 0, href: "/clients/new" },
+    { label: "Track a website", hint: "Start monitoring a site", done: websites.length > 0, href: "/websites/new" },
+    { label: "Install the snippet", hint: "So a site reports its scripts", done: reportingCount > 0, href: "/websites" },
+    { label: "Add an uptime monitor", hint: "Know when a site goes down", done: monitors.length > 0, href: "/monitors/new" },
+    { label: "Store a credential", hint: "Encrypted logins in the vault", done: credentialCount > 0, href: "/credentials" },
+    { label: "Invite a teammate", hint: "Share the workload", done: memberCount > 1, href: "/team" },
   ];
 
   return (
-    <div className="p-8 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">A live snapshot of every website your team is watching.</p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map(({ label, value, icon: Icon, caption, href }) => (
-          <Link key={label} href={href}>
-            <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between text-muted-foreground">
-                  <span className="text-sm">{label}</span>
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div className="text-2xl font-bold mt-2">{value}</div>
-                <div className="text-xs text-muted-foreground mt-1">{caption}</div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-
-      {/* Recent activity + fleet health */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardContent className="p-6">
-            <h2 className="text-base font-semibold mb-4">Recent activity</h2>
-            {recentActivity.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">No recent activity.</p>
-            ) : (
-              <div className="divide-y">
-                {recentActivity.map((entry) => {
-                  const { icon: Icon, className } = activityStyle(entry.action);
-                  return (
-                    <div key={entry.id} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
-                        <Icon className="h-3.5 w-3.5" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm leading-snug">
-                          <span className="font-semibold">{entry.actor_name || entry.actor_email || "System"}</span>{" "}
-                          <span className="text-muted-foreground">{entry.description || entry.action_label}</span>
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5" title={fmtDateTime(entry.created_at)}>
-                          {fmtRelative(entry.created_at)}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6 space-y-1">
-            <h2 className="text-base font-semibold mb-3">Fleet health</h2>
-
-            <div className="flex items-center justify-between py-2.5 border-b">
-              <div>
-                <p className="text-sm font-medium">Uptime</p>
-                <p className="text-xs text-muted-foreground">
-                  {avgUptime != null ? `${avgUptime.toFixed(2)}%` : "No monitors yet"}
-                </p>
-              </div>
-              <Badge variant={monitorsDown > 0 ? "destructive" : "default"}>
-                {monitorsDown > 0 ? `${monitorsDown} down` : "Operational"}
-              </Badge>
-            </div>
-
-            <div className="flex items-center justify-between py-2.5 border-b">
-              <div>
-                <p className="text-sm font-medium">SSL certificates</p>
-                <p className="text-xs text-muted-foreground">{sslValid} / {websites.length} valid</p>
-              </div>
-              <Badge variant={expiringSsl.length > 0 ? "warning" : "default"}>
-                {expiringSsl.length > 0 ? `${expiringSsl.length} expiring` : "All valid"}
-              </Badge>
-            </div>
-
-            <div className="flex items-center justify-between py-2.5 border-b">
-              <div>
-                <p className="text-sm font-medium">Third-party scripts</p>
-                <p className="text-xs text-muted-foreground">{totalScripts} tracked</p>
-              </div>
-              <Badge variant="secondary">
-                {newScripts.length > 0 ? `${newScripts.length} new` : "No new activity"}
-              </Badge>
-            </div>
-
-            <div className="flex items-center justify-between py-2.5">
-              <div>
-                <p className="text-sm font-medium">Forms</p>
-                <p className="text-xs text-muted-foreground">{detectedForms.length} monitored</p>
-              </div>
-              <Badge variant={formErrors.length > 0 ? "destructive" : "default"}>
-                {formErrors.length > 0 ? `${formErrors.length} broken` : "All healthy"}
-              </Badge>
-            </div>
-
-            <Link href="/renewals" className="block pt-3">
-              <Button variant="outline" className="w-full">
-                <ShieldCheck className="h-4 w-4 mr-2" />
-                Run fleet audit
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Website cards grid */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Your Sites</h2>
-          <Link href="/websites">
-            <Button variant="outline" size="sm">
-              {websites.length > DASHBOARD_SITE_LIMIT ? `View all ${websites.length}` : "View all"}
-            </Button>
-          </Link>
+    <div className="p-6 lg:p-8 space-y-6">
+      {/* Header + the single filter row that scopes everything below it */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight lg:text-3xl">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Every website your team is watching
+          </p>
         </div>
+        {/* DashboardFilters calls useSearchParams, which Next requires to sit
+            under a Suspense boundary — without one React throws #419 during the
+            streamed render. The fallback reserves the row's height so the header
+            doesn't jump. */}
+        <Suspense fallback={<div className="h-[30px]" />}>
+          <DashboardFilters />
+        </Suspense>
+      </div>
 
-        {websites.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-              <Globe className="h-10 w-10 text-muted-foreground" />
-              <p className="text-lg font-medium">No websites yet</p>
-              <p className="text-muted-foreground text-sm">Add your first website to start monitoring scripts</p>
-              <Link href="/websites/new">
-                <Button variant="outline" className="mt-2">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add website
+      {/* The sidebar sections that have no chart of their own. One line each —
+          a number and the thing you'd act on — so the dashboard covers the whole
+          product instead of restating the same four website metrics. */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SummaryChunk
+          label="Clients"
+          value={activeClients}
+          caption={
+            inactiveClients > 0 ? `${inactiveClients} paused or offboarded` : "All active"
+          }
+          href="/clients"
+          icon={<Users className="h-4 w-4" />}
+        />
+        <SummaryChunk
+          label="Credentials"
+          value={credentialCount}
+          caption="Encrypted in the vault"
+          href="/credentials"
+          icon={<KeyRound className="h-4 w-4" />}
+        />
+        <SummaryChunk
+          label="Team"
+          value={memberCount}
+          caption={memberCount === 1 ? "Just you" : "With vault access"}
+          href="/team"
+          icon={<UserCog className="h-4 w-4" />}
+        />
+        <SummaryChunk
+          label="Snippet reporting"
+          value={reportingCount}
+          caption={
+            websites.length - reportingCount > 0
+              ? `${websites.length - reportingCount} site${websites.length - reportingCount === 1 ? "" : "s"} sending nothing`
+              : `All ${websites.length} sites sending data`
+          }
+          captionTone={websites.length - reportingCount > 0 ? "critical" : "good"}
+          href="/websites"
+          icon={<Code2 className="h-4 w-4" />}
+        />
+      </div>
+
+
+      {/* Fleet composition beside alert volume. Each card owns its headline
+          figure — the KPI tiles that used to sit above restated exactly these
+          four numbers, which is what made the page feel padded. */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        {/* h-full + flex-col so the donut can claim the height this card gets
+            from its taller neighbour, rather than leaving a gap beneath it. */}
+        <Card className="lg:col-span-2">
+          <CardContent className="flex h-full flex-col">
+            <ChartCardHeader
+              title="Website health"
+              subtitle="Every site by health band"
+              value={websites.length}
+              caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
+              captionTone={bands.critical > 0 ? "critical" : "muted"}
+              href="/websites"
+            />
+            <div className="min-h-0 flex-1">
+              <FleetHealthDonut counts={bands} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Client-side: re-buckets on a preset click without a navigation. */}
+        <AlertsCard
+          alerts={pending.map((c) => ({
+            id: c.id,
+            severity: c.severity,
+            created_at: c.created_at,
+          }))}
+          severityCounts={severityCounts}
+        />
+      </div>
+
+      {/* Uptime beside the renewal forecast */}
+      <div className="grid gap-4 lg:grid-cols-5">
+        {/* Client-side: re-slices the 90-day series on a preset click. */}
+        <UptimeCard
+          points={uptimePoints}
+          avgUptime={avgUptime}
+          monitorsDown={monitorsDown}
+        />
+
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <ChartCardHeader
+              title="Renewals due"
+              subtitle="Within 30 days · forecast to 90"
+              value={renewalIds.size}
+              caption={
+                nextRenewalDays != null
+                  ? `Next in ${nextRenewalDays} days`
+                  : "Nothing due soon"
+              }
+              captionTone={
+                nextRenewalDays != null && nextRenewalDays <= 7 ? "critical" : "muted"
+              }
+              href="/renewals"
+            />
+            <RenewalUrgencyBars rows={renewalUrgency} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* The two lists close the page, on the same 5-column grid the chart
+          rows use. The 2/3 split mirrors the first chart row rather than the
+          second, so the three rows alternate instead of the last two reading
+          as one repeated block. */}
+      <SetupChecklist steps={setupSteps} />
+
+      {/* Fleet-wide SEO / performance / security. These are scanned per site
+          already; nothing summarised them, so a site nobody had ever scanned
+          looked identical to a healthy one. */}
+      {fleet && fleet.total_sites > 0 && <FleetChecksRow s={fleet} />}
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <Card className="lg:col-span-2">
+          <CardContent>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Needs attention
+                {needsAttention.length > 0 && (
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {needsAttention.length}
+                  </span>
+                )}
+              </h2>
+              <Link href="/websites">
+                <Button variant="outline" size="sm">
+                  All {websites.length} sites
                 </Button>
               </Link>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {websites.slice(0, DASHBOARD_SITE_LIMIT).map((site) => {
-              return (
-                <Card key={site.id} className="hover:border-primary/50 hover:shadow-md transition-all">
-                  <CardContent className="p-5 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${STATUS_DOT[site.status] ?? "bg-slate-400"}`} />
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm truncate">{site.name || site.domain}</p>
-                          <p className="text-xs text-muted-foreground font-mono truncate">{site.domain}</p>
-                        </div>
+            </div>
+
+            {needsAttention.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <ShieldCheck className="h-8 w-8 text-emerald-500" />
+                <p className="text-sm font-medium">Nothing needs attention</p>
+                <p className="text-xs text-muted-foreground">
+                  Every site is above 85 with no open critical issues.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y">
+                {needsAttention.slice(0, ATTENTION_LIMIT).map((site) => {
+                  const score = site.health_score ?? 100;
+                  return (
+                    <li key={site.id} className="flex items-center gap-3 py-2.5 first:pt-0">
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                          {site.is_vip && (
+                            <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-500" aria-label="VIP" />
+                          )}
+                          <span className="truncate">{site.name || site.domain}</span>
+                        </p>
+                        <p className="truncate font-mono text-xs text-muted-foreground">{site.domain}</p>
                       </div>
-                      <Link href={`/websites/${site.id}`}>
-                        <Button variant="ghost" size="sm" className="shrink-0 ml-2 h-7 w-7 p-0">
+
+                      {/* The meter bar that used to sit here is gone. In the
+                          narrower column it was the widest fixed element (112px)
+                          and pushed site names into an ellipsis — and it was a
+                          third encoding of a value the number and the badge
+                          already carry. The score keeps its band colour. */}
+                      <span className={`w-8 shrink-0 text-right text-sm font-semibold ${SCORE_TONE(score)}`}>
+                        {score}
+                      </span>
+
+                      <Badge
+                        variant={STATUS_BADGE[site.status] ?? "secondary"}
+                        className="h-5 w-[64px] shrink-0 justify-center text-xs"
+                      >
+                        {site.status}
+                      </Badge>
+
+                      {(site.unknown_script_count ?? 0) > 0 && (
+                        <span className="hidden shrink-0 items-center gap-1 text-xs font-semibold text-red-600 md:flex">
+                          <AlertTriangle className="h-3 w-3" />
+                          {site.unknown_script_count}
+                        </span>
+                      )}
+
+                      <Link href={`/websites/${site.id}`} aria-label={`Open ${site.name || site.domain}`}>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0">
                           <ExternalLink className="h-3.5 w-3.5" />
                         </Button>
                       </Link>
-                    </div>
-
-                    {/* Health score */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Health</span>
-                        <div className="flex items-center gap-2">
-                          <span className={`font-bold text-sm ${
-                            site.status === "critical" ? "text-red-500" :
-                            site.status === "warning" ? "text-amber-500" :
-                            site.status === "active" ? "text-emerald-600" :
-                            "text-muted-foreground"
-                          }`}>
-                            {site.health_score ?? 100}
-                          </span>
-                          <Badge
-                            variant={
-                              site.status === "critical" ? "destructive" :
-                              site.status === "warning" ? "warning" :
-                              site.status === "active" ? "success" : "secondary"
-                            }
-                            className="text-xs h-5"
-                          >
-                            {site.status ?? "unknown"}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${STATUS_BAR[site.status ?? "inactive"] ?? "bg-slate-300"}`}
-                          style={{ width: `${site.health_score ?? 100}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Globe className="h-3 w-3" />
-                        {site.script_count ?? 0} scripts
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-3">
+          <CardContent>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold">Recent activity</h2>
+              <Link href="/logs">
+                <Button variant="outline" size="sm">
+                  Activity log
+                </Button>
+              </Link>
+            </div>
+            {activity.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
+            ) : (
+              <ul className="divide-y">
+                {activity.map((entry) => {
+                  const { icon: Icon, className } = activityStyle(entry.action);
+                  return (
+                    <li key={entry.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${className}`}>
+                        <Icon className="h-3.5 w-3.5" />
                       </span>
-                      {(site.unknown_script_count ?? 0) > 0 && (
-                        <span className="flex items-center gap-1 text-red-600 font-semibold">
-                          <AlertTriangle className="h-3 w-3" />
-                          {site.unknown_script_count} unknown
+                      <p className="min-w-0 flex-1 truncate text-sm">
+                        <span className="font-medium">
+                          {entry.actor_name || entry.actor_email || "System"}
+                        </span>{" "}
+                        <span className="text-muted-foreground">
+                          {entry.description || entry.action_label}
                         </span>
-                      )}
-                      {site.last_seen_at && (
-                        <span className="ml-auto flex items-center gap-1" title={fmtDateTime(site.last_seen_at)}>
-                          <Clock className="h-3 w-3" />
-                          {fmtDate(site.last_seen_at)}
-                        </span>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+                      </p>
+                      {/* Timestamp trails at the row end, as in Needs attention. */}
+                      <span
+                        className="shrink-0 text-xs text-muted-foreground"
+                        title={fmtDateTime(entry.created_at)}
+                      >
+                        {fmtRelative(entry.created_at)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

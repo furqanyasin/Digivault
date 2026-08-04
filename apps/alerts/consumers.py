@@ -22,7 +22,6 @@ import json
 import logging
 
 from channels.generic.websocket import AsyncWebsocketConsumer
-from django.contrib.auth.models import AnonymousUser
 
 logger = logging.getLogger(__name__)
 

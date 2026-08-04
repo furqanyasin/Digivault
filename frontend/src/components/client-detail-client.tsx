@@ -137,7 +137,7 @@ export function ClientDetailClient({ client: initial }: Props) {
 
       <form onSubmit={handleSave}>
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader>
             <CardTitle className="text-base">Client details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -251,7 +251,7 @@ export function ClientDetailClient({ client: initial }: Props) {
 
       {/* Metadata */}
       <Card>
-        <CardContent className="pt-4 grid sm:grid-cols-2 gap-2 text-xs text-muted-foreground">
+        <CardContent className="grid sm:grid-cols-2 gap-2 text-xs text-muted-foreground">
           <span>Created: {fmtDateTime(initial.created_at)}</span>
           <span>Updated: {fmtDateTime(initial.updated_at)}</span>
         </CardContent>

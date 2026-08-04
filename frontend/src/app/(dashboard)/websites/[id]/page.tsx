@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, AlertTriangle, CheckCircle, Clock, Code, ExternalLink, Globe, Lock, Shield, Settings, Bell } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle, Code, ExternalLink, Globe, Shield, Settings, Bell } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Website, Script, ScriptChange, DomainInfo, Monitor, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState, SecurityHeaderReport } from "@/lib/api";
@@ -11,7 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopySnippet } from "@/components/copy-snippet";
 import { RefreshDomainButton } from "@/components/refresh-domain-button";
 import { PerformanceTab } from "@/components/performance-tab";
-import { ScriptReviewButton } from "@/components/script-review-button";
 import { VerifySnippetButton } from "@/components/verify-snippet-button";
 import { ScriptsTab } from "@/components/scripts-tab";
 import { PluginsTab } from "@/components/plugins-tab";
@@ -22,11 +21,14 @@ import { SecurityTab } from "@/components/security-tab";
 import { SecurityHeadersPanel } from "@/components/security-headers-panel";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
-import { BulkPendingChanges } from "@/components/bulk-pending-changes";
 import { UptimeTab } from "@/components/uptime-tab";
 import { ReportsTab } from "@/components/reports-tab";
 import { WebsiteAssignments } from "@/components/website-assignments";
 import { HealthScoreInfo } from "@/components/health-score-info";
+import { VipToggleButton } from "@/components/vip-toggle-button";
+import { SiteOverviewGrid, type OverviewMetrics } from "@/components/site-overview-grid";
+import { SiteLoginButton } from "@/components/site-login-card";
+import { JsErrorsTab, type JsErrorRow } from "@/components/js-errors-tab";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 interface SiteActivityEntry {
@@ -42,7 +44,7 @@ async function getData(token: string, id: string) {
   // All tab data is fetched up front so the tabs can switch instantly on the
   // client (no per-tab server navigation). Runs in parallel; the instant
   // loading skeleton (loading.tsx) covers the initial wait.
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -53,6 +55,7 @@ async function getData(token: string, id: string) {
     api.get<DetectedForm[]>(`/api/v1/websites/${id}/forms/`, token),
     api.get<FormSubmissionError[]>(`/api/v1/websites/${id}/form-errors/`, token),
     api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
+    api.get<JsErrorRow[]>(`/api/v1/websites/${id}/js-errors/`, token),
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
     api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
@@ -61,7 +64,20 @@ async function getData(token: string, id: string) {
     api.get<Monitor[]>(`/api/v1/monitors/?website=${id}`, token),
     api.get<SiteActivityEntry[] | { results: SiteActivityEntry[] }>(`/api/v1/logs/?website_id=${id}`, token),
   ]);
+  const resolvedFormErrors =
+    formErrors.status === "fulfilled" ? formErrors.value : [];
+  // Distinct forms that failed in the last 7 days — one broken form throwing 50
+  // errors is still one broken form. Computed here rather than during render,
+  // because Date.now() in a component body is not idempotent.
+  const weekAgo = Date.now() - 7 * 86400000;
+  const brokenForms7d = new Set(
+    resolvedFormErrors
+      .filter((e) => new Date(e.created_at).getTime() >= weekAgo)
+      .map((e) => e.form_id || e.page_url)
+  ).size;
+
   return {
+    brokenForms7d,
     website: website.status === "fulfilled" ? website.value : null,
     scripts: scripts.status === "fulfilled" ? scripts.value : [],
     changes: changes.status === "fulfilled" ? changes.value : [],
@@ -72,6 +88,7 @@ async function getData(token: string, id: string) {
     forms: forms.status === "fulfilled" ? forms.value : [],
     formErrors: formErrors.status === "fulfilled" ? formErrors.value : [],
     phpErrors: phpErrors.status === "fulfilled" ? phpErrors.value : [],
+    jsErrors: jsErrors.status === "fulfilled" ? jsErrors.value : [],
     siteEvents: siteEvents.status === "fulfilled" ? siteEvents.value : [],
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
     scanState: scanState.status === "fulfilled" ? scanState.value : null,
@@ -119,10 +136,6 @@ function smartUrl(url: string): string {
   }
 }
 
-function providerVariant(p: string): "destructive" | "outline" {
-  return p === "unknown" ? "destructive" : "outline";
-}
-
 function isExpiringSoon(date: string | number | null | undefined): boolean {
   if (!date) return false;
   if (typeof date === "number") return date > 0 && date <= 30;
@@ -130,12 +143,52 @@ function isExpiringSoon(date: string | number | null | undefined): boolean {
   return diff > 0 && diff < 30 * 24 * 60 * 60 * 1000;
 }
 
-function InfoRow({ label, value, highlight }: { label: string; value: string | null | undefined; highlight?: boolean }) {
+/** pass / missing / error for an email-auth record. "error" is called out
+ *  separately from "missing": a resolver failure is not a misconfiguration, and
+ *  telling a client their SPF is missing when DNS simply timed out is worse than
+ *  saying nothing. */
+function AuthRow({ label, status, detail }: { label: string; status: string; detail?: string }) {
+  const tone =
+    status === "pass" ? "text-emerald-600"
+    : status === "missing" ? "text-amber-600"
+    : status === "error" ? "text-red-600"
+    : "text-muted-foreground";
+  const text =
+    status === "pass" ? "Pass"
+    : status === "missing" ? "Not set"
+    : status === "error" ? "Lookup failed"
+    : "Not checked";
   return (
     <div className="flex justify-between gap-2 py-0.5">
       <span className="text-muted-foreground text-sm shrink-0">{label}</span>
-      <span className={`text-right text-sm truncate font-mono text-xs ${highlight ? "text-amber-600 font-semibold" : ""}`}>
-        {value || "—"}
+      <span className={`text-right text-xs font-mono font-semibold ${tone}`} title={detail || undefined}>
+        {text}
+        {status === "pass" && detail ? ` (${detail})` : ""}
+      </span>
+    </div>
+  );
+}
+
+function InfoRow({ label, value, highlight, note }: {
+  label: string;
+  value: string | null | undefined;
+  highlight?: boolean;
+  /** Where the value came from, when that isn't obvious — e.g. a date typed on
+   *  the client record rather than detected. */
+  note?: string;
+}) {
+  return (
+    <div className="flex justify-between gap-2 py-0.5">
+      <span className="text-muted-foreground text-sm shrink-0">{label}</span>
+      <span className="flex items-center gap-1.5 min-w-0">
+        {note && (
+          <span className="shrink-0 rounded border px-1 text-[10px] leading-4 text-muted-foreground">
+            {note}
+          </span>
+        )}
+        <span className={`text-right text-sm truncate font-mono text-xs ${highlight ? "text-amber-600 font-semibold" : ""}`}>
+          {value || "—"}
+        </span>
       </span>
     </div>
   );
@@ -153,7 +206,7 @@ export default async function WebsiteDetailPage({
   // The Tracking tab merged into Scripts — keep old deep links working.
   const tab = rawTab === "tracking" ? "scripts" : rawTab;
   const token = await getAccessToken();
-  const { website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity } = await getData(token ?? "", id);
+  const { brokenForms7d, website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -208,13 +261,65 @@ export default async function WebsiteDetailPage({
 
   const visibleChanges = changes.filter((c) => !isInternalChange(c));
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
-  // "Unknown" = the classifier didn't recognise the script AND it hasn't been
-  // reviewed yet. Approving / ignoring a script clears it from this count, so
-  // the KPI reflects "scripts still needing your attention".
-  const unknownScripts = activeScripts.filter(
-    (s) => s.provider === "unknown" && s.review_status === "pending"
-  );
 
+  // Overview chunk metrics. Everything here comes from data the page already
+  // fetched, so the summary grid costs no extra requests.
+  const sevCount = (s: string) => pendingChanges.filter((c) => c.severity === s).length;
+  const latestScore = (rows: PerformanceReport[]) =>
+    rows.find((r) => r.performance_score != null)?.performance_score ?? null;
+  const liveMonitors = monitors.filter((mo) => mo.status !== "paused");
+  const uptimeSamples = liveMonitors
+    .map((mo) => mo.uptime_30d)
+    .filter((v): v is number => v != null);
+  const managedForms = forms.filter((f) => f.is_managed !== false);
+  const overviewMetrics: OverviewMetrics = {
+    health: { score: website.health_score ?? 100, status: website.status },
+    scripts: {
+      total: displayScripts.length,
+      unknown: displayScripts.filter((sc) => sc.provider === "unknown").length,
+      categories: new Set(displayScripts.map((sc) => sc.category).filter(Boolean)).size,
+    },
+    forms: {
+      total: managedForms.length,
+      broken: brokenForms7d,
+    },
+    uptime: {
+      pct: uptimeSamples.length
+        ? uptimeSamples.reduce((a, b) => a + b, 0) / uptimeSamples.length
+        : null,
+      up: liveMonitors.filter((mo) => mo.status === "up").length,
+      down: liveMonitors.filter((mo) => mo.status === "down").length,
+      degraded: liveMonitors.filter((mo) => mo.status === "degraded").length,
+      monitors: liveMonitors.length,
+      // Real check results from the busiest monitor, oldest first.
+      recent: (liveMonitors.find((mo) => (mo.recent_statuses ?? []).length)?.recent_statuses ?? []),
+    },
+    performance: {
+      mobile: latestScore(mobileReports),
+      desktop: latestScore(desktopReports),
+    },
+    changelog: {
+      pending: pendingChanges.length,
+      critical: sevCount("critical"),
+      high: sevCount("high"),
+      medium: sevCount("medium"),
+      low: sevCount("low"),
+    },
+    security: {
+      critical: vulns.filter((v) => v.severity === "critical").length,
+      high: vulns.filter((v) => v.severity === "high").length,
+      other: vulns.filter((v) => v.severity === "medium" || v.severity === "low").length,
+      grade: headerReport?.grade ?? "",
+      phpErrors: phpErrors.filter((e) => e.level === "fatal" || e.level === "error").length,
+    },
+    seo: {
+      checked: seoReport?.check_status === "done",
+      indexable: seoReport?.homepage_indexable ?? null,
+      noindex: seoReport?.noindex_count ?? 0,
+      sitemapPages: seoReport?.sitemap_url_count ?? 0,
+      robotsBlocked: seoReport?.robots_blocks_all ?? false,
+    },
+  };
   // `domain` is stored bare (no scheme), so build a real URL for the Visit link.
   const siteUrl = /^https?:\/\//.test(website.domain) ? website.domain : `https://${website.domain}`;
 
@@ -241,70 +346,19 @@ export default async function WebsiteDetailPage({
           >
             {website.status}
           </Badge>
+          <VipToggleButton websiteId={id} initialIsVip={website.is_vip ?? false} />
           <Button asChild variant="outline" size="sm">
             <a href={siteUrl} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
               Visit
             </a>
           </Button>
+          <SiteLoginButton
+            websiteId={id}
+            wpSsoConfigured={website.wp_sso_configured ?? false}
+          />
           <RefreshDomainButton websiteId={id} label="Run check" variant="default" />
         </div>
-      </div>
-
-      {/* Stats row — clickable cards jump to filtered tabs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Link href={`/websites/${id}?tab=scripts`}>
-          <Card className="h-full transition-colors hover:border-violet-400">
-            <CardContent className="flex items-center gap-3 py-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100">
-                <Code className="h-5 w-5 text-violet-600" />
-              </span>
-              <div>
-                <p className="text-2xl font-bold leading-tight">{displayScripts.length}</p>
-                <p className="text-xs text-muted-foreground">Active scripts</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href={`/websites/${id}?tab=changelog`}>
-          <Card className="h-full transition-colors hover:border-amber-400">
-            <CardContent className="flex items-center gap-3 py-4">
-              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${pendingChanges.length > 0 ? "bg-amber-100" : "bg-muted"}`}>
-                <Clock className={`h-5 w-5 ${pendingChanges.length > 0 ? "text-amber-600" : "text-muted-foreground"}`} />
-              </span>
-              <div>
-                <p className="text-2xl font-bold leading-tight">{pendingChanges.length}</p>
-                <p className="text-xs text-muted-foreground">Pending changes</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href={`/websites/${id}?tab=scripts`}>
-          <Card className="h-full transition-colors hover:border-red-400">
-            <CardContent className="flex items-center gap-3 py-4">
-              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${unknownScripts.length > 0 ? "bg-red-100" : "bg-muted"}`}>
-                <Shield className={`h-5 w-5 ${unknownScripts.length > 0 ? "text-red-600" : "text-muted-foreground"}`} />
-              </span>
-              <div>
-                <p className="text-2xl font-bold leading-tight">{unknownScripts.length}</p>
-                <p className="text-xs text-muted-foreground">Unknown scripts</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-        <Link href="/credentials">
-          <Card className="h-full transition-colors hover:border-violet-400">
-            <CardContent className="flex items-center gap-3 py-4">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100">
-                <Lock className="h-5 w-5 text-violet-600" />
-              </span>
-              <div>
-                <p className="text-sm font-semibold leading-tight">Credentials vault</p>
-                <p className="text-xs text-violet-600">View credentials →</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
       </div>
 
       {/* defaultValue (from ?tab=) sets the initial tab for deep-links; switching
@@ -330,79 +384,28 @@ export default async function WebsiteDetailPage({
         </TabsList>
 
         {/* ── Overview ── */}
-        <TabsContent value="overview" className="space-y-6">
-          <HealthScoreInfo
-            healthScore={website.health_score ?? 100}
-            status={website.status}
-            pendingChanges={pendingChanges}
-            domainInfo={domainInfo}
-            vulns={vulns}
-            websiteId={id}
-          />
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span>Pending changes {pendingChanges.length > 0 && <span className="text-muted-foreground ml-1 font-normal">({pendingChanges.length})</span>}</span>
-                {pendingChanges.length > 0 && (
-                  <Link href={`/websites/${id}?tab=changelog`} className="text-xs font-normal text-muted-foreground hover:text-foreground">
-                    View full log →
-                  </Link>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <BulkPendingChanges changes={pendingChanges.slice(0, 10)} websiteId={id} />
-            </CardContent>
-          </Card>
+        {/* Overview is a hub: one chunk per area of the site, each a Radix
+            trigger that opens its own tab. Replaces the old scoring breakdown,
+            pending-changes table and top-scripts table, all of which duplicated
+            what their own tabs already show. */}
+        <TabsContent value="overview" className="space-y-4">
+          <SiteOverviewGrid m={overviewMetrics} websiteId={id} />
 
-          {displayScripts.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center justify-between">
-                  Top scripts
-                  <Link href={`/websites/${id}?tab=scripts`} className="text-xs font-normal text-muted-foreground hover:text-foreground">
-                    View all {displayScripts.length} →
-                  </Link>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead>URL</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {displayScripts.slice(0, 7).map((script) => (
-                      <TableRow key={script.id}>
-                        <TableCell className="text-sm font-medium">
-                          {script.provider === "unknown" ? (
-                            <Badge variant={providerVariant(script.provider)}>unknown</Badge>
-                          ) : (
-                            script.provider
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {script.category ? (
-                            <span className="inline-flex items-center rounded-md bg-violet-50 px-2 py-0.5 font-mono text-xs text-violet-700">
-                              {script.category}
-                            </span>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs max-w-[280px] text-muted-foreground" title={script.src_url}>
-                          {smartUrl(script.src_url)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
+          {/* The score needs explaining somewhere, and this is the only place it
+              appears. Collapsed so it informs without occupying the page. */}
+          <details className="rounded-xl border bg-card px-4 py-3 text-sm">
+            <summary className="cursor-pointer font-medium">How the health score is worked out</summary>
+            <div className="mt-3">
+              <HealthScoreInfo
+                healthScore={website.health_score ?? 100}
+                status={website.status}
+                pendingChanges={pendingChanges}
+                domainInfo={domainInfo}
+                vulns={vulns}
+                websiteId={id}
+              />
+            </div>
+          </details>
         </TabsContent>
 
         {/* ── Scripts ── */}
@@ -527,9 +530,29 @@ export default async function WebsiteDetailPage({
                   <InfoRow label="Cloudflare" value={domainInfo.uses_cloudflare ? "Yes" : "No"} />
                   <InfoRow label="SSL Issuer" value={domainInfo.ssl_issuer} />
                   <InfoRow label="SSL Expires" value={fmtDate(domainInfo.ssl_expires_at)} highlight={isExpiringSoon(domainInfo.ssl_expires_at)} />
+                  {/* Hosting expiry is never auto-detected — someone types it on
+                      the client record. Prefer that over the mirrored copy on
+                      DomainInfo, which only updates when the client is saved and
+                      so can fall behind. */}
+                  <InfoRow
+                    label="Hosting Expires"
+                    value={fmtDate(website.client_hosting_renewal_date ?? domainInfo.hosting_expires_at)}
+                    highlight={isExpiringSoon(website.client_hosting_renewal_date ?? domainInfo.hosting_expires_at)}
+                    note={website.client_hosting_renewal_date ? "from client" : undefined}
+                  />
                   {domainInfo.last_checked_at && (
                     <InfoRow label="Last checked" value={fmtDateTime(domainInfo.last_checked_at)} />
                   )}
+
+                  {/* Email authentication. Deliverability is a real support cost
+                      for an agency, and SPF/DMARC gaps are invisible until mail
+                      starts bouncing. */}
+                  <div className="mt-3 border-t pt-2">
+                    <p className="mb-1 text-xs font-semibold text-muted-foreground">Email authentication</p>
+                    <AuthRow label="SPF" status={domainInfo.spf_status} detail={domainInfo.spf_record} />
+                    <AuthRow label="DKIM" status={domainInfo.dkim_status} detail={domainInfo.dkim_selector} />
+                    <AuthRow label="DMARC" status={domainInfo.dmarc_status} detail={domainInfo.dmarc_record} />
+                  </div>
                 </CardContent>
               </Card>
               <Card className="md:col-span-2">
@@ -718,6 +741,10 @@ export default async function WebsiteDetailPage({
         </TabsContent>
 
         {/* ── SEO ── */}
+        <TabsContent value="js-errors">
+          <JsErrorsTab errors={jsErrors} />
+        </TabsContent>
+
         <TabsContent value="seo">
           <Card>
             <CardHeader>

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ClipboardList, RefreshCw } from "lucide-react";
+import { ClipboardList, RefreshCw, ShieldAlert } from "lucide-react";
 
 interface LogEntry {
   id: string;
@@ -12,17 +12,94 @@ interface LogEntry {
   action: string;
   action_label: string;
   resource_type: string;
+  website_name: string;
+  client_name: string;
   description: string;
   ip_address: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
 }
 
+interface NamedRef { id: string; name: string; }
+
 interface Member {
   id: string;
   role: string;
   user: { id: string; email: string; first_name: string; last_name: string };
 }
+
+/** Named views over the log. Each maps to a set of action types, sent to the
+ *  API as ?actions=a,b,c — approvals in particular span two action types, so a
+ *  single ?action= cannot express them. */
+const VIEWS = [
+  { key: "all", label: "All activity", actions: [] as string[] },
+  {
+    key: "websites",
+    label: "Website changes",
+    actions: [
+      "website.created", "website.updated", "website.deleted",
+      "website.scan_triggered", "website.snippet_verified",
+      "website.snippet_regenerated", "website.change_acknowledged",
+      "website.wp_login", "website.wp_sso_secret_rotated",
+      "script.reviewed", "domain.refreshed",
+    ],
+  },
+  {
+    key: "approvals",
+    label: "Approvals",
+    actions: ["script.reviewed", "website.change_acknowledged"],
+  },
+  {
+    key: "clients",
+    label: "Client changes",
+    actions: [
+      "client.created", "client.updated", "client.status_changed",
+      "client.synced", "client.imported", "client.exported",
+    ],
+  },
+  {
+    key: "credentials",
+    label: "Credentials",
+    actions: [
+      "credential.created", "credential.revealed", "credential.updated",
+      "credential.deleted", "credential.shared", "credential.unshared",
+    ],
+  },
+  {
+    key: "security",
+    label: "Team & security",
+    actions: [
+      "auth.login", "auth.login_failed", "auth.logout",
+      "auth.2fa_enabled", "auth.2fa_disabled", "auth.2fa_setup_started",
+      "auth.backup_codes_regenerated",
+      "team.member_invited", "team.member_joined",
+      "team.member_role_changed", "team.member_removed", "team.created",
+      "settings.team_name_changed", "settings.integration_updated",
+    ],
+  },
+] as const;
+
+/** Time windows for the When column. Sent as ?start=<iso>, which the API
+ *  already supports. */
+const SINCE_OPTIONS = [
+  { key: "", label: "Any time", days: 0 },
+  { key: "1", label: "Last 24 hours", days: 1 },
+  { key: "7", label: "Last 7 days", days: 7 },
+  { key: "30", label: "Last 30 days", days: 30 },
+  { key: "90", label: "Last 90 days", days: 90 },
+] as const;
+
+type ViewKey = (typeof VIEWS)[number]["key"];
+
+// Matches the Clients table. All within the API's max_page_size of 100.
+const PAGE_SIZES = [5, 10, 15, 20, 25, 30, 50, 100] as const;
+
+// align-top so labels line up across headers of differing height, since the
+// filterable ones carry a control underneath.
+const TH = "text-left px-4 py-3 align-top font-medium text-muted-foreground";
+const COL_FILTER =
+  "mt-1.5 w-full min-w-[110px] border rounded px-1.5 py-1 text-xs font-normal bg-background text-foreground";
+type PageSize = (typeof PAGE_SIZES)[number];
 
 const ACTION_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
   "auth.login": "default",
@@ -84,13 +161,45 @@ export default function LogsPage() {
   });
   const [page, setPage] = useState(1);
   const [hasNext, setHasNext] = useState(false);
+  const [search, setSearch] = useState("");
+  // Debounced copy — the log is paginated server-side, so searching has to be a
+  // request; firing one per keystroke would hammer the API.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [view, setView] = useState<ViewKey>("all");
+  // null until the role check resolves, so the page renders neither the log nor
+  // the access notice while it is still unknown.
+  const [roleResolved, setRoleResolved] = useState(false);
+  const [roleError, setRoleError] = useState("");
+  const [clients, setClients] = useState<NamedRef[]>([]);
+  const [websites, setWebsites] = useState<(NamedRef & { client: string | null })[]>([]);
+  const [selectedClient, setSelectedClient] = useState("");
+  const [selectedWebsite, setSelectedWebsite] = useState("");
+  const [pageSize, setPageSize] = useState<PageSize>(25);
+  const [since, setSince] = useState("");
 
   const isManager = myRole === "manager" || myRole === "owner";
 
-  const fetchLogs = useCallback(async (userId: string, pg: number) => {
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const fetchLogs = useCallback(async (
+    userId: string, pg: number, q: string, v: ViewKey,
+    clientId: string, websiteId: string, ps: PageSize, sinceDays: string,
+  ) => {
     setLoading(true);
-    const qs = new URLSearchParams({ page: String(pg) });
+    const qs = new URLSearchParams({ page: String(pg), page_size: String(ps) });
+    if (sinceDays) {
+      const from = new Date(Date.now() - Number(sinceDays) * 86400000);
+      qs.set("start", from.toISOString());
+    }
     if (userId) qs.set("user_id", userId);
+    if (clientId) qs.set("client_id", clientId);
+    if (websiteId) qs.set("website_id", websiteId);
+    if (q.trim()) qs.set("q", q.trim());
+    const actions = VIEWS.find((x) => x.key === v)?.actions ?? [];
+    if (actions.length) qs.set("actions", actions.join(","));
     const res = await fetch(`/api/logs?${qs}`);
     if (res.ok) {
       const envelope = await res.json();
@@ -112,19 +221,44 @@ export default function LogsPage() {
         fetch("/api/auth/me"),
         fetch("/api/auth/teams"),
       ]);
-      if (!meRes.ok || !teamsRes.ok) return;
+      // Fail loudly rather than silently reading as "viewer" — that is what
+      // turned a missing BFF route into a bogus "Managers only" for an owner.
+      if (!meRes.ok || !teamsRes.ok) {
+        setRoleError(`Could not read your role (me: ${meRes.status}, teams: ${teamsRes.status}).`);
+        setRoleResolved(true);
+        return;
+      }
       const meEnv = await meRes.json();
       const teamsEnv = await teamsRes.json();
       const me = meEnv?.data ?? meEnv;
       const teams: Array<{ id: string; my_role?: string }> = teamsEnv?.data ?? teamsEnv;
       const activeTeamId = me?.active_team;
-      if (!activeTeamId) return;
+      if (!activeTeamId) { setRoleResolved(true); return; }
 
       // Authoritative role comes from the team's own `my_role` field.
       const activeTeam = Array.isArray(teams)
         ? teams.find((t) => t.id === activeTeamId)
         : null;
       setMyRole(activeTeam?.my_role ?? "viewer");
+
+      // Client and website lists power their filter dropdowns. Both are small
+      // and unpaginated, so one call each is enough.
+      const [clientsRes, sitesRes] = await Promise.all([
+        fetch("/api/clients?page_size=200"),
+        fetch("/api/websites?page_size=200"),
+      ]);
+      if (clientsRes.ok) {
+        const j = await clientsRes.json();
+        const list = Array.isArray(j?.clients) ? j.clients : (j?.data ?? j);
+        if (Array.isArray(list)) setClients(list.map((c) => ({ id: c.id, name: c.name })));
+      }
+      if (sitesRes.ok) {
+        const j = await sitesRes.json();
+        const list = Array.isArray(j?.websites) ? j.websites : (j?.data ?? j);
+        if (Array.isArray(list)) {
+          setWebsites(list.map((w) => ({ id: w.id, name: w.name || w.domain, client: w.client ?? null })));
+        }
+      }
 
       // Members list powers the "Filter by member" dropdown for managers.
       const membersRes = await fetch(`/api/teams/${activeTeamId}/members`);
@@ -133,17 +267,51 @@ export default function LogsPage() {
         const membersList: Member[] = membersEnv?.data ?? membersEnv;
         if (Array.isArray(membersList)) setMembers(membersList);
       }
+      setRoleResolved(true);
     })();
   }, []);
 
   useEffect(() => {
-    fetchLogs(selectedUser, page);
-  }, [fetchLogs, selectedUser, page]);
+    if (!roleResolved || !isManager) return;
+    fetchLogs(selectedUser, page, debouncedSearch, view, selectedClient, selectedWebsite, pageSize, since);
+  }, [fetchLogs, selectedUser, page, debouncedSearch, view, roleResolved, isManager,
+      selectedClient, selectedWebsite, pageSize, since]);
 
   function handleUserChange(uid: string) {
     setSelectedUser(uid);
     setPage(1);
   }
+
+  // The Activity Log shows other people's actions, so it is manager/owner only.
+  // The sidebar hides it and FeatureGuard redirects, but a direct navigation
+  // lands here before either runs — so the page refuses on its own too.
+  if (roleResolved && !isManager) {
+    return (
+      <div className="p-8">
+        <div className="mx-auto max-w-md rounded-xl border p-8 text-center">
+          <ShieldAlert className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden />
+          <h1 className="mt-4 text-xl font-semibold">
+            {roleError ? "Couldn't check your access" : "Managers only"}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {roleError
+              ? `${roleError} Reload the page — if it keeps happening, this is a bug rather than a permission problem.`
+              : "The Activity Log records what everyone on the team has done, so it is limited to managers and owners. Your own recent actions still appear on the dashboard."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const activeFilters = Boolean(
+    debouncedSearch || selectedUser || selectedClient || selectedWebsite
+    || since || view !== "all"
+  );
+  // Narrow the website list to the chosen client, so the two filters can't be
+  // combined into something that matches nothing.
+  const websiteOptions = selectedClient
+    ? websites.filter((w) => w.client === selectedClient)
+    : websites;
 
   return (
     <div className="p-8 space-y-6">
@@ -154,11 +322,11 @@ export default function LogsPage() {
             Activity Log
           </h1>
           <p className="text-muted-foreground mt-1">
-            {isManager ? "All team activity" : "Your activity"} — {total} events
+            All team activity — {total} events
           </p>
         </div>
         <button
-          onClick={() => fetchLogs(selectedUser, page)}
+          onClick={() => fetchLogs(selectedUser, page, debouncedSearch, view, selectedClient, selectedWebsite, pageSize, since)}
           className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
         >
           <RefreshCw className="h-4 w-4" />
@@ -166,26 +334,28 @@ export default function LogsPage() {
         </button>
       </div>
 
-      {isManager && members.length > 0 && (
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-medium">Filter by member:</label>
-          <select
-            value={selectedUser}
-            onChange={(e) => handleUserChange(e.target.value)}
-            className="border rounded-md px-3 py-1.5 text-sm bg-background"
+      {/* Filters live in the column headers instead of a separate bar above the
+          table, so each control sits under the data it narrows. A "Clear" link
+          appears here only once something is filtered. */}
+      {activeFilters && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Filtered</span>
+          <button
+            type="button"
+            onClick={() => {
+              setSearch(""); setDebouncedSearch("");
+              setSelectedUser(""); setSelectedClient(""); setSelectedWebsite("");
+              setView("all"); setSince(""); setPage(1);
+            }}
+            className="text-muted-foreground underline hover:text-foreground"
           >
-            <option value="">All members</option>
-            {members.map((m) => (
-              <option key={m.user.id} value={m.user.id}>
-                {m.user.first_name} {m.user.last_name} — {m.user.email} ({m.role})
-              </option>
-            ))}
-          </select>
+            Clear all filters
+          </button>
         </div>
       )}
 
       <Card>
-        <CardHeader className="pb-0">
+        <CardHeader>
           <CardTitle className="text-base">Events</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -197,11 +367,92 @@ export default function LogsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">When</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Who</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Action</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Description</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">IP</th>
+                  <th className={TH}>
+                    When
+                    <select
+                      aria-label="Filter by time"
+                      value={since}
+                      onChange={(e) => { setSince(e.target.value); setPage(1); }}
+                      className={COL_FILTER}
+                    >
+                      {SINCE_OPTIONS.map((o) => (
+                        <option key={o.key} value={o.key}>{o.label}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className={TH}>
+                    Who
+                    <select
+                      aria-label="Filter by member"
+                      value={selectedUser}
+                      onChange={(e) => handleUserChange(e.target.value)}
+                      className={COL_FILTER}
+                    >
+                      <option value="">All members</option>
+                      {members.map((m) => (
+                        <option key={m.user.id} value={m.user.id}>
+                          {`${m.user.first_name} ${m.user.last_name}`.trim() || m.user.email}
+                        </option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className={TH}>
+                    Action
+                    <select
+                      aria-label="Filter by action"
+                      value={view}
+                      onChange={(e) => { setView(e.target.value as ViewKey); setPage(1); }}
+                      className={COL_FILTER}
+                    >
+                      {VIEWS.map((v) => (
+                        <option key={v.key} value={v.key}>{v.label}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className={TH}>
+                    Client
+                    <select
+                      aria-label="Filter by client"
+                      value={selectedClient}
+                      onChange={(e) => {
+                        setSelectedClient(e.target.value);
+                        setSelectedWebsite("");  // may not belong to this client
+                        setPage(1);
+                      }}
+                      className={COL_FILTER}
+                    >
+                      <option value="">All clients</option>
+                      {clients.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className={TH}>
+                    Website
+                    <select
+                      aria-label="Filter by website"
+                      value={selectedWebsite}
+                      onChange={(e) => { setSelectedWebsite(e.target.value); setPage(1); }}
+                      className={COL_FILTER}
+                    >
+                      <option value="">All websites</option>
+                      {websiteOptions.map((w) => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </th>
+                  <th className={TH}>
+                    Description
+                    <input
+                      type="search"
+                      aria-label="Search activity"
+                      placeholder="Search…"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className={COL_FILTER}
+                    />
+                  </th>
+                  <th className={TH}>IP</th>
                 </tr>
               </thead>
               <tbody>
@@ -228,6 +479,12 @@ export default function LogsPage() {
                         {log.action_label}
                       </Badge>
                     </td>
+                    <td className="px-4 py-3 text-sm max-w-[150px] truncate" title={log.client_name || undefined}>
+                      {log.client_name || <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-sm max-w-[150px] truncate" title={log.website_name || undefined}>
+                      {log.website_name || <span className="text-muted-foreground">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       <div>{log.description}</div>
                       {renderMetadata(log.action, log.metadata) && (
@@ -247,25 +504,44 @@ export default function LogsPage() {
         </CardContent>
       </Card>
 
-      {(page > 1 || hasNext) && (
-        <div className="flex items-center justify-between text-sm">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1 border rounded disabled:opacity-40"
+      {/* Per-page sits with the pager so both paging controls are together. It
+          shows even on a single page — it is how you change the page size. */}
+      <div className="flex items-center justify-between gap-3 text-sm flex-wrap">
+        <div className="flex items-center gap-2">
+          <label htmlFor="log-page-size" className="text-muted-foreground">Per page:</label>
+          <select
+            id="log-page-size"
+            value={pageSize}
+            onChange={(e) => { setPageSize(Number(e.target.value) as PageSize); setPage(1); }}
+            className="border rounded-md px-2 py-1 text-xs bg-background"
           >
-            Previous
-          </button>
-          <span className="text-muted-foreground">Page {page}</span>
-          <button
-            onClick={() => setPage((p) => p + 1)}
-            disabled={!hasNext}
-            className="px-3 py-1 border rounded disabled:opacity-40"
-          >
-            Next
-          </button>
+            {PAGE_SIZES.map((ps) => <option key={ps} value={ps}>{ps}</option>)}
+          </select>
+          <span className="text-muted-foreground">
+            {total} event{total !== 1 ? "s" : ""}
+          </span>
         </div>
-      )}
+
+        {(page > 1 || hasNext) && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3 py-1 border rounded disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-muted-foreground">Page {page}</span>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={!hasNext}
+              className="px-3 py-1 border rounded disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

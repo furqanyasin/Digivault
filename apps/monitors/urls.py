@@ -4,6 +4,8 @@ from apps.monitors import views
 
 urlpatterns = [
     path("monitors/", views.MonitorListCreateView.as_view(), name="monitor-list"),
+    # Before the <uuid:pk> route so "uptime-trend" isn't parsed as an id.
+    path("monitors/uptime-trend/", views.UptimeTrendView.as_view(), name="monitor-uptime-trend"),
     path("monitors/<uuid:pk>/", views.MonitorDetailView.as_view(), name="monitor-detail"),
     path("monitors/<uuid:monitor_pk>/checks/", views.MonitorCheckListView.as_view(), name="monitor-checks"),
     path("monitors/<uuid:pk>/pause/", views.MonitorPauseView.as_view(), name="monitor-pause"),

@@ -115,6 +115,18 @@ def check_single_monitor(self, monitor_id: str):
         monitor.is_alerting,
     )
 
+    # Downtime feeds the website health score, so a state flip has to push the
+    # score immediately — otherwise a site can sit at 100 while it is down. Only
+    # on a flip, not on every 30-second check, to keep write volume flat.
+    if previous_status != new_status and monitor.website_id:
+        try:
+            monitor.website.recalculate_health_score()
+        except Exception:
+            logger.exception(
+                "health recalc failed for website %s after monitor %s flip",
+                monitor.website_id, monitor_id,
+            )
+
     if should_notify and previous_status != "pending":
         try:
             notify_status_change(monitor, previous_status, new_status)

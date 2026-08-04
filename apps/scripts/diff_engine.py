@@ -7,8 +7,7 @@ owns persistence.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.models import ScriptChange

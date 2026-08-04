@@ -9,6 +9,7 @@ class WebsiteSerializer(BaseModelSerializer):
     script_count = serializers.SerializerMethodField()
     unknown_script_count = serializers.SerializerMethodField()
     client_name = serializers.SerializerMethodField()
+    client_hosting_renewal_date = serializers.SerializerMethodField()
     notification_channel_name = serializers.SerializerMethodField()
     uptime_notification_channel_name = serializers.SerializerMethodField()
     # Never expose the secret itself — only whether SSO is set up.
@@ -27,6 +28,8 @@ class WebsiteSerializer(BaseModelSerializer):
             "site_id",
             "status",
             "health_score",
+            # Writable — VIP is a user setting, not derived state.
+            "is_vip",
             "notes",
             "tags",
             "last_seen_at",
@@ -35,6 +38,7 @@ class WebsiteSerializer(BaseModelSerializer):
             "unknown_script_count",
             "client",
             "client_name",
+            "client_hosting_renewal_date",
             "notification_channel",
             "notification_channel_name",
             "uptime_notification_channel",
@@ -56,6 +60,17 @@ class WebsiteSerializer(BaseModelSerializer):
 
     def get_client_name(self, obj) -> str | None:
         return obj.client.name if obj.client_id else None
+
+    def get_client_hosting_renewal_date(self, obj) -> str | None:
+        """The hosting renewal date entered on the owning client.
+
+        Hosting expiry is not discoverable from WHOIS or DNS — a person types it
+        — so the client record is the authoritative source, and the website page
+        shows this in preference to the mirrored copy on DomainInfo.
+        """
+        if not obj.client_id or not obj.client.hosting_renewal_date:
+            return None
+        return obj.client.hosting_renewal_date.isoformat()
 
     def get_notification_channel_name(self, obj) -> str | None:
         return obj.notification_channel.name if obj.notification_channel_id else None

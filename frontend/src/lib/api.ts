@@ -135,6 +135,7 @@ export interface Website {
   site_id: string;
   status: string;
   health_score: number;
+  is_vip: boolean;
   notes: string;
   tags: string[];
   script_count: number;
@@ -143,6 +144,9 @@ export interface Website {
   last_seen_at: string | null;
   client: string | null;
   client_name: string | null;
+  /** Hosting renewal typed on the owning client. Authoritative for hosting
+   *  expiry — WHOIS and DNS cannot discover it. */
+  client_hosting_renewal_date: string | null;
   notification_channel: string | null;
   notification_channel_name: string | null;
   uptime_notification_channel: string | null;
@@ -170,6 +174,11 @@ export interface Script {
   seen_on_pages: string[];
   is_active: boolean;
   review_status: "pending" | "approved" | "blocked" | "ignored";
+  /** Heuristic injected-code flag set on ingest. Advisory — `suspicion_reasons`
+   *  carries the justification and must be shown with it. */
+  is_suspicious: boolean;
+  suspicion_severity: string;
+  suspicion_reasons: string[];
   first_seen_at: string;
   last_seen_at: string;
   created_at: string;
@@ -193,12 +202,20 @@ export interface ScriptChange {
   created_at: string;
 }
 
+/** Mirrors NotificationSerializer. The delivery state is `delivery_status` —
+ *  there is no `status` field, and reading one silently rendered a blank cell
+ *  in the history table. */
 export interface Notification {
   id: string;
-  rule: string;
-  script_change: string;
+  website: string | null;
+  website_name: string;
   channel: string;
-  status: string;
+  delivery_status: string;
+  delivered_at: string | null;
+  change_description: string;
+  change_severity: string;
+  read: boolean;
+  read_at: string | null;
   created_at: string;
 }
 
@@ -260,6 +277,14 @@ export interface DomainInfo {
   smtp_status: string | null;
   mx_hosts: string[];
   smtp_checked_at: string | null;
+  /** Email authentication. Status is pass | missing | error — "error" means the
+   *  DNS lookup failed, which is not the same as a domain having no policy. */
+  spf_status: string;
+  spf_record: string;
+  dmarc_status: string;
+  dmarc_record: string;
+  dkim_status: string;
+  dkim_selector: string;
   ssl_issuer: string | null;
   ssl_expires_at: string | null;
   ssl_days_until_expiry: number | null;
@@ -318,6 +343,8 @@ export interface Monitor {
   uptime_30d: number | null;
   tags: string[];
   notes: string;
+  /** Set for auto-provisioned monitors; null for standalone ones. */
+  website: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -391,6 +418,9 @@ export interface DetectedForm {
 
 export interface FormSubmissionError {
   id: string;
+  /** Attribution for the team-wide /form-errors/ list, which mixes sites. */
+  website: string;
+  website_name: string;
   source: string;
   form_id: string;
   page_url: string;

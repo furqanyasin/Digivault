@@ -1,4 +1,3 @@
-import pytest
 
 from apps.scripts.diff_engine import DiffEngine
 from apps.scripts.models import ScriptChange

@@ -5,6 +5,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def site_meta(obj, **extra) -> dict:
+    """Audit metadata tagging the website a record belongs to.
+
+    Most site-scoped actions record the sub-resource as the resource (a report,
+    a monitor, a credential), which leaves nothing pointing at the website — so
+    the Activity Log's Website column and its ?website_id= filter both come up
+    empty. Passing this as `metadata` fixes both, since they already read
+    metadata["website_id"].
+
+    Returns just `extra` when the record isn't tied to a website (a team-level
+    credential, say), so it is always safe to call.
+    """
+    website_id = getattr(obj, "website_id", None)
+    if website_id:
+        return {**extra, "website_id": str(website_id)}
+    return dict(extra)
+
+
 class AuditService:
     """Central point for writing ActivityLog records.
 

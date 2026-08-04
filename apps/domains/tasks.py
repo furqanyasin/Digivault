@@ -13,6 +13,7 @@ from apps.domains.services import (
     HOSTING_ALERT_THRESHOLDS,
     SSL_ALERT_THRESHOLDS,
     DomainIntelligenceService,
+    check_email_auth,
     check_smtp,
 )
 from apps.websites.models import Website
@@ -53,12 +54,15 @@ def check_domain(self, website_id: str) -> None:
         },
     )
 
-    # Mail (SMTP) health — best-effort, never blocks the domain check.
+    # Mail health — SMTP reachability plus SPF/DKIM/DMARC. Both are
+    # best-effort and never block the domain check.
     smtp = check_smtp(website.domain)
+    email_auth = check_email_auth(website.domain)
     DomainInfo.objects.filter(pk=domain_info.pk).update(
         smtp_status=smtp["smtp_status"],
         mx_hosts=smtp["mx_hosts"],
         smtp_checked_at=timezone.now(),
+        **email_auth,
     )
 
     _create_expiry_alerts(domain_info)
@@ -125,9 +129,16 @@ def _deliver_unsent_alerts(domain_info: DomainInfo) -> None:
 
 @shared_task(name="domains.check_all_domains")
 def check_all_domains() -> int:
-    """Scheduled daily task — enqueue a check_domain task per active website."""
+    """Scheduled daily task — enqueue a check_domain task per live website.
+
+    Only 'inactive' is skipped. This used to also skip 'critical', which became a
+    trap once status started deriving from health_score: a site whose score fell
+    below 60 would stop receiving domain checks, so its expiry data froze and the
+    expiry deductions could never clear. 'critical' means "needs attention" — the
+    last status that should stop being checked.
+    """
     ids = list(
-        Website.objects.filter(status__in=[Website.Status.ACTIVE, Website.Status.WARNING])
+        Website.objects.exclude(status=Website.Status.INACTIVE)
         .values_list("pk", flat=True)
     )
     for website_id in ids:

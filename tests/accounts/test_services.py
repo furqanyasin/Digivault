@@ -1,6 +1,6 @@
 import pytest
 
-from apps.accounts.models import Team, TeamInvitation, TeamMembership, User
+from apps.accounts.models import TeamMembership, User
 from apps.accounts.services import InvitationService, TeamService
 from apps.common.exceptions import ConflictError, ForbiddenError, NotFoundError
 

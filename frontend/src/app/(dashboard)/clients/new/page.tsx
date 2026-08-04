@@ -90,7 +90,7 @@ export default function NewClientPage() {
       </div>
       <form onSubmit={handleSubmit}>
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader>
             <CardTitle className="text-base">Client details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">

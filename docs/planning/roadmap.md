@@ -1,7 +1,7 @@
 # Digivault — Upcoming Features Roadmap
 
 Forward-looking backlog of features not yet built (or only partially built).
-Derived from the 2026-06-17 codebase audit in [plan.md](plan.md). Items are
+Derived from the 2026-06-17 codebase audit in [feature-plan-status.md](feature-plan-status.md). Items are
 grouped by theme; effort is a rough estimate (S = small/self-contained,
 M = medium, L = large/new subsystem).
 
@@ -66,7 +66,7 @@ These extend systems that already exist (`site_health`, `monitors`,
 
 ---
 
-## Operational follow-ups (from plan.md Part 3)
+## Operational follow-ups (from feature-plan-status.md Part 3)
 
 - [ ] Deploy Tier 3 commit `9df0387` to production.
 - [ ] Reconcile health-score vs UI "pending" definition mismatch.

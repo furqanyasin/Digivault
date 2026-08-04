@@ -8,9 +8,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.models import ActivityLog
-from apps.audit.services import AuditService
+from apps.audit.services import AuditService, site_meta
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
+from apps.integrations.clickup import ClickUpClient
 from apps.monitors.models import Monitor, MonitorCheck, MonitorNotificationRule, NotificationChannel
 from apps.monitors.serializers import (
     MonitorCheckSerializer,
@@ -18,7 +19,6 @@ from apps.monitors.serializers import (
     MonitorSerializer,
     NotificationChannelSerializer,
 )
-from apps.monitors.tasks import check_single_monitor
 
 
 class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
@@ -41,6 +41,7 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
             self.request, ActivityLog.Action.MONITOR_CREATED,
             description=f"Created {monitor.monitor_type} monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
 
 
@@ -57,6 +58,7 @@ class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
             self.request, ActivityLog.Action.MONITOR_UPDATED,
             description=f"Updated monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
 
     def perform_destroy(self, instance):
@@ -64,6 +66,7 @@ class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
             self.request, ActivityLog.Action.MONITOR_DELETED,
             description=f"Deleted monitor '{instance.name}'",
             resource_type="monitor", resource_id=instance.pk,
+            metadata=site_meta(instance),
         )
         instance.delete()
 
@@ -84,6 +87,100 @@ class MonitorCheckListView(generics.ListAPIView):
         ).order_by("-checked_at")[:200]
 
 
+class UptimeTrendView(APIView):
+    """GET /api/v1/monitors/uptime-trend/?days=14
+       GET /api/v1/monitors/uptime-trend/?from=2026-07-01&to=2026-07-14
+
+    One team-wide uptime percentage per day, for the dashboard trend charts.
+    Aggregated from MonitorCheck rather than the cached uptime_* fields, which
+    only hold rolling 24h/7d/30d figures and so cannot draw a curve.
+
+    A day with no checks returns `null`, never 0 or 100: no data means we were
+    blind, and inventing either number would draw a cliff or a clean run that
+    never happened.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    DEFAULT_DAYS = 14
+    MAX_DAYS = 90
+
+    def _window(self, request):
+        """Resolve (first_day, last_day). An explicit from+to range wins.
+
+        Both bounds are required — half a range is not a range, so a lone
+        `from` falls back to the rolling `days` window rather than silently
+        inventing an end date.
+        """
+        from datetime import date, timedelta
+
+        from django.utils import timezone
+
+        raw_from = request.query_params.get("from")
+        raw_to = request.query_params.get("to")
+        if raw_from and raw_to:
+            try:
+                start, end = date.fromisoformat(raw_from), date.fromisoformat(raw_to)
+            except ValueError:
+                start = end = None
+            if start and end:
+                # A picker can hand the pair back in either order.
+                if start > end:
+                    start, end = end, start
+                # Truncate from the start so the range keeps its end date, which
+                # is the one the reader is looking at.
+                if (end - start).days + 1 > self.MAX_DAYS:
+                    start = end - timedelta(days=self.MAX_DAYS - 1)
+                return start, end
+
+        try:
+            days = int(request.query_params.get("days", self.DEFAULT_DAYS))
+        except (TypeError, ValueError):
+            days = self.DEFAULT_DAYS
+        days = max(1, min(days, self.MAX_DAYS))
+        today = timezone.localdate()
+        return today - timedelta(days=days - 1), today
+
+    def get(self, request):
+        from datetime import timedelta
+
+        from django.db.models import Count, Q
+        from django.db.models.functions import TruncDate
+
+        team = request.user.active_team
+        first_day, last_day = self._window(request)
+        days = (last_day - first_day).days + 1
+
+        by_day: dict[str, float] = {}
+        if team is not None:
+            rows = (
+                MonitorCheck.objects.filter(
+                    monitor__team=team,
+                    checked_at__date__gte=first_day,
+                    checked_at__date__lte=last_day,
+                )
+                .annotate(day=TruncDate("checked_at"))
+                .values("day")
+                .annotate(
+                    total=Count("id"),
+                    up=Count("id", filter=Q(status=MonitorCheck.Status.UP)),
+                )
+                .order_by("day")
+            )
+            for row in rows:
+                if row["total"]:
+                    by_day[row["day"].isoformat()] = round(
+                        row["up"] * 100.0 / row["total"], 2
+                    )
+
+        points = []
+        for offset in range(days):
+            day = (first_day + timedelta(days=offset)).isoformat()
+            points.append({"date": day, "value": by_day.get(day)})
+
+        return Response({"days": days, "points": points})
+
+
 class MonitorPauseView(APIView):
     """POST /api/v1/monitors/<pk>/pause/"""
 
@@ -101,6 +198,7 @@ class MonitorPauseView(APIView):
             request, ActivityLog.Action.MONITOR_PAUSED,
             description=f"Paused monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
         return Response(MonitorSerializer(monitor).data)
 
@@ -122,6 +220,7 @@ class MonitorResumeView(APIView):
             request, ActivityLog.Action.MONITOR_RESUMED,
             description=f"Resumed monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
         return Response(MonitorSerializer(monitor).data)
 
@@ -292,13 +391,9 @@ def _test_clickup(channel) -> tuple[bool, str]:
     task_id = channel.config.get("task_id", "")
     if not api_token or not task_id:
         return False, "Missing api_token or task_id in config."
-    url = f"https://api.clickup.com/api/v2/task/{task_id}"
-    req = urllib.request.Request(url, headers={"Authorization": api_token})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status == 200:
-                return True, f"ClickUp task '{task_id}' verified successfully."
-            return False, f"ClickUp returned HTTP {resp.status}."
+        ClickUpClient(api_token).get_task(task_id)
+        return True, f"ClickUp task '{task_id}' verified successfully."
     except Exception as e:
         return False, str(e)
 
@@ -335,6 +430,7 @@ class MonitorNotificationRuleListCreateView(generics.ListCreateAPIView):
             self.request, ActivityLog.Action.MONITOR_RULE_CREATED,
             description=f"Added notification rule to monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
 
 
@@ -358,5 +454,6 @@ class MonitorNotificationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
             self.request, ActivityLog.Action.MONITOR_RULE_DELETED,
             description=f"Removed notification rule from monitor '{instance.monitor.name}'",
             resource_type="monitor", resource_id=instance.monitor_id,
+            metadata=site_meta(instance.monitor),
         )
         instance.delete()

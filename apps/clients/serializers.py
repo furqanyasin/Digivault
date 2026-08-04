@@ -49,6 +49,11 @@ class ClientSerializer(BaseModelSerializer):
         )
 
     def get_assigned_websites_count(self, obj) -> int:
+        # List views annotate this so the whole page costs one query; fall back
+        # to a per-object COUNT only for callers that didn't (detail, create).
+        annotated = getattr(obj, "assigned_websites_count_annotated", None)
+        if annotated is not None:
+            return annotated
         return obj.websites.count()
 
 

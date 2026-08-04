@@ -1,5 +1,4 @@
 import pytest
-from cryptography.fernet import InvalidToken
 
 from apps.accounts.models import TeamMembership, User
 from apps.accounts.services import TeamService

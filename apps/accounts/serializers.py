@@ -106,7 +106,7 @@ class TeamSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Team
-        fields = ("id", "name", "clickup_api_token", "clickup_connected")
+        fields = ("id", "name", "clickup_api_token", "clickup_connected", "clickup_list_id")
         read_only_fields = ("id",)
 
     def get_clickup_connected(self, obj) -> bool:

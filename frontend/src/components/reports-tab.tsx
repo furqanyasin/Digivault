@@ -151,7 +151,7 @@ export function ReportsTab({ websiteId }: { websiteId: string }) {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <CardTitle className="text-base">Generate a report</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -245,7 +245,7 @@ export function ReportsTab({ websiteId }: { websiteId: string }) {
       </Card>
 
       <Card>
-        <CardHeader className="pb-0 flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">Generated reports</CardTitle>
           <button
             onClick={fetchReports}

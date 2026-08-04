@@ -4,9 +4,9 @@ from apps.common.serializers import BaseModelSerializer
 from apps.scripts.models import (
     DetectedForm,
     FormSubmissionError,
+    JsError,
     Script,
     ScriptChange,
-    ScriptSnapshot,
 )
 
 # Hard caps on ingest payload list lengths — a single page should never
@@ -63,6 +63,29 @@ class FormErrorIngestSerializer(serializers.Serializer):
     message = serializers.CharField(max_length=2000)
 
 
+class JsErrorIngestSerializer(serializers.Serializer):
+    """Posted by the snippet when a page throws an uncaught JavaScript error."""
+
+    site_id = serializers.CharField(max_length=64)
+    page_url = serializers.URLField(max_length=2048)
+    message = serializers.CharField(max_length=2000)
+    source_url = serializers.CharField(max_length=2048, allow_blank=True, default="")
+    line_no = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    col_no = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    stack = serializers.CharField(max_length=4000, allow_blank=True, default="")
+
+
+class JsErrorSerializer(BaseModelSerializer):
+    class Meta:
+        model = JsError
+        fields = (
+            "id", "message", "source_url", "line_no", "col_no", "stack",
+            "page_url", "browser", "hits", "is_resolved",
+            "last_seen_at", "created_at",
+        )
+        read_only_fields = fields
+
+
 class FormSubmissionIngestSerializer(serializers.Serializer):
     """Posted by the snippet when a native form is submitted, to count it."""
 
@@ -72,10 +95,21 @@ class FormSubmissionIngestSerializer(serializers.Serializer):
 
 
 class FormSubmissionErrorSerializer(BaseModelSerializer):
+    # Attribution for the team-wide /form-errors/ list, which mixes sites — the
+    # same reason ScriptChangeSerializer carries website_name. Without it a
+    # caller can see that N forms are broken but not on which site.
+    website_name = serializers.SerializerMethodField()
+
     class Meta:
         model = FormSubmissionError
-        fields = ("id", "source", "form_id", "page_url", "message", "created_at")
+        fields = (
+            "id", "website", "website_name", "source", "form_id",
+            "page_url", "message", "created_at",
+        )
         read_only_fields = fields
+
+    def get_website_name(self, obj) -> str:
+        return obj.website.name or obj.website.domain
 
 
 class IngestPayloadSerializer(serializers.Serializer):
@@ -108,6 +142,9 @@ class ScriptSerializer(BaseModelSerializer):
             "wp_plugin",
             "seen_on_pages",
             "is_active",
+            "is_suspicious",
+            "suspicion_severity",
+            "suspicion_reasons",
             "review_status",
             "first_seen_at",
             "last_seen_at",

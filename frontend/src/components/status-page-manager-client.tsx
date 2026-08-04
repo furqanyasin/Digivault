@@ -79,7 +79,7 @@ export function StatusPageManagerClient({ page, initialEntries, availableMonitor
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <CardTitle className="text-base">Monitors on this page</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">

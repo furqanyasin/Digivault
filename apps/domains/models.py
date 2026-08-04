@@ -36,6 +36,19 @@ class DomainInfo(BaseModel):
     mx_hosts = models.JSONField(default=list, blank=True)
     smtp_checked_at = models.DateTimeField(null=True, blank=True)
 
+    # Email authentication — SPF/DKIM/DMARC, from the same daily check. Status is
+    # pass/missing/error and describes presence and syntax, not correctness:
+    # proving an SPF policy lists the right senders needs the sending
+    # infrastructure, which we don't know. Records are kept for display.
+    spf_status = models.CharField(max_length=10, blank=True)
+    spf_record = models.CharField(max_length=500, blank=True)
+    dmarc_status = models.CharField(max_length=10, blank=True)
+    dmarc_record = models.CharField(max_length=500, blank=True)
+    dkim_status = models.CharField(max_length=10, blank=True)
+    # Which selector answered — DKIM selectors aren't discoverable, so this
+    # records the one that worked out of the probed list.
+    dkim_selector = models.CharField(max_length=60, blank=True)
+
     # SSL
     ssl_issuer = models.CharField(max_length=200, blank=True)
     ssl_expires_at = models.DateTimeField(null=True, blank=True)

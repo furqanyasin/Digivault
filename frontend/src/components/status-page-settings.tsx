@@ -61,7 +61,7 @@ export function StatusPageSettings({ page }: Props) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base flex items-center gap-2">
           <Settings2 className="h-4 w-4" />
           Page settings

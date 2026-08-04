@@ -7,6 +7,35 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService
+from apps.common.mixins import TeamScopedMixin
+from apps.common.permissions import IsTeamMember
+from apps.scripts.js_errors import (
+    browser_label,
+    fingerprint as js_fingerprint,
+    is_reportable,
+)
+from apps.scripts.form_errors import (
+    is_important_form_error,
+    sanitize_error_message,
+    sanitize_page_url,
+)
+from apps.scripts.models import DetectedForm, FormSubmissionError, JsError, Script, ScriptChange
+from apps.scripts.serializers import (
+    DetectedFormSerializer,
+    FormErrorIngestSerializer,
+    FormSubmissionErrorSerializer,
+    FormSubmissionIngestSerializer,
+    IngestPayloadSerializer,
+    JsErrorIngestSerializer,
+    JsErrorSerializer,
+    ScriptChangeSerializer,
+    ScriptSerializer,
+)
+from apps.scripts.tasks import process_ingest_payload
+from apps.websites.models import Website
+
 
 class SnippetJsView(APIView):
     """GET /s.js — the tracking snippet served directly from Django."""
@@ -22,28 +51,6 @@ class SnippetJsView(APIView):
         response["Cache-Control"] = "public, max-age=300"
         response["Access-Control-Allow-Origin"] = "*"
         return response
-
-from apps.audit.models import ActivityLog
-from apps.audit.services import AuditService
-from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import IsTeamMember
-from apps.scripts.form_errors import (
-    is_important_form_error,
-    sanitize_error_message,
-    sanitize_page_url,
-)
-from apps.scripts.models import DetectedForm, FormSubmissionError, Script, ScriptChange
-from apps.scripts.serializers import (
-    DetectedFormSerializer,
-    FormErrorIngestSerializer,
-    FormSubmissionErrorSerializer,
-    FormSubmissionIngestSerializer,
-    IngestPayloadSerializer,
-    ScriptChangeSerializer,
-    ScriptSerializer,
-)
-from apps.scripts.tasks import process_ingest_payload
-from apps.websites.models import Website
 
 
 class ExtensionThrottle(AnonRateThrottle):
@@ -143,6 +150,76 @@ class IngestView(APIView):
                 "snippet_version": data["snippet_version"],
             },
         )
+        return Response(status=status.HTTP_202_ACCEPTED)
+
+
+class JsErrorIngestView(APIView):
+    """POST /api/ingest/js-errors/ — uncaught JavaScript errors from the snippet.
+
+    Same trust model as ingest: site_id identifies the website and the request
+    origin must match its registered domain. Noise and browser-extension errors
+    are acknowledged (202) but never stored, so probing reveals nothing.
+
+    Deduplicated on (website, fingerprint) with a hit counter — a broken script
+    on a busy page throws the same error thousands of times, and one row per
+    occurrence would bury everything else.
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [IngestThrottle]
+
+    def post(self, request):
+        serializer = JsErrorIngestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            website = Website.objects.get(site_id=data["site_id"])
+        except Website.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
+        if origin and website.domain:
+            from urllib.parse import urlparse
+            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
+            site_host = (
+                website.domain.lower().removeprefix("www.")
+                .removeprefix("https://").removeprefix("http://").split("/")[0]
+            )
+            if origin_host and site_host and origin_host != site_host:
+                return Response(status=status.HTTP_403_FORBIDDEN)
+
+        message = data["message"]
+        source_url = data.get("source_url", "")
+        if not is_reportable(message, source_url):
+            return Response(status=status.HTTP_202_ACCEPTED)
+
+        fp = js_fingerprint(message, source_url, data.get("line_no"))
+        existing = JsError.objects.filter(website=website, fingerprint=fp).first()
+        if existing:
+            # F() so concurrent hits from the same page don't lose counts.
+            from django.db.models import F
+
+            JsError.objects.filter(pk=existing.pk).update(
+                hits=F("hits") + 1,
+                last_seen_at=timezone.now(),
+                # A recurrence reopens it: a "resolved" error still firing is not
+                # resolved.
+                is_resolved=False,
+            )
+        else:
+            JsError.objects.create(
+                website=website,
+                fingerprint=fp,
+                message=sanitize_error_message(message),
+                source_url=source_url[:2048],
+                line_no=data.get("line_no"),
+                col_no=data.get("col_no"),
+                stack=(data.get("stack") or "")[:4000],
+                page_url=sanitize_page_url(data["page_url"]),
+                browser=browser_label(request.META.get("HTTP_USER_AGENT", "")),
+            )
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
@@ -364,11 +441,8 @@ class AcknowledgeChangeView(APIView):
             metadata={"website_id": str(change.website_id)},
         )
 
-        # Recalculate website status immediately so the dashboard reflects
-        # the acknowledgement without waiting for the next ingest.
-        from apps.scripts.tasks import _update_website_status
-        _update_website_status(change.website)
-
+        # Recalculate immediately so the dashboard reflects the acknowledgement
+        # without waiting for the next ingest. This writes status too.
         change.website.recalculate_health_score()
 
         return Response(ScriptChangeSerializer(change).data)
@@ -394,21 +468,34 @@ class BulkAcknowledgeChangesView(APIView):
         qs = ScriptChange.objects.filter(
             pk__in=change_ids, website__team=team, acknowledged_at__isnull=True
         )
-        website_ids = list(qs.values_list("website_id", flat=True).distinct())
+        # Counted before the update, while the queryset still means "not yet
+        # acknowledged" — re-querying afterwards would also pick up changes that
+        # someone else had already acknowledged.
+        from collections import Counter
+
+        counts = Counter(qs.values_list("website_id", flat=True))
+        website_ids = list(counts)
         updated = qs.update(acknowledged_at=timezone.now(), acknowledged_by=request.user)
 
-        from apps.scripts.tasks import _update_website_status
         from apps.websites.models import Website
         for website in Website.objects.filter(pk__in=website_ids):
-            _update_website_status(website)
             website.recalculate_health_score()
 
         if updated:
-            AuditService.log_request(
-                request, ActivityLog.Action.WEBSITE_CHANGE_ACKNOWLEDGED,
-                description=f"Acknowledged {updated} script change(s)",
-                resource_type="script_change",
-            )
+            # One entry per website rather than one for the batch: a bulk ack can
+            # span sites, and a single row could name only one of them — leaving
+            # the Activity Log's Website column empty and the site's own activity
+            # tab missing the acknowledgement entirely.
+            for website in Website.objects.filter(pk__in=counts):
+                AuditService.log_request(
+                    request, ActivityLog.Action.WEBSITE_CHANGE_ACKNOWLEDGED,
+                    description=(
+                        f"Acknowledged {counts[website.pk]} script change(s) on "
+                        f"'{website.name or website.domain}'"
+                    ),
+                    resource_type="script_change",
+                    metadata={"website_id": str(website.pk)},
+                )
         return Response({"updated": updated})
 
 
@@ -455,8 +542,6 @@ class ScriptReviewView(APIView):
         script.changes.filter(acknowledged_at__isnull=True).update(
             acknowledged_at=timezone.now(), acknowledged_by=user
         )
-        from apps.scripts.tasks import _update_website_status
-        _update_website_status(script.website)
         script.website.recalculate_health_score()
 
 
@@ -503,11 +588,9 @@ class BulkScriptReviewView(APIView):
                 acknowledged_at__isnull=True,
             ).update(acknowledged_at=timezone.now(), acknowledged_by=request.user)
 
-            from apps.scripts.tasks import _update_website_status
             from apps.websites.models import Website
             website = Website.objects.filter(pk=website_pk).first()
             if website:
-                _update_website_status(website)
                 website.recalculate_health_score()
 
         if updated:
@@ -674,4 +757,20 @@ class ExtensionLookupView(APIView):
                 "has_unknown": has_unknown,
                 "scripts": truncated,
             }
+        )
+
+
+class WebsiteJsErrorListView(TeamScopedMixin, generics.ListAPIView):
+    """GET /api/v1/websites/<website_pk>/js-errors/ — this site's JS errors,
+    most recently seen first."""
+
+    serializer_class = JsErrorSerializer
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get_queryset(self):
+        team = self.request.user.active_team
+        if team is None:
+            return JsError.objects.none()
+        return JsError.objects.filter(
+            website_id=self.kwargs["website_pk"], website__team=team
         )

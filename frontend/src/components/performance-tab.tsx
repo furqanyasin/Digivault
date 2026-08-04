@@ -217,7 +217,7 @@ function RecommendationsSection({ latest }: { latest: PerformanceReport }) {
   if (recs.length === 0) {
     return (
       <Card className="border-emerald-200 dark:border-emerald-900">
-        <CardContent className="flex items-center gap-3 py-4">
+        <CardContent className="flex items-center gap-3">
           <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
           <div>
             <p className="text-sm font-medium">All Core Web Vitals are within targets</p>
@@ -231,7 +231,7 @@ function RecommendationsSection({ latest }: { latest: PerformanceReport }) {
   const highCount = recs.filter((r) => r.severity === "high").length;
   return (
     <Card>
-      <CardHeader className="pb-3">
+      <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <AlertTriangle className={`h-4 w-4 ${highCount > 0 ? "text-red-500" : "text-amber-500"}`} />
           Optimization Plan
@@ -422,7 +422,7 @@ function CruxSection({
 
       {!latest ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-10 gap-2 text-center">
+          <CardContent className="flex flex-col items-center justify-center gap-2 text-center py-16">
             <Users className="h-10 w-10 text-muted-foreground" />
             <p className="font-medium">No real-user (field) data</p>
             <p className="text-sm text-muted-foreground max-w-md">
@@ -534,7 +534,7 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
 
       {!latest ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+          <CardContent className="flex flex-col items-center justify-center gap-3 text-center py-16">
             <Zap className="h-10 w-10 text-muted-foreground" />
             <p className="text-lg font-medium">No performance data yet</p>
             <p className="text-sm text-muted-foreground">
@@ -551,7 +551,7 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
           {/* Score + last checked */}
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader>
                 <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                   Performance Score
                   <span className="text-xs font-normal">
@@ -590,12 +590,12 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
             </Card>
 
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader>
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   Score trend ({reports.length} checks)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-0">
+              <CardContent>
                 <HistoryChart reports={reports} />
               </CardContent>
             </Card>
@@ -603,7 +603,7 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
 
           {/* Core Web Vitals */}
           <Card>
-            <CardHeader className="pb-2">
+            <CardHeader>
               <CardTitle className="text-base">Core Web Vitals & Metrics</CardTitle>
             </CardHeader>
             <CardContent>
@@ -643,7 +643,7 @@ export function PerformanceTab({ websiteId, mobileReports, desktopReports, cruxR
           {/* Check history */}
           {reports.length > 1 && (
             <Card>
-              <CardHeader className="pb-2">
+              <CardHeader>
                 <CardTitle className="text-base">History</CardTitle>
               </CardHeader>
               <div className="overflow-x-auto">

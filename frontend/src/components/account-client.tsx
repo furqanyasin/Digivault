@@ -79,12 +79,7 @@ export function AccountClient({ name, email, role, teamName }: Props) {
   }
 
   return (
-    <div className="p-8 max-w-2xl space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">My Account</h1>
-        <p className="text-muted-foreground mt-1">Your profile and account security.</p>
-      </div>
-
+    <div className="space-y-6">
       {/* Profile */}
       <Card>
         <CardHeader>
@@ -121,7 +116,7 @@ export function AccountClient({ name, email, role, teamName }: Props) {
               </Badge>
             )}
             {totpEnabled === false && (
-              <Badge variant="secondary" className="gap-1">
+              <Badge variant="secondary" className="gap-1 whitespace-nowrap">
                 <ShieldOff className="h-3 w-3" /> Not set up
               </Badge>
             )}

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronLeft, ChevronRight, Star, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,15 +74,24 @@ export function WebsitesClient({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
 
+  // The dashboard's VIP section links here with ?vip=1. Held in state rather
+  // than read straight from the URL so the chip's clear button works without a
+  // navigation.
+  const searchParams = useSearchParams();
+  const [vipOnly, setVipOnly] = useState(searchParams.get("vip") === "1");
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return websites;
-    return websites.filter((w) =>
-      w.domain?.toLowerCase().includes(q) ||
-      w.name?.toLowerCase().includes(q) ||
-      w.client_name?.toLowerCase().includes(q)
-    );
-  }, [websites, query]);
+    let rows = vipOnly ? websites.filter((w) => w.is_vip) : websites;
+    if (q) {
+      rows = rows.filter((w) =>
+        w.domain?.toLowerCase().includes(q) ||
+        w.name?.toLowerCase().includes(q) ||
+        w.client_name?.toLowerCase().includes(q)
+      );
+    }
+    return rows;
+  }, [websites, query, vipOnly]);
 
   const missingFiltered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -92,11 +102,11 @@ export function WebsitesClient({
   }, [missingClients, query]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  // Searching or resizing can leave you past the end of the new result set.
-  useEffect(() => {
-    if (page > totalPages) setPage(1);
-  }, [page, totalPages]);
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+  // Searching or resizing can leave `page` past the end of the new result set.
+  // Clamp during render rather than correcting it in an effect, which would
+  // paint an empty page first and then re-render.
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <div className="space-y-4">
@@ -110,6 +120,22 @@ export function WebsitesClient({
             className="pl-9"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => { setVipOnly((v) => !v); setPage(1); }}
+          aria-pressed={vipOnly}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            vipOnly
+              ? "border-amber-400 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+              : "text-muted-foreground hover:bg-muted"
+          )}
+        >
+          <Star className={cn("h-3.5 w-3.5", vipOnly && "fill-amber-400 text-amber-500")} />
+          VIP only
+          {vipOnly && <X className="h-3 w-3" />}
+        </button>
+
         <div className="flex items-center gap-2 text-xs ml-auto mr-2">
           <span className="text-muted-foreground">Per page:</span>
           {PAGE_SIZES.map((ps) => (
@@ -318,31 +344,31 @@ export function WebsitesClient({
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            Page {page} of {totalPages} &middot; {filtered.length} total
+            Page {safePage} of {totalPages} &middot; {filtered.length} total
           </span>
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1}>«</Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>
+            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={safePage === 1}>«</Button>
+            <Button variant="outline" size="sm" onClick={() => setPage(safePage - 1)} disabled={safePage === 1}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+              const start = Math.max(1, Math.min(safePage - 2, totalPages - 4));
               const p = start + i;
               return (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setPage(p)}
-                  className={`w-8 h-8 rounded border text-xs ${p === page ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
+                  className={`w-8 h-8 rounded border text-xs ${p === safePage ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
                 >
                   {p}
                 </button>
               );
             })}
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page === totalPages}>
+            <Button variant="outline" size="sm" onClick={() => setPage(safePage + 1)} disabled={safePage === totalPages}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</Button>
+            <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={safePage === totalPages}>»</Button>
           </div>
         </div>
       )}

@@ -1,11 +1,10 @@
 import pytest
-from unittest.mock import patch
 
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
 from apps.alerts.models import AlertRule, Notification
 from apps.alerts.services import AlertService
-from apps.scripts.models import Script, ScriptChange
+from apps.scripts.models import ScriptChange
 from apps.websites.models import Website
 
 

@@ -48,7 +48,11 @@ class Client(BaseModel):
         UNKNOWN = "", "Unknown"
 
     # Departments that may work on this client — controls who sees it (Phase 7).
-    DEPARTMENTS = ("seo", "ads", "dev", "content")
+    # Stored in the `departments` JSONField, so adding a value here needs no
+    # migration; it widens the serializer's ChoiceField and the CSV import.
+    DEPARTMENTS = (
+        "seo", "ads", "dev", "content", "lead_insight", "social_media",
+    )
 
     team = models.ForeignKey(
         "accounts.Team",

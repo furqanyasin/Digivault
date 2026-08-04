@@ -2,7 +2,7 @@ import json
 import pytest
 from rest_framework.test import APIClient
 
-from apps.accounts.models import TeamMembership, User
+from apps.accounts.models import User
 from apps.accounts.services import TeamService
 from apps.credentials.services import CredentialService
 from apps.websites.models import Website

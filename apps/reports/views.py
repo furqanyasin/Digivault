@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.models import ActivityLog
-from apps.audit.services import AuditService
+from apps.audit.services import AuditService, site_meta
 from apps.common.permissions import IsTeamMember
 from apps.reports.models import Report
 from apps.reports.serializers import ReportGenerateSerializer, ReportSerializer
@@ -61,6 +61,7 @@ class ReportGenerateView(APIView):
                 request, ActivityLog.Action.REPORT_GENERATED,
                 description=f"Generated {report.report_format.upper()} report for '{website.name or website.domain}'",
                 resource_type="report", resource_id=report.pk,
+                metadata=site_meta(report),
             )
         return Response(ReportSerializer(report).data, status=code)
 
@@ -83,6 +84,7 @@ class ReportDeleteView(generics.DestroyAPIView):
             self.request, ActivityLog.Action.REPORT_DELETED,
             description=f"Deleted {instance.report_format.upper()} report for '{label}'",
             resource_type="report", resource_id=instance.pk,
+            metadata=site_meta(instance),
         )
         if instance.file:
             instance.file.delete(save=False)

@@ -267,6 +267,7 @@
   // filters again (only mail/SMTP/5xx-style failures are stored) and redacts
   // any PII that leaks into status text.
   var formErrorsUrl = ingestUrl.replace(/\/ingest\/?$/, '/ingest/form-errors/');
+  var jsErrorsUrl = ingestUrl.replace(/\/ingest\/?$/, '/ingest/js-errors/');
   var formSubmitUrl = ingestUrl.replace(/\/ingest\/?$/, '/ingest/form-submission/');
   var reportedErrors = {};
 
@@ -383,4 +384,70 @@
     });
     errObserver.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
   }, true);
+
+  // ── Uncaught JavaScript errors ─────────────────────────────────────────────
+  // Capped per page load and deduplicated client-side: a script erroring inside
+  // a loop can fire thousands of times, and the point is to learn that it broke,
+  // not to relay every occurrence. Everything here is wrapped so a failure in
+  // the reporter can never break the host page.
+  var jsErrorsSent = {};
+  var jsErrorCount = 0;
+  var JS_ERROR_LIMIT = 10;
+  var NEWLINE = String.fromCharCode(10);
+
+  function sendJsError(message, sourceUrl, lineNo, colNo, stack) {
+    try {
+      if (!message || jsErrorCount >= JS_ERROR_LIMIT) return;
+      var key = (message + '|' + (sourceUrl || '') + '|' + (lineNo || '')).slice(0, 250);
+      if (jsErrorsSent[key]) return;
+      jsErrorsSent[key] = true;
+      jsErrorCount++;
+
+      var payload = JSON.stringify({
+        site_id: siteId,
+        page_url: window.location.href,
+        message: String(message).slice(0, 2000),
+        source_url: String(sourceUrl || '').slice(0, 2048),
+        line_no: typeof lineNo === 'number' ? lineNo : null,
+        col_no: typeof colNo === 'number' ? colNo : null,
+        // First frames only — a full trace can be enormous and adds little.
+        stack: String(stack || '').split(NEWLINE).slice(0, 5).join(NEWLINE).slice(0, 4000)
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(jsErrorsUrl, new Blob([payload], { type: 'application/json' }));
+      } else {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', jsErrorsUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(payload);
+      }
+    } catch (e) { /* never let reporting break the page */ }
+  }
+
+  // addEventListener rather than window.onerror: assigning onerror would clobber
+  // any handler the site already has.
+  window.addEventListener('error', function (e) {
+    try {
+      // Resource load failures (img/script/link) surface here too, with no
+      // message and the element as target — not a script exception.
+      if (e && e.target && e.target !== window && e.target.tagName) return;
+      var err = e && e.error;
+      sendJsError(
+        (e && e.message) || (err && err.message),
+        e && e.filename,
+        e && e.lineno,
+        e && e.colno,
+        err && err.stack
+      );
+    } catch (_) {}
+  });
+
+  window.addEventListener('unhandledrejection', function (e) {
+    try {
+      var r = e && e.reason;
+      var msg = r && r.message ? r.message : String(r);
+      sendJsError('Unhandled promise rejection: ' + msg, '', null, null, r && r.stack);
+    } catch (_) {}
+  });
+
 })();

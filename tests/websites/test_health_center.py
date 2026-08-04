@@ -17,9 +17,12 @@ def test_security_score_deducts_for_vulns_and_ssl():
     assert _security_score({}, 0, None) == 100
     assert _security_score({"critical": 1}, 0, None) == 75
     assert _security_score({"high": 2}, 0, None) == 80
-    # SSL expiring soon costs 15
-    assert _security_score({}, 0, 5) == 85
-    # floors at 0 (50 + 30 + 15 + 10 + 15 = 120 deductions)
+    # SSL tiers match the overall health score: <=7d -20, <=14d -12, <=30d -5.
+    assert _security_score({}, 0, 5) == 80
+    assert _security_score({}, 0, 12) == 88
+    assert _security_score({}, 0, 25) == 95
+    assert _security_score({}, 0, 90) == 100
+    # floors at 0 (50 + 30 + 15 + 10 + 20 = 125 deductions)
     assert _security_score({"critical": 10, "high": 10, "medium": 10}, 50, 1) == 0
 
 
