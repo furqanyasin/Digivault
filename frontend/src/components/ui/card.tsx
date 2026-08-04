@@ -37,9 +37,12 @@ const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttribu
 );
 CardDescription.displayName = "CardDescription";
 
+// `pt-0` only makes sense when a CardHeader sits above and has already paid the
+// top padding. A headerless card (KPI tiles, empty states) would otherwise sit
+// flush against its own top edge, so the collapse is scoped to "not first".
 const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
+    <div ref={ref} className={cn("p-6 [&:not(:first-child)]:pt-0", className)} {...props} />
   )
 );
 CardContent.displayName = "CardContent";
