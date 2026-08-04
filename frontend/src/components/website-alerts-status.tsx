@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Bell, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 
 interface Channel { id: string; name: string; channel_type: string }
 interface StatusPageSummary { slug: string; name: string; status: string; monitor_count: number }
@@ -19,16 +19,21 @@ function ChannelSelect({
   emptyLabel,
   onChange,
   saved,
+  label,
 }: {
   value: string;
   channels: Channel[];
   emptyLabel: string;
   onChange: (v: string) => void;
   saved: boolean;
+  /** Accessible name. Carried by aria-label since the visible heading was
+   *  dropped as a duplicate — without it the select is unlabelled. */
+  label: string;
 }) {
   return (
     <div className="flex items-center gap-2">
       <select
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="border rounded-md px-2 py-1 text-sm bg-background min-w-[14rem]"
@@ -83,18 +88,19 @@ export function WebsiteAlertsStatus({
 
   return (
     <div className="space-y-4">
-      {/* Single alert channel — covers every notification for this site */}
+      {/* Single alert channel — covers every notification for this site. No
+          sub-heading: it sits directly under the card's own "Alerts & Status
+          Page" title, and a second bell-icon heading right beneath that just
+          read as a duplicate. The later sections keep theirs because they follow
+          content rather than the title. */}
       <div className="space-y-1.5">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <Bell className="h-4 w-4 text-muted-foreground" />
-          Website alert channel
-        </div>
         <ChannelSelect
           value={channelId}
           channels={channels}
           emptyLabel="Team default channels"
           onChange={changeChannel}
           saved={saved}
+          label="Website alert channel"
         />
         <p className="text-xs text-muted-foreground">
           All alerts for this site — script changes, domain/SSL/hosting expiry, SEO,

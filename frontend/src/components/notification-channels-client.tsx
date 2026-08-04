@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Bell, FlaskConical, CheckCircle2, XCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -152,7 +151,7 @@ function AddChannelForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <Card className="border-primary/30">
-      <CardContent className="p-5">
+      <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <p className="font-semibold text-sm">New notification channel</p>
           <div className="grid grid-cols-2 gap-4">
@@ -217,7 +216,7 @@ export function NotificationChannelsClient({ initialChannels }: { initialChannel
 
       {initialChannels.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+          <CardContent className="flex flex-col items-center justify-center gap-3 text-center py-16">
             <Bell className="h-10 w-10 text-muted-foreground" />
             <p className="text-lg font-medium">No channels yet</p>
             <p className="text-muted-foreground text-sm">
@@ -229,7 +228,7 @@ export function NotificationChannelsClient({ initialChannels }: { initialChannel
         <div className="space-y-2">
           {initialChannels.map((ch) => (
             <Card key={ch.id}>
-              <CardContent className="flex items-center justify-between py-3 px-4">
+              <CardContent className="flex items-center justify-between">
                 <div className="flex items-center gap-3 min-w-0">
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${TYPE_BADGE_COLOR[ch.channel_type] ?? "bg-slate-200"}`}>
                     {ch.channel_type.toUpperCase()}

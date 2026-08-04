@@ -1,9 +1,17 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-auto">
+// The wrapper is a scroll container by default, which is what most tables want.
+// A table inside a fixed-height pane needs to opt out (wrapperClassName=
+// "overflow-visible") so the scrolling — and therefore the scrollbar position
+// and any position:sticky headers — resolves against the pane instead of a
+// wrapper that is as tall as every row.
+const Table = React.forwardRef<
+  HTMLTableElement,
+  React.HTMLAttributes<HTMLTableElement> & { wrapperClassName?: string }
+>(
+  ({ className, wrapperClassName, ...props }, ref) => (
+    <div className={cn("relative w-full overflow-auto", wrapperClassName)}>
       <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
     </div>
   )

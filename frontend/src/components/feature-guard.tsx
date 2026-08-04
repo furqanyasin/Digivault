@@ -16,10 +16,14 @@ const ROUTE_FEATURE: Record<string, string> = {
   logs: "activity_log",
 };
 
-// Management-only areas a custom member can never reach.
-const MANAGER_ONLY = new Set(["team", "settings"]);
+// Management-only areas a custom member can never reach. `logs` is here rather
+// than in ROUTE_FEATURE because the Activity Log exposes other people's actions,
+// so it is a role decision, not a grantable feature.
+const MANAGER_ONLY = new Set(["team", "logs"]);
 // Always allowed regardless of granted features.
-const ALWAYS = new Set(["", "dashboard", "account"]);
+// `settings` is always allowed: it holds every user's own profile and 2FA,
+// and gates the team-configuration half internally by role.
+const ALWAYS = new Set(["", "dashboard", "account", "settings"]);
 
 /**
  * Client-side guard for non-owner members: redirects them away from any

@@ -96,7 +96,7 @@ export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInf
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <Card className="lg:col-span-2">
-        <CardContent className="pt-6 space-y-4">
+        <CardContent className="space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h3 className="text-base font-semibold">Health score</h3>
@@ -154,7 +154,7 @@ export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInf
       </Card>
 
       <Card>
-        <CardHeader className="pb-3">
+        <CardHeader>
           <CardTitle className="text-base">Recommended actions</CardTitle>
         </CardHeader>
         <CardContent>

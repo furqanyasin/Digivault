@@ -1,19 +1,9 @@
 import Link from "next/link";
-import { Bell, ChevronLeft } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { ChevronLeft } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { NotificationChannel } from "@/lib/api";
 import { NotificationChannelsClient } from "@/components/notification-channels-client";
-
-const TYPE_LABELS: Record<string, string> = {
-  slack: "Slack",
-  discord: "Discord",
-  webhook: "Webhook",
-  email: "Email",
-  telegram: "Telegram",
-};
 
 export default async function NotificationChannelsPage() {
   const token = await getAccessToken();

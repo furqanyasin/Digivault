@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Bell } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -132,7 +133,7 @@ export function MonitorNotificationPanel({ monitorId, initialRules, channels }: 
           <p className="text-xs text-muted-foreground text-center py-4">
             No channels assigned.{" "}
             {channels.length === 0 ? (
-              <a href="/monitors/channels" className="underline">Create a channel first.</a>
+              <Link href="/monitors/channels" className="underline">Create a channel first.</Link>
             ) : (
               <button className="underline" onClick={() => setAdding(true)}>Add one.</button>
             )}

@@ -1,20 +1,20 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
-  Search, Upload, Plus, ExternalLink,
-  CheckCircle2, XCircle, ChevronDown, ChevronUp, Download,
-  ChevronLeft, ChevronRight,
+  Upload, Plus, ExternalLink, Download, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { DEPARTMENT_LABELS } from "@/lib/client-fields";
+import {
+  DEPARTMENT_LABELS, DEPARTMENT_OPTIONS, TIER_OPTIONS,
+  HOSTING_OPTIONS, ACCESS_LEVEL_OPTIONS,
+} from "@/lib/client-fields";
 import type { ClientRecord } from "@/app/(dashboard)/clients/page";
 
 const HOSTING_LABELS: Record<string, string> = {
@@ -34,8 +34,15 @@ const COLUMN_COUNT = 14;
 
 // The pinned column needs an opaque background of its own: without it the
 // scrolling columns slide visibly underneath. `bg-card` matches the Card.
+// Three sticky layers overlap in this table, so the z-order is explicit:
+// the corner cell (pinned both ways) must sit above the header row, which must
+// sit above the pinned first column, or they overlap during diagonal scrolling.
+// All of them need an opaque background or rows show through underneath.
+// align-top on the header cells so labels line up across columns whose cells
+// now differ in height — the filterable ones carry a control underneath.
 const STICKY_HEAD =
-  "sticky left-0 z-20 bg-card min-w-[220px] after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border";
+  "sticky left-0 top-0 z-30 bg-card align-top py-2 min-w-[220px] after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border";
+const STICKY_HEAD_ROW = "sticky top-0 z-20 bg-card align-top py-2";
 const STICKY_CELL =
   "sticky left-0 z-10 bg-card min-w-[220px] after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border";
 
@@ -44,6 +51,13 @@ const TIER_TONE: Record<string, string> = {
   silver: "border-slate-400 text-slate-600 dark:text-slate-300",
   bronze: "border-orange-400 text-orange-700 dark:text-orange-400",
 };
+
+/** Match a record's stored value against a chosen filter option.
+ *  The shared option lists use a sentinel (`_none` / `_unknown`) for the blank
+ *  state, since "" is already taken by the "All" choice. */
+function matchesOption(stored: string, chosen: string, blankSentinel: string): boolean {
+  return chosen === blankSentinel ? !stored : stored === chosen;
+}
 
 function hostingLabel(c: ClientRecord): string {
   if (c.hosting_platform === "other") return c.hosting_platform_other || "Other";
@@ -76,42 +90,66 @@ function RenewalDate({ value }: { value: string | null }) {
   );
 }
 
-interface LookupResult {
-  id: string;
-  name: string;
-  website_url: string;
-  status: string;
-  has_access: boolean;
-  access_summary: string;
-  hosting_platform: string;
-  running_ppc_ads: string;
-  website_built_by_digi: string;
-  website_maintained_by_digi: string;
-  domain_access_location: string;
-  website_access_level: string;
-  tier: string;
+/** Filter controls sit under their column's label inside the sticky header, so
+ *  they scroll sideways with the column they belong to and stay visible while
+ *  scrolling down. Kept small and font-normal so they don't compete with the
+ *  header label above them. */
+const FILTER_CONTROL =
+  "mt-1.5 w-full border rounded px-1.5 py-1 text-xs font-normal bg-background text-foreground";
+
+function FilterSelect({ label, value, onChange, options }: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <select
+      aria-label={`Filter by ${label}`}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={FILTER_CONTROL}
+    >
+      <option value="">All</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
 }
 
 interface Props {
   initialClients: ClientRecord[];
 }
 
-const PAGE_SIZES = [25, 50, 100] as const;
+// Small sizes are useful on a laptop where the table pane only shows a handful
+// of rows at a time. Safe at any value: the clients endpoint is unpaginated, so
+// the full list arrives and pageClients slices it here — page_size sent upstream
+// is ignored. All values stay within the API's max_page_size of 100.
+const PAGE_SIZES = [5, 10, 15, 20, 25, 30, 50, 100] as const;
+type PageSize = (typeof PAGE_SIZES)[number];
 
 export function ClientsClient({ initialClients }: Props) {
   const [clients, setClients] = useState<ClientRecord[]>(initialClients);
   const [count, setCount] = useState(initialClients.length);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<25 | 50 | 100>(25);
+  const [pageSize, setPageSize] = useState<PageSize>(25);
   const [loading, setLoading] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<"" | "active" | "paused" | "offboarded">("");
 
-  // Lookup (CSM quick-answer)
-  const [lookupQuery, setLookupQuery] = useState("");
-  const [lookupResults, setLookupResults] = useState<LookupResult[] | null>(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupExpanded, setLookupExpanded] = useState(true);
+  // Per-column filters, applied client-side — the list endpoint is unpaginated
+  // so every client is already here and narrowing is instant. "" means "All";
+  // the _none / _unknown sentinels come from the shared option lists and match
+  // records whose field is blank.
+  const [colFilters, setColFilters] = useState({
+    name: "", tier: "", department: "", hosting: "", access: "",
+  });
+
+  function setColFilter(key: keyof typeof colFilters, value: string) {
+    setColFilters((f) => ({ ...f, [key]: value }));
+    setPage(1); // a narrower list can have fewer pages than the current one
+  }
 
   // Import / export
   const [importing, setImporting] = useState(false);
@@ -138,24 +176,26 @@ export function ClientsClient({ initialClients }: Props) {
     fetchClients(page, pageSize, "", statusFilter);
   }, [page, pageSize, statusFilter, fetchClients]);
 
-  const totalPages = Math.ceil(count / pageSize);
+  const filtered = useMemo(() => {
+    const q = colFilters.name.trim().toLowerCase();
+    return clients.filter((c) => {
+      // The Client cell shows name over domain, so match either.
+      if (q && !`${c.name} ${c.domain}`.toLowerCase().includes(q)) return false;
+      if (colFilters.tier && !matchesOption(c.tier, colFilters.tier, "_none")) return false;
+      if (colFilters.hosting && !matchesOption(c.hosting_platform, colFilters.hosting, "_unknown")) return false;
+      if (colFilters.access && !matchesOption(c.website_access_level, colFilters.access, "_unknown")) return false;
+      if (colFilters.department && !(c.departments ?? []).includes(colFilters.department)) return false;
+      return true;
+    });
+  }, [clients, colFilters]);
+
+  // Counts follow the filters, so "N clients" and the page count describe what
+  // is actually on screen rather than what the server returned.
+  const shownCount = filtered.length;
+  const totalPages = Math.ceil(shownCount / pageSize);
   // The API returns the full (unpaginated) list, so slice for the current page
   // here — this is what makes the "Per page" control actually paginate.
-  const pageClients = clients.slice((page - 1) * pageSize, page * pageSize);
-
-  async function handleLookup(e: React.FormEvent) {
-    e.preventDefault();
-    if (!lookupQuery.trim()) return;
-    setLookupLoading(true);
-    setLookupResults(null);
-    try {
-      const res = await fetch(`/api/clients/search?q=${encodeURIComponent(lookupQuery)}`);
-      const data = await res.json();
-      setLookupResults(data.results ?? []);
-    } finally {
-      setLookupLoading(false);
-    }
-  }
+  const pageClients = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -232,8 +272,15 @@ export function ClientsClient({ initialClients }: Props) {
   }
 
   return (
-    <div className="p-8 space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+    // Viewport-tall column that never scrolls itself — only the table pane
+    // below does. That keeps the table's horizontal scrollbar at the bottom of
+    // the screen instead of below the last row, where 100 rows put it off
+    // screen. h-dvh (not h-screen) so mobile browser chrome can't push the
+    // scrollbar out of view.
+    // Height subtracts the chat safe area that <main> pads by, so the two add
+    // back up to exactly one viewport and the page still never scrolls.
+    <div className="h-[calc(100dvh-var(--chat-safe-area))] flex flex-col overflow-hidden p-8 gap-6">
+      <div className="shrink-0 flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Clients</h1>
           <p className="text-muted-foreground mt-1">Hosting, access, and operational details for all clients</p>
@@ -258,81 +305,12 @@ export function ClientsClient({ initialClients }: Props) {
       </div>
 
       {importMsg && (
-        <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">{importMsg}</p>
+        <p className="shrink-0 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">{importMsg}</p>
       )}
 
-      {/* CSM Lookup */}
-      <Card>
-        <CardHeader className="pb-2">
-          <button
-            type="button"
-            className="flex items-center justify-between w-full text-left"
-            onClick={() => setLookupExpanded((v) => !v)}
-          >
-            <CardTitle className="text-base flex items-center gap-2">
-              <Search className="h-4 w-4" />
-              Quick Lookup — "Do we have access to this website?"
-            </CardTitle>
-            {lookupExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </button>
-        </CardHeader>
-        {lookupExpanded && (
-          <CardContent className="space-y-4">
-            <form onSubmit={handleLookup} className="flex gap-2">
-              <Input
-                placeholder="Type domain or client name, e.g. abc.com"
-                value={lookupQuery}
-                onChange={(e) => setLookupQuery(e.target.value)}
-                className="flex-1"
-              />
-              <Button type="submit" disabled={lookupLoading}>
-                {lookupLoading ? "Searching…" : "Search"}
-              </Button>
-            </form>
-            {lookupResults !== null && (
-              lookupResults.length === 0 ? (
-                <div className="flex items-center gap-2 rounded-md border bg-red-50 border-red-200 px-4 py-3">
-                  <XCircle className="h-5 w-5 text-red-500 shrink-0" />
-                  <div>
-                    <p className="font-medium text-sm text-red-800">Not found</p>
-                    <p className="text-xs text-red-600">No client matches &ldquo;{lookupQuery}&rdquo;.</p>
-                  </div>
-                </div>
-              ) : lookupResults.map((r) => (
-                <div key={r.id} className={`rounded-md border px-4 py-3 space-y-2 ${r.has_access ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
-                  <div className="flex items-center gap-2">
-                    {r.has_access
-                      ? <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-                      : <XCircle className="h-5 w-5 text-amber-600 shrink-0" />}
-                    <div>
-                      <p className="font-semibold text-sm">{r.name}</p>
-                      <p className="text-xs text-muted-foreground">{r.website_url}</p>
-                    </div>
-                    <Badge variant={r.status === "active" ? "success" : "secondary"} className="ml-auto capitalize">
-                      {r.status}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs pt-1 border-t border-current/10">
-                    <LookupRow label="Domain Access" value={r.access_summary} />
-                    <LookupRow label="Hosting" value={(HOSTING_LABELS[r.hosting_platform] ?? r.hosting_platform) || "—"} />
-                    <LookupRow label="Built by Digi" value={r.website_built_by_digi || "—"} />
-                    <LookupRow label="Maintained by Digi" value={r.website_maintained_by_digi || "—"} />
-                    <LookupRow label="Access level" value={r.website_access_level || "—"} />
-                  </div>
-                  <div className="text-right">
-                    <Link href={`/clients/${r.id}`} className="text-xs underline text-muted-foreground hover:text-foreground">
-                      View full details →
-                    </Link>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        )}
-      </Card>
 
       {/* Filters */}
-      <div className="flex gap-2 flex-wrap items-center">
+      <div className="shrink-0 flex gap-2 flex-wrap items-center">
         <div className="flex rounded-md border overflow-hidden text-sm">
           {(["", "active", "paused", "offboarded"] as const).map((s) => (
             <button
@@ -345,46 +323,92 @@ export function ClientsClient({ initialClients }: Props) {
             </button>
           ))}
         </div>
-        <span className="text-sm text-muted-foreground">{count} client{count !== 1 ? "s" : ""}</span>
+        <span className="text-sm text-muted-foreground">
+          {shownCount} client{shownCount !== 1 ? "s" : ""}
+          {shownCount !== count && <span className="ml-1">of {count}</span>}
+        </span>
         <div className="ml-auto flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Per page:</span>
-          {PAGE_SIZES.map((ps) => (
-            <button
-              key={ps}
-              type="button"
-              onClick={() => { setPageSize(ps); setPage(1); }}
-              className={`px-2 py-1 rounded border text-xs ${pageSize === ps ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
-            >
-              {ps}
-            </button>
-          ))}
+          <label htmlFor="per-page" className="text-muted-foreground">Per page:</label>
+          {/* A dropdown rather than one button per size — eight buttons crowded
+              the filter row, and adding sizes later now costs no width. */}
+          <select
+            id="per-page"
+            value={pageSize}
+            onChange={(e) => { setPageSize(Number(e.target.value) as PageSize); setPage(1); }}
+            className="border rounded-md px-2 py-1 text-xs bg-background"
+          >
+            {PAGE_SIZES.map((ps) => <option key={ps} value={ps}>{ps}</option>)}
+          </select>
         </div>
       </div>
 
       {/* Clients table.
           The client name is pinned left and everything else scrolls, so a row
           stays identifiable however far across you are. The scroll lives on this
-          wrapper — not the page — so the sidebar and filters never move. */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table className="min-w-[1500px]">
+          wrapper — not the page — so the sidebar and filters never move.
+
+          min-h-0 on the Card and CardContent is load-bearing: flex items default
+          to min-height:auto and refuse to shrink below their content, so without
+          it the Card grows to the full height of every row and the inner
+          overflow-auto never engages. */}
+      <Card className="flex-1 min-h-0 flex flex-col">
+        <CardContent className="p-0 flex-1 min-h-0">
+          <div className="h-full overflow-auto">
+            {/* overflow-visible on Table's own wrapper is required: by default it
+                is a scroll container as tall as every row, so it would own the
+                horizontal scrollbar and park it below the last row. Opting out
+                hands both scroll axes to the pane above. */}
+            <Table wrapperClassName="overflow-visible" className="min-w-[1500px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className={STICKY_HEAD}>Client</TableHead>
-                  <TableHead className="min-w-[150px]">Package</TableHead>
-                  <TableHead className="min-w-[190px]">Departments</TableHead>
-                  <TableHead className="min-w-[140px]">Hosting</TableHead>
-                  <TableHead className="min-w-[130px]">Hosting renewal</TableHead>
-                  <TableHead className="min-w-[180px]">Domain Access</TableHead>
-                  <TableHead className="min-w-[130px]">Domain renewal</TableHead>
-                  <TableHead className="min-w-[150px]">Website Access</TableHead>
-                  <TableHead className="min-w-[200px]">Website URL</TableHead>
-                  <TableHead className="min-w-[150px]">Built By Digilatics</TableHead>
-                  <TableHead className="min-w-[170px]">Maintained By Digilatics</TableHead>
-                  <TableHead className="min-w-[90px]">PPC ads</TableHead>
-                  <TableHead className="min-w-[110px]">Status</TableHead>
-                  <TableHead className="w-16" />
+                  <TableHead className={STICKY_HEAD}>
+                    Client
+                    <input
+                      type="search"
+                      aria-label="Filter by client name or domain"
+                      placeholder="Search name or domain…"
+                      value={colFilters.name}
+                      onChange={(e) => setColFilter("name", e.target.value)}
+                      className={FILTER_CONTROL}
+                    />
+                  </TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[150px]`}>
+                    Package
+                    <FilterSelect
+                      label="Package" value={colFilters.tier}
+                      onChange={(v) => setColFilter("tier", v)} options={TIER_OPTIONS}
+                    />
+                  </TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[190px]`}>
+                    Departments
+                    <FilterSelect
+                      label="Departments" value={colFilters.department}
+                      onChange={(v) => setColFilter("department", v)} options={DEPARTMENT_OPTIONS}
+                    />
+                  </TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[140px]`}>
+                    Hosting
+                    <FilterSelect
+                      label="Hosting" value={colFilters.hosting}
+                      onChange={(v) => setColFilter("hosting", v)} options={HOSTING_OPTIONS}
+                    />
+                  </TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[130px]`}>Hosting renewal</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[180px]`}>Domain Access</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[130px]`}>Domain renewal</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[150px]`}>
+                    Website Access
+                    <FilterSelect
+                      label="Website Access" value={colFilters.access}
+                      onChange={(v) => setColFilter("access", v)} options={ACCESS_LEVEL_OPTIONS}
+                    />
+                  </TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[200px]`}>Website URL</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[150px]`}>Built By Digilatics</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[170px]`}>Maintained By Digilatics</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[90px]`}>PPC ads</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[110px]`}>Status</TableHead>
+                  <TableHead className={`${STICKY_HEAD_ROW} w-16`} />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -521,9 +545,9 @@ export function ClientsClient({ initialClients }: Props) {
 
       {/* Pagination controls */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm">
+        <div className="shrink-0 flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            Page {page} of {totalPages} &middot; {count} total
+            Page {page} of {totalPages} &middot; {shownCount} total
           </span>
           <div className="flex items-center gap-1">
             <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1}>«</Button>
@@ -551,15 +575,6 @@ export function ClientsClient({ initialClients }: Props) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function LookupRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <span className="text-muted-foreground">{label}: </span>
-      <span className="font-medium">{value}</span>
     </div>
   );
 }

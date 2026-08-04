@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, XCircle, Loader2, ShieldCheck, ScanSearch } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Stage = "idle" | "verifying" | "scanning" | "done" | "fail";

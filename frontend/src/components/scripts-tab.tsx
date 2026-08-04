@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Code, CheckCircle, Ban, Loader2 } from "lucide-react";
+import { Code, CheckCircle, Ban, Loader2, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -232,9 +232,23 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={providerVariant(rep.provider)} className="capitalize">
-                    {rep.provider === "unknown" ? "—" : rep.provider}
-                  </Badge>
+                  <div className="flex flex-col items-start gap-1">
+                    <Badge variant={providerVariant(rep.provider)} className="capitalize">
+                      {rep.provider === "unknown" ? "—" : rep.provider}
+                    </Badge>
+                    {/* Injected-code flag. Advisory, so the reason is always
+                        attached rather than shown as a bare verdict. */}
+                    {group.some((x) => x.is_suspicious) && (
+                      <Badge
+                        variant="destructive"
+                        className="gap-1 whitespace-nowrap"
+                        title={group.flatMap((x) => x.suspicion_reasons ?? []).join(" · ")}
+                      >
+                        <AlertTriangle className="h-3 w-3" aria-hidden />
+                        Suspicious
+                      </Badge>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="text-sm capitalize text-muted-foreground">
                   {rep.category === "unknown" ? "—" : rep.category}

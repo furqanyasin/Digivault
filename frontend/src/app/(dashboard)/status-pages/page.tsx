@@ -40,7 +40,7 @@ export default async function StatusPagesPage() {
 
       {pages.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+          <CardContent className="flex flex-col items-center justify-center gap-3 text-center py-16">
             <Globe className="h-10 w-10 text-muted-foreground" />
             <p className="text-lg font-medium">No status pages yet</p>
             <p className="text-muted-foreground text-sm">
@@ -55,7 +55,7 @@ export default async function StatusPagesPage() {
             const info = statusInfo(page.overall_status);
             return (
               <Card key={page.id} className="flex flex-col">
-                <CardHeader className="pb-3">
+                <CardHeader>
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="text-base leading-snug">{page.name}</CardTitle>
                     <div className="flex items-center gap-1 shrink-0">

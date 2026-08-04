@@ -75,21 +75,21 @@ export default async function MonitorsPage() {
       {/* Summary row */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Monitors</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent><div className="text-2xl font-bold">{monitors.length}</div></CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium text-muted-foreground">Up</CardTitle>
             <ArrowUp className="h-4 w-4 text-emerald-500" />
           </CardHeader>
           <CardContent><div className="text-2xl font-bold text-emerald-600">{up}</div></CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium text-muted-foreground">Issues</CardTitle>
             <ArrowDown className="h-4 w-4 text-red-500" />
           </CardHeader>
@@ -100,7 +100,7 @@ export default async function MonitorsPage() {
       {/* Monitor table */}
       {monitors.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-20 gap-3 text-center">
+          <CardContent className="flex flex-col items-center justify-center gap-3 text-center py-16">
             <Activity className="h-10 w-10 text-muted-foreground" />
             <p className="text-lg font-medium">No monitors yet</p>
             <p className="text-muted-foreground text-sm">Add a monitor to start tracking uptime and response times</p>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronLeft, ChevronRight, Star, X } from "lucide-react";
@@ -102,11 +102,11 @@ export function WebsitesClient({
   }, [missingClients, query]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  // Searching or resizing can leave you past the end of the new result set.
-  useEffect(() => {
-    if (page > totalPages) setPage(1);
-  }, [page, totalPages]);
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+  // Searching or resizing can leave `page` past the end of the new result set.
+  // Clamp during render rather than correcting it in an effect, which would
+  // paint an empty page first and then re-render.
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <div className="space-y-4">
@@ -344,31 +344,31 @@ export function WebsitesClient({
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            Page {page} of {totalPages} &middot; {filtered.length} total
+            Page {safePage} of {totalPages} &middot; {filtered.length} total
           </span>
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={page === 1}>«</Button>
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>
+            <Button variant="outline" size="sm" onClick={() => setPage(1)} disabled={safePage === 1}>«</Button>
+            <Button variant="outline" size="sm" onClick={() => setPage(safePage - 1)} disabled={safePage === 1}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-              const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+              const start = Math.max(1, Math.min(safePage - 2, totalPages - 4));
               const p = start + i;
               return (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setPage(p)}
-                  className={`w-8 h-8 rounded border text-xs ${p === page ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
+                  className={`w-8 h-8 rounded border text-xs ${p === safePage ? "bg-primary text-primary-foreground border-primary" : "hover:bg-muted"}`}
                 >
                   {p}
                 </button>
               );
             })}
-            <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page === totalPages}>
+            <Button variant="outline" size="sm" onClick={() => setPage(safePage + 1)} disabled={safePage === totalPages}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={page === totalPages}>»</Button>
+            <Button variant="outline" size="sm" onClick={() => setPage(totalPages)} disabled={safePage === totalPages}>»</Button>
           </div>
         </div>
       )}

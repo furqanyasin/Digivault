@@ -57,7 +57,7 @@ export default async function StatusPageDetailPage({
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Overall Status</CardTitle>
           </CardHeader>
           <CardContent>
@@ -71,7 +71,7 @@ export default async function StatusPageDetailPage({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Monitors on Page</CardTitle>
           </CardHeader>
           <CardContent>
@@ -79,7 +79,7 @@ export default async function StatusPageDetailPage({
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Search Indexing</CardTitle>
           </CardHeader>
           <CardContent>

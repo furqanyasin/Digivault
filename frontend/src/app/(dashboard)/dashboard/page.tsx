@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { ChartCardHeader } from "@/components/charts/chart-card-header";
 import { SummaryChunk } from "@/components/charts/summary-chunk";
 import { FleetHealthDonut } from "@/components/charts/fleet-health-donut";
-import { ActivityAreaChart } from "@/components/charts/activity-area-chart";
-import { RenewalBars } from "@/components/charts/renewal-bars";
-import { SeverityStrip } from "@/components/charts/severity-strip";
+import { RenewalUrgencyBars } from "@/components/charts/renewal-urgency-bars";
+import { UptimeCard } from "@/components/charts/uptime-card";
+import { FleetChecksRow, type FleetSummary } from "@/components/charts/fleet-checks-row";
+import { SetupChecklist, type SetupStep } from "@/components/charts/setup-checklist";
+import { AlertsCard } from "@/components/charts/alerts-card";
 import { DashboardFilters } from "@/components/dashboard-filters";
-import { AcknowledgeAllButton } from "@/components/acknowledge-all-button";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import { healthBand } from "@/lib/chart-theme";
@@ -44,61 +45,28 @@ interface UptimeTrend {
   points: { date: string; value: number | null }[];
 }
 
+interface TeamRow {
+  id: string;
+  member_count: number;
+  my_role?: string | null;
+}
+
 interface ClientRow {
   id: string;
   name: string;
   status: string;
 }
 
-const DEFAULT_DAYS = 14;
-const MAX_DAYS = 90;
 const ATTENTION_LIMIT = 6;
 
-/** Resolve the window the whole page is scoped to. An explicit from+to wins;
- *  half a range is ignored, matching the backend's rule. */
-function resolveWindow(from?: string, to?: string, days?: string) {
-  const iso = /^\d{4}-\d{2}-\d{2}$/;
-  if (from && to && iso.test(from) && iso.test(to)) {
-    const [a, b] = from <= to ? [from, to] : [to, from];
-    return { from: a, to: b, days: null as number | null };
-  }
-  const n = Number(days);
-  const clamped = Number.isFinite(n) && n > 0 ? Math.min(Math.trunc(n), MAX_DAYS) : DEFAULT_DAYS;
-  return { from: null, to: null, days: clamped };
-}
+/** Widest window the trend cards can be asked for. Fetched once; the cards
+ *  slice it client-side. */
+const MAX_DAYS = 90;
 
-const dayKey = (iso: string) => {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-};
-
-/** Every calendar day in the window, oldest first. */
-function windowDays(w: ReturnType<typeof resolveWindow>): string[] {
-  const out: string[] = [];
-  if (w.from && w.to) {
-    const cur = new Date(`${w.from}T00:00:00`);
-    const end = new Date(`${w.to}T00:00:00`);
-    while (cur <= end && out.length < MAX_DAYS) {
-      out.push(dayKey(cur.toISOString()));
-      cur.setDate(cur.getDate() + 1);
-    }
-    return out;
-  }
-  const today = new Date();
-  for (let i = (w.days ?? DEFAULT_DAYS) - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    out.push(dayKey(d.toISOString()));
-  }
-  return out;
-}
-
-/** Short axis label — "12 Jul". Full dates live in the tooltip. */
-const shortLabel = (day: string) =>
-  new Date(`${day}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-
-async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
-  const uptimeQuery = w.from && w.to ? `from=${w.from}&to=${w.to}` : `days=${w.days}`;
+async function getData(token: string) {
+  // Always the widest window. The trend cards slice it client-side, so a
+  // preset click costs nothing — it used to refetch all ten of these.
+  const uptimeQuery = `days=${MAX_DAYS}`;
 
   // Forms and form-errors used to be fetched here for the Coverage card. That
   // card is gone, so the two requests went with it rather than being left to
@@ -107,10 +75,12 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
     changesResult, uptimeResult,
-    clientsResult, credentialsResult, meResult,
+    clientsResult, credentialsResult, teamsResult, fleetResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
-    api.get<Monitor[]>("/api/v1/monitors/", token),
+    // getAll, not get: the list pages at 25, so a plain get silently dropped
+    // monitors past the first page and under-reported how many were down.
+    api.getAll<Monitor>("/api/v1/monitors/", token),
     api.get<LogEntry[]>("/api/v1/logs/", token),
     // 90 days feeds the renewal forecast; the card's own figure filters to 30.
     api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=90", token),
@@ -118,27 +88,37 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=90", token),
     api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
     api.get<UptimeTrend>(`/api/v1/monitors/uptime-trend/?${uptimeQuery}`, token),
-    // These three back the summary chunks for the sidebar sections that have no
-    // chart of their own, so the dashboard covers the whole product rather than
+    // These back the summary chunks for the sidebar sections that have no chart
+    // of their own, so the dashboard covers the whole product rather than
     // showing the same four website metrics repeatedly.
     api.getAll<ClientRow>("/api/v1/clients/", token),
     api.getAll<{ id: string }>("/api/v1/credentials/", token),
-    api.get<{ active_team: string | null }>("/api/v1/auth/me/", token),
+    // /auth/teams/ already carries member_count per team, so the member figure
+    // costs nothing extra. This used to fetch /auth/me/ and then, sequentially,
+    // that team's members — two round trips in series after the parallel batch,
+    // on every page load and every filter change.
+    api.get<TeamRow[]>("/api/v1/auth/teams/", token),
+    // One aggregate call for fleet-wide SEO / performance / security. Asking per
+    // site would be three requests times the site count.
+    api.get<FleetSummary>("/api/v1/websites/fleet-summary/", token),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
     r.status === "fulfilled" ? r.value : fallback;
 
-  // Member count needs the active team id, so it can only run once /me resolves.
-  const activeTeam = val(meResult, { active_team: null }).active_team;
-  const members = activeTeam
-    ? await api
-        .getAll<{ id: string }>(`/api/v1/auth/teams/${activeTeam}/members/`, token)
-        .catch(() => [] as { id: string }[])
-    : [];
+  const teams = val(teamsResult, [] as TeamRow[]);
+  const allWebsites = val(websitesResult, [] as Website[]);
+  // A site is "reporting" if its snippet has phoned home in the last week.
+  // Computed here, not during render: Date.now() in a component body is not
+  // idempotent, which React's purity rule rightly rejects.
+  const staleBefore = Date.now() - 7 * 86400000;
+  const reportingCount = allWebsites.filter(
+    (w) => w.last_seen_at && new Date(w.last_seen_at).getTime() >= staleBefore
+  ).length;
 
   return {
-    websites: val(websitesResult, [] as Website[]),
+    websites: allWebsites,
+    reportingCount,
     monitors: val(monitorsResult, [] as Monitor[]),
     activity: val(logsResult, [] as LogEntry[]).slice(0, 6),
     expiringSsl: val(sslResult, [] as RenewalRow[]),
@@ -148,7 +128,10 @@ async function getData(token: string, w: ReturnType<typeof resolveWindow>) {
     uptimePoints: val(uptimeResult, { days: 0, points: [] } as UptimeTrend).points,
     clients: val(clientsResult, [] as ClientRow[]),
     credentialCount: val(credentialsResult, [] as { id: string }[]).length,
-    memberCount: members.length,
+    // The active team is the one the sidebar is showing; fall back to the
+    // first so the chunk still reads sensibly if `my_role` is absent.
+    memberCount: (teams.find((t) => t.my_role) ?? teams[0])?.member_count ?? 0,
+    fleet: val(fleetResult, null as FleetSummary | null),
   };
 }
 
@@ -173,21 +156,14 @@ const STATUS_BADGE: Record<string, "destructive" | "warning" | "success" | "seco
   active: "success", warning: "warning", critical: "destructive", inactive: "secondary",
 };
 
-export default async function DashboardPage({
-  searchParams,
-}: {
-  // Next 16: searchParams is a Promise and must be awaited.
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}) {
-  const sp = await searchParams;
-  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-  const win = resolveWindow(one(sp.from), one(sp.to), one(sp.days));
+export default async function DashboardPage() {
   const token = await getAccessToken();
   const {
     websites, monitors, activity,
     expiringSsl, expiringDomains, expiringHosting,
     allChanges, uptimePoints, clients, credentialCount, memberCount,
-  } = await getData(token ?? "", win);
+    reportingCount, fleet,
+  } = await getData(token ?? "");
 
   // Digivault's own infra is hidden from the Change Log and can never be
   // acknowledged, so it must not be counted as an alert either.
@@ -198,8 +174,6 @@ export default async function DashboardPage({
   };
   const visibleChanges = allChanges.filter((c) => !isInternal(c));
   const pending = visibleChanges.filter((c) => !c.is_acknowledged);
-  const highRisk = pending.filter((c) => c.severity === "critical" || c.severity === "high");
-
   // Composition of the same list the KPI counts, so the two can't disagree.
   const severityCounts = {
     critical: pending.filter((c) => c.severity === "critical").length,
@@ -232,29 +206,22 @@ export default async function DashboardPage({
     .filter((v): v is number => v != null)
     .sort((a, b) => a - b)[0];
 
-  // --- series, all real -----------------------------------------------------
-  const days = windowDays(win);
-  const labels = days.map(shortLabel);
 
-  const alertTrend = days.map((d) => pending.filter((c) => dayKey(c.created_at) === d).length);
-  const uptimeByDay = new Map(uptimePoints.map((p) => [p.date, p.value]));
-  const uptimeSeries = days.map((d) => uptimeByDay.get(d) ?? null);
-
-  const BUCKETS = [
-    { label: "≤30d", from: 0, to: 30 },
-    { label: "31–60d", from: 31, to: 60 },
-    { label: "61–90d", from: 61, to: 90 },
+  // One row per renewal type, split by urgency — matches the Renewal Center.
+  // Time buckets left the near bands empty, because most renewals sit far out.
+  const tallyUrgency = (rows: RenewalRow[]) => {
+    const d = (r: RenewalRow) => r.days_until_expiry;
+    return {
+      urgent: rows.filter((r) => d(r) != null && d(r)! <= 7).length,
+      soon: rows.filter((r) => d(r) != null && d(r)! > 7 && d(r)! <= 30).length,
+      later: rows.filter((r) => d(r) != null && d(r)! > 30 && d(r)! <= 90).length,
+    };
+  };
+  const renewalUrgency = [
+    { label: "Domain", ...tallyUrgency(domains) },
+    { label: "SSL", ...tallyUrgency(ssl) },
+    { label: "Hosting", ...tallyUrgency(hosting) },
   ];
-  const countIn = (rows: RenewalRow[], from: number, to: number) =>
-    rows.filter(
-      (r) => r.days_until_expiry != null && r.days_until_expiry >= from && r.days_until_expiry <= to
-    ).length;
-  const renewalBuckets = BUCKETS.map((b) => ({
-    label: b.label,
-    ssl: countIn(ssl, b.from, b.to),
-    domain: countIn(domains, b.from, b.to),
-    hosting: countIn(hosting, b.from, b.to),
-  }));
 
   // Health bands for the donut. `inactive` is a lifecycle state, so it is
   // counted separately rather than folded into a score band.
@@ -273,12 +240,19 @@ export default async function DashboardPage({
     )
     .sort((a, b) => (a.health_score ?? 100) - (b.health_score ?? 100));
 
-  const rangeCaption = win.from && win.to ? `${win.from} → ${win.to}` : `last ${win.days} days`;
 
   // --- summary chunks for the sidebar sections without a chart -------------
   const activeClients = clients.filter((c) => c.status === "active").length;
   const inactiveClients = clients.length - activeClients;
-  const totalScripts = websites.reduce((sum, w) => sum + (w.script_count ?? 0), 0);
+
+  const setupSteps: SetupStep[] = [
+    { label: "Add a client", hint: "Who the sites belong to", done: clients.length > 0, href: "/clients/new" },
+    { label: "Track a website", hint: "Start monitoring a site", done: websites.length > 0, href: "/websites/new" },
+    { label: "Install the snippet", hint: "So a site reports its scripts", done: reportingCount > 0, href: "/websites" },
+    { label: "Add an uptime monitor", hint: "Know when a site goes down", done: monitors.length > 0, href: "/monitors/new" },
+    { label: "Store a credential", hint: "Encrypted logins in the vault", done: credentialCount > 0, href: "/credentials" },
+    { label: "Invite a teammate", hint: "Share the workload", done: memberCount > 1, href: "/team" },
+  ];
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -287,7 +261,7 @@ export default async function DashboardPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight lg:text-3xl">Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every website your team is watching · {rangeCaption}
+            Every website your team is watching
           </p>
         </div>
         {/* DashboardFilters calls useSearchParams, which Next requires to sit
@@ -327,9 +301,14 @@ export default async function DashboardPage({
           icon={<UserCog className="h-4 w-4" />}
         />
         <SummaryChunk
-          label="Third-party scripts"
-          value={totalScripts}
-          caption={`Across ${websites.length} site${websites.length === 1 ? "" : "s"}`}
+          label="Snippet reporting"
+          value={reportingCount}
+          caption={
+            websites.length - reportingCount > 0
+              ? `${websites.length - reportingCount} site${websites.length - reportingCount === 1 ? "" : "s"} sending nothing`
+              : `All ${websites.length} sites sending data`
+          }
+          captionTone={websites.length - reportingCount > 0 ? "critical" : "good"}
           href="/websites"
           icon={<Code2 className="h-4 w-4" />}
         />
@@ -343,7 +322,7 @@ export default async function DashboardPage({
         {/* h-full + flex-col so the donut can claim the height this card gets
             from its taller neighbour, rather than leaving a gap beneath it. */}
         <Card className="lg:col-span-2">
-          <CardContent className="flex h-full flex-col p-5">
+          <CardContent className="flex h-full flex-col">
             <ChartCardHeader
               title="Website health"
               subtitle="Every site by health band"
@@ -358,62 +337,28 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <ChartCardHeader
-              title="Open alerts"
-              subtitle={`Raised per day · ${rangeCaption}`}
-              value={pending.length}
-              caption={highRisk.length > 0 ? `${highRisk.length} critical or high` : "None critical"}
-              captionTone={highRisk.length > 0 ? "critical" : "good"}
-              href="/alerts"
-              action={
-                <AcknowledgeAllButton
-                  changeIds={pending.map((c) => c.id)}
-                  highRiskCount={highRisk.length}
-                />
-              }
-            />
-            <ActivityAreaChart
-              labels={labels}
-              series={[{ label: "Alerts raised", data: alertTrend, tone: "critical" }]}
-              height={150}
-            />
-            {/* The severity breakdown used to be its own card, restating this
-                card's total. As a strip it adds the mix without repeating it. */}
-            <SeverityStrip counts={severityCounts} />
-          </CardContent>
-        </Card>
+        {/* Client-side: re-buckets on a preset click without a navigation. */}
+        <AlertsCard
+          alerts={pending.map((c) => ({
+            id: c.id,
+            severity: c.severity,
+            created_at: c.created_at,
+          }))}
+          severityCounts={severityCounts}
+        />
       </div>
 
       {/* Uptime beside the renewal forecast */}
       <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <ChartCardHeader
-              title="Uptime"
-              subtitle="Across all monitors · gaps mean no checks ran"
-              value={avgUptime ?? 0}
-              suffix="%"
-              decimals={2}
-              caption={
-                monitorsDown > 0
-                  ? `${monitorsDown} monitor${monitorsDown === 1 ? "" : "s"} down`
-                  : "All monitors up"
-              }
-              captionTone={monitorsDown > 0 ? "critical" : "good"}
-              href="/monitors"
-            />
-            <ActivityAreaChart
-              labels={labels}
-              series={[{ label: "Uptime", data: uptimeSeries, unit: "percent" }]}
-              height={150}
-            />
-          </CardContent>
-        </Card>
+        {/* Client-side: re-slices the 90-day series on a preset click. */}
+        <UptimeCard
+          points={uptimePoints}
+          avgUptime={avgUptime}
+          monitorsDown={monitorsDown}
+        />
 
         <Card className="lg:col-span-2">
-          <CardContent className="p-5">
+          <CardContent>
             <ChartCardHeader
               title="Renewals due"
               subtitle="Within 30 days · forecast to 90"
@@ -428,7 +373,7 @@ export default async function DashboardPage({
               }
               href="/renewals"
             />
-            <RenewalBars buckets={renewalBuckets} />
+            <RenewalUrgencyBars rows={renewalUrgency} />
           </CardContent>
         </Card>
       </div>
@@ -437,9 +382,16 @@ export default async function DashboardPage({
           rows use. The 2/3 split mirrors the first chart row rather than the
           second, so the three rows alternate instead of the last two reading
           as one repeated block. */}
+      <SetupChecklist steps={setupSteps} />
+
+      {/* Fleet-wide SEO / performance / security. These are scanned per site
+          already; nothing summarised them, so a site nobody had ever scanned
+          looked identical to a healthy one. */}
+      {fleet && fleet.total_sites > 0 && <FleetChecksRow s={fleet} />}
+
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-2">
-          <CardContent className="p-5">
+          <CardContent>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="flex items-center gap-2 text-sm font-semibold">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -517,7 +469,7 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
         <Card className="lg:col-span-3">
-          <CardContent className="p-5">
+          <CardContent>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold">Recent activity</h2>
               <Link href="/logs">

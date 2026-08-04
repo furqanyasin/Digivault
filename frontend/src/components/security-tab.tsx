@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { ShieldAlert, ShieldCheck, RefreshCw, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { Script, VulnerabilityReport, SiteScanState } from "@/lib/api";
 import { fmtDateTime } from "@/lib/utils";
 

@@ -103,7 +103,7 @@ export default async function MonitorDetailPage({ params }: Props) {
       {/* Uptime stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Uptime 24h</CardTitle>
           </CardHeader>
           <CardContent>
@@ -113,7 +113,7 @@ export default async function MonitorDetailPage({ params }: Props) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Uptime 7d</CardTitle>
           </CardHeader>
           <CardContent>
@@ -123,7 +123,7 @@ export default async function MonitorDetailPage({ params }: Props) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Uptime 30d</CardTitle>
           </CardHeader>
           <CardContent>
@@ -133,7 +133,7 @@ export default async function MonitorDetailPage({ params }: Props) {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">Last response</CardTitle>
           </CardHeader>
           <CardContent>
@@ -145,7 +145,7 @@ export default async function MonitorDetailPage({ params }: Props) {
 
       {/* Response time chart */}
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Activity className="h-4 w-4" />
             Response time trend
@@ -167,7 +167,7 @@ export default async function MonitorDetailPage({ params }: Props) {
 
       {/* 90-day uptime heatmap */}
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader>
           <CardTitle className="text-base">Daily uptime history</CardTitle>
         </CardHeader>
         <CardContent>
@@ -180,7 +180,7 @@ export default async function MonitorDetailPage({ params }: Props) {
         <MonitorEditForm monitor={monitor} />
 
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-base">Check summary</CardTitle>
           </CardHeader>
           <CardContent>

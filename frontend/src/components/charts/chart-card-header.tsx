@@ -33,24 +33,29 @@ export function ChartCardHeader({
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
-        <p className="mt-2 text-3xl font-semibold leading-none">
-          <AnimatedValue value={value} suffix={suffix} decimals={decimals} />
-        </p>
-        {caption && (
-          <p
-            className={`mt-1 text-xs ${
-              captionTone === "critical"
-                ? "font-semibold text-red-600"
-                : captionTone === "good"
-                  ? "font-medium text-emerald-600"
-                  : "text-muted-foreground"
-            }`}
-          >
-            {caption}
-          </p>
-        )}
+        {/* Figure, title and caption share one line — the figure used to sit on
+            its own row beneath the subtitle, which pushed every chart down and
+            left the header column looking like four stacked labels. */}
+        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+          <span className="text-3xl font-semibold leading-none">
+            <AnimatedValue value={value} suffix={suffix} decimals={decimals} />
+          </span>
+          <h2 className="text-sm font-semibold">{title}</h2>
+          {caption && (
+            <span
+              className={`text-xs ${
+                captionTone === "critical"
+                  ? "font-semibold text-red-600"
+                  : captionTone === "good"
+                    ? "font-medium text-emerald-600"
+                    : "text-muted-foreground"
+              }`}
+            >
+              {caption}
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {action}

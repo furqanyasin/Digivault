@@ -41,7 +41,7 @@ export default async function InvitePage({
         </div>
 
         <Card>
-          <CardHeader className="pb-3">
+          <CardHeader>
             <CardTitle className="text-lg">Invitation details</CardTitle>
             <CardDescription>Review before accepting</CardDescription>
           </CardHeader>

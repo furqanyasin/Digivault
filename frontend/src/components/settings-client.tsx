@@ -105,12 +105,7 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
   }
 
   return (
-    <div className="p-8 max-w-2xl space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1">Manage integrations and team configuration.</p>
-      </div>
-
+    <div className="space-y-6">
       {/* ClickUp Integration */}
       <Card>
         <CardHeader>
@@ -129,7 +124,7 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
               </Badge>
             )}
             {connected === false && (
-              <Badge variant="secondary" className="gap-1">
+              <Badge variant="secondary" className="gap-1 whitespace-nowrap">
                 <XCircle className="h-3 w-3" /> Not connected
               </Badge>
             )}
@@ -202,11 +197,6 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
           </div>
         </CardContent>
       </Card>
-
-      <p className="text-xs text-muted-foreground">
-        Looking for two-factor authentication? It moved to{" "}
-        <a href="/account" className="text-primary hover:underline">My Account</a>.
-      </p>
     </div>
   );
 }

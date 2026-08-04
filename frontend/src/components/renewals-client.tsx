@@ -1,9 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CalendarClock, RefreshCw, Globe, ShieldCheck, Server, FileSignature } from "lucide-react";
+import {
+  CalendarClock, RefreshCw, Globe, ShieldCheck, Server,
+  AlertTriangle, Clock, CalendarDays, ListChecks,
+} from "lucide-react";
+import { RenewalUrgencyBars, type UrgencyRow } from "@/components/charts/renewal-urgency-bars";
+
+/** How far ahead the page looks. The website-sourced endpoints filter by this;
+ *  client-entered dates are filtered to the same window here so both sources
+ *  describe the same period — otherwise one card silently reaches further than
+ *  the others. */
+const HORIZON_DAYS = 90;
 
 interface ExpiringItem {
   id: string;
@@ -25,6 +35,8 @@ interface RenewalRow {
   label: string;
   sub: string;
   days: number | null;
+  /** Where the date came from — auto lookup or a date typed on the client. */
+  source: "auto" | "client";
 }
 
 function unwrap(env: unknown): unknown {
@@ -55,16 +67,30 @@ function daysUntil(dateStr: string | null): number | null {
   return Math.floor(ms / (1000 * 60 * 60 * 24));
 }
 
-function urgencyVariant(days: number | null): "destructive" | "warning" | "secondary" {
-  if (days === null) return "secondary";
-  if (days <= 7) return "destructive";
-  if (days <= 30) return "warning";
+/** Four urgency states, in the order they matter. `overdue` and `critical` are
+ *  the "top priority" band the page paints red. */
+type Urgency = "overdue" | "critical" | "soon" | "later";
+
+function urgencyOf(days: number | null): Urgency {
+  if (days === null) return "later";
+  if (days < 0) return "overdue";
+  if (days <= 7) return "critical";
+  if (days <= 30) return "soon";
+  return "later";
+}
+
+const isTopPriority = (u: Urgency) => u === "overdue" || u === "critical";
+
+function urgencyVariant(u: Urgency): "destructive" | "warning" | "secondary" {
+  if (isTopPriority(u)) return "destructive";
+  if (u === "soon") return "warning";
   return "secondary";
 }
 
 function urgencyLabel(days: number | null): string {
   if (days === null) return "—";
   if (days < 0) return `Expired ${Math.abs(days)}d ago`;
+  if (days === 0) return "Due today";
   return `${days}d left`;
 }
 
@@ -76,43 +102,119 @@ function sortByDays(rows: RenewalRow[]): RenewalRow[] {
   });
 }
 
+/** Merge an auto-detected list with client-entered dates for the same concept.
+ *  The auto lookup wins: it is the registrar's own answer, where the client date
+ *  is typed from memory. A client row only appears for a domain the auto source
+ *  didn't cover, which is what stops the two showing up as duplicate cards. */
+function mergeSources(auto: RenewalRow[], manual: RenewalRow[]): RenewalRow[] {
+  const seen = new Set(auto.map((r) => normDomain(r.sub)).filter(Boolean));
+  const merged = [...auto];
+  for (const row of manual) {
+    const key = normDomain(row.sub);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    merged.push(row);
+  }
+  return merged;
+}
+
+/* ------------------------------- presentation ------------------------------ */
+
+/** A headline count. Status colour is carried by an icon and a written label as
+ *  well as the tint, so the state never rests on colour alone. */
+function StatTile({
+  icon: Icon, label, value, tone, hint,
+}: {
+  icon: typeof Globe;
+  label: string;
+  value: number;
+  tone: "critical" | "warning" | "neutral";
+  hint: string;
+}) {
+  const tones = {
+    critical: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300",
+    warning: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300",
+    neutral: "border-border bg-card text-foreground",
+  }[tone];
+  return (
+    <div className={`rounded-xl border p-4 ${tones}`}>
+      <div className="flex items-center gap-2 text-xs font-medium">
+        <Icon className="h-4 w-4 shrink-0" aria-hidden />
+        {label}
+      </div>
+      <div className="mt-2 text-3xl font-bold tabular-nums leading-none">{value}</div>
+      <div className="mt-1.5 text-xs opacity-70">{hint}</div>
+    </div>
+  );
+}
+
 function RenewalSection({
-  title,
-  icon: Icon,
-  rows,
+  title, icon: Icon, rows,
 }: {
   title: string;
   icon: typeof Globe;
   rows: RenewalRow[];
 }) {
+  const urgent = rows.filter((r) => isTopPriority(urgencyOf(r.days))).length;
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="flex flex-col">
+      <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <Icon className="h-4 w-4" />
+          <Icon className="h-4 w-4 shrink-0" aria-hidden />
           {title}
           <span className="text-muted-foreground font-normal">({rows.length})</span>
+          {urgent > 0 && (
+            <Badge variant="destructive" className="ml-auto text-xs">
+              {urgent} urgent
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="p-0 flex-1">
         {rows.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm">Nothing upcoming.</div>
         ) : (
           <table className="w-full text-sm">
             <tbody>
-              {sortByDays(rows).map((r) => (
-                <tr key={r.key} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <div className="font-medium">{r.label}</div>
-                    <div className="text-xs text-muted-foreground">{r.sub}</div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Badge variant={urgencyVariant(r.days)} className="text-xs">
-                      {urgencyLabel(r.days)}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
+              {sortByDays(rows).map((r) => {
+                const u = urgencyOf(r.days);
+                const top = isTopPriority(u);
+                return (
+                  <tr
+                    key={r.key}
+                    className={
+                      top
+                        // Top priority reads red at a glance: a left rule plus a
+                        // wash. The badge still spells the state out in words.
+                        ? "border-b last:border-0 bg-red-50/70 dark:bg-red-950/25 border-l-2 border-l-red-500"
+                        : "border-b last:border-0 hover:bg-muted/30"
+                    }
+                  >
+                    <td className="px-4 py-3">
+                      <div className={`font-medium ${top ? "text-red-700 dark:text-red-300" : ""}`}>
+                        {r.label}
+                      </div>
+                      <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                        <span className="truncate">{r.sub}</span>
+                        {r.source === "client" && (
+                          <span
+                            className="shrink-0 rounded border px-1 text-[10px] leading-4 text-muted-foreground"
+                            title="Date entered on the client record, not detected automatically"
+                          >
+                            client
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right align-top">
+                      <Badge variant={urgencyVariant(u)} className="text-xs whitespace-nowrap">
+                        {top && <AlertTriangle className="mr-1 h-3 w-3" aria-hidden />}
+                        {urgencyLabel(r.days)}
+                      </Badge>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -121,92 +223,71 @@ function RenewalSection({
   );
 }
 
+/* --------------------------------- page ----------------------------------- */
+
 export function RenewalsClient() {
   const [domains, setDomains] = useState<RenewalRow[]>([]);
   const [ssl, setSsl] = useState<RenewalRow[]>([]);
   const [hosting, setHosting] = useState<RenewalRow[]>([]);
-  const [clientDomains, setClientDomains] = useState<RenewalRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(async () => {
+    const q = `?days=${HORIZON_DAYS}`;
     const [domRes, sslRes, hostRes, clientsRes] = await Promise.all([
-      fetch("/api/websites/expiring-domains"),
-      fetch("/api/websites/expiring-ssl"),
-      fetch("/api/websites/expiring-hosting"),
+      fetch(`/api/websites/expiring-domains${q}`),
+      fetch(`/api/websites/expiring-ssl${q}`),
+      fetch(`/api/websites/expiring-hosting${q}`),
       fetch("/api/clients"),
     ]);
 
-    if (domRes.ok) {
-      const items = asList<ExpiringItem>(unwrap(await domRes.json()));
-      setDomains(
-        items.map((i) => ({
-          key: `dom-${i.id}`,
-          label: i.name || i.domain,
-          sub: i.domain,
-          days: i.days_until_expiry,
-        }))
-      );
-    }
-    if (sslRes.ok) {
-      const items = asList<ExpiringItem>(unwrap(await sslRes.json()));
-      setSsl(
-        items.map((i) => ({
-          key: `ssl-${i.id}`,
-          label: i.name || i.domain,
-          sub: i.domain,
-          days: i.days_until_expiry,
-        }))
-      );
-    }
-    // Hosting comes from both website-level expiry dates and client records.
-    // The Website's Access-tab date is authoritative — dedupe by domain so a
-    // site with both a website hosting-expiry and a client hosting-renewal
-    // date only appears once.
-    const hostingRows: RenewalRow[] = [];
-    const hostingDomains = new Set<string>();
-    if (hostRes.ok) {
-      const items = asList<ExpiringItem>(unwrap(await hostRes.json()));
-      for (const i of items) {
-        hostingDomains.add(normDomain(i.domain));
-        hostingRows.push({
-          key: `host-w-${i.id}`,
-          label: i.name || i.domain,
-          sub: i.domain,
-          days: i.days_until_expiry,
-        });
-      }
-    }
+    const readAuto = async (res: Response, prefix: string): Promise<RenewalRow[]> => {
+      if (!res.ok) return [];
+      const items = asList<ExpiringItem>(unwrap(await res.json()));
+      return items.map((i) => ({
+        key: `${prefix}-${i.id}`,
+        label: i.name || i.domain,
+        sub: i.domain,
+        days: i.days_until_expiry,
+        source: "auto" as const,
+      }));
+    };
+
+    const autoDomains = await readAuto(domRes, "dom");
+    const autoHosting = await readAuto(hostRes, "host");
+    setSsl(await readAuto(sslRes, "ssl"));
+
+    let clientDomains: RenewalRow[] = [];
+    let clientHosting: RenewalRow[] = [];
     if (clientsRes.ok) {
       // /api/clients returns { clients: [...], count }, not a bare array/envelope.
-      const clientsJson = await clientsRes.json();
-      const clients: ClientRow[] = Array.isArray(clientsJson?.clients)
-        ? clientsJson.clients
-        : asList<ClientRow>(unwrap(clientsJson));
-      for (const c of clients) {
-        if (!c.hosting_renewal_date) continue;
-        const key = normDomain(c.website_url);
-        if (key && hostingDomains.has(key)) continue;  // already covered by the website source
-        if (key) hostingDomains.add(key);
-        hostingRows.push({
-          key: `host-c-${c.id}`,
-          label: c.name,
-          sub: c.website_url,
-          days: daysUntil(c.hosting_renewal_date),
-        });
-      }
-      setClientDomains(
-        clients
-          .filter((c) => c.domain_renewal_date)
-          .map((c) => ({
-            key: `client-domain-${c.id}`,
-            label: c.name,
-            sub: c.website_url,
-            days: daysUntil(c.domain_renewal_date),
-          }))
-      );
+      const json = await clientsRes.json();
+      const clients: ClientRow[] = Array.isArray(json?.clients)
+        ? json.clients
+        : asList<ClientRow>(unwrap(json));
+
+      // Client dates are unbounded, so trim them to the same horizon the
+      // website endpoints use. Overdue rows are always kept.
+      const inHorizon = (d: number | null) => d !== null && d <= HORIZON_DAYS;
+      const toRow = (c: ClientRow, prefix: string, date: string | null): RenewalRow => ({
+        key: `${prefix}-${c.id}`,
+        label: c.name,
+        sub: c.website_url,
+        days: daysUntil(date),
+        source: "client" as const,
+      });
+
+      clientDomains = clients
+        .filter((c) => c.domain_renewal_date)
+        .map((c) => toRow(c, "client-dom", c.domain_renewal_date))
+        .filter((r) => inHorizon(r.days));
+      clientHosting = clients
+        .filter((c) => c.hosting_renewal_date)
+        .map((c) => toRow(c, "client-host", c.hosting_renewal_date))
+        .filter((r) => inHorizon(r.days));
     }
-    hostingRows.sort((a, b) => (a.days ?? 9999) - (b.days ?? 9999));
-    setHosting(hostingRows);
+
+    setDomains(mergeSources(autoDomains, clientDomains));
+    setHosting(mergeSources(autoHosting, clientHosting));
     setLoading(false);
   }, []);
 
@@ -217,6 +298,28 @@ export function RenewalsClient() {
     })();
   }, [fetchAll]);
 
+  const all = useMemo(() => [...domains, ...ssl, ...hosting], [domains, ssl, hosting]);
+  const countBy = (u: Urgency) => all.filter((r) => urgencyOf(r.days) === u).length;
+  const overdue = countBy("overdue");
+  const critical = countBy("critical");
+  const soon = countBy("soon");
+
+  /** One row per renewal type, split by urgency. Rows are always populated,
+   *  unlike time buckets — most renewals sit far out, which left the near bands
+   *  of a column chart empty. */
+  const urgencyRows: UrgencyRow[] = useMemo(() => {
+    const tally = (rows: RenewalRow[]): Omit<UrgencyRow, "label"> => ({
+      urgent: rows.filter((r) => isTopPriority(urgencyOf(r.days))).length,
+      soon: rows.filter((r) => urgencyOf(r.days) === "soon").length,
+      later: rows.filter((r) => urgencyOf(r.days) === "later").length,
+    });
+    return [
+      { label: "Domain", ...tally(domains) },
+      { label: "SSL", ...tally(ssl) },
+      { label: "Hosting", ...tally(hosting) },
+    ];
+  }, [domains, ssl, hosting]);
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between">
@@ -226,7 +329,7 @@ export function RenewalsClient() {
             Renewal Center
           </h1>
           <p className="text-muted-foreground mt-1">
-            Domains, SSL, and hosting — sorted by urgency.
+            Domain, SSL, and hosting renewals for the next {HORIZON_DAYS} days — most urgent first.
           </p>
         </div>
         <button
@@ -241,12 +344,50 @@ export function RenewalsClient() {
       {loading ? (
         <div className="text-center py-12 text-muted-foreground text-sm">Loading…</div>
       ) : (
-        <div className="grid gap-6 md:grid-cols-2">
-          <RenewalSection title="Domains" icon={Globe} rows={domains} />
-          <RenewalSection title="SSL Certificates" icon={ShieldCheck} rows={ssl} />
-          <RenewalSection title="Hosting" icon={Server} rows={hosting} />
-          <RenewalSection title="Client Domain Renewals" icon={FileSignature} rows={clientDomains} />
-        </div>
+        <>
+          {/* Headline counts — what needs doing now, before the detail. */}
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <StatTile
+              icon={AlertTriangle} label="Overdue" value={overdue}
+              tone={overdue > 0 ? "critical" : "neutral"}
+              hint="Already past the renewal date"
+            />
+            <StatTile
+              icon={Clock} label="Due within 7 days" value={critical}
+              tone={critical > 0 ? "critical" : "neutral"}
+              hint="Top priority this week"
+            />
+            <StatTile
+              icon={CalendarDays} label="Due in 8–30 days" value={soon}
+              tone={soon > 0 ? "warning" : "neutral"}
+              hint="Plan these in"
+            />
+            <StatTile
+              icon={ListChecks} label="Tracked total" value={all.length}
+              tone="neutral"
+              hint={`Across the next ${HORIZON_DAYS} days`}
+            />
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Renewals by urgency</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                How much of each renewal type needs attention now.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <RenewalUrgencyBars rows={urgencyRows} />
+            </CardContent>
+          </Card>
+
+          {/* One card per renewal type — three across on a wide screen. */}
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            <RenewalSection title="Domain Renewal" icon={Globe} rows={domains} />
+            <RenewalSection title="SSL Renewal" icon={ShieldCheck} rows={ssl} />
+            <RenewalSection title="Hosting Renewal" icon={Server} rows={hosting} />
+          </div>
+        </>
       )}
     </div>
   );

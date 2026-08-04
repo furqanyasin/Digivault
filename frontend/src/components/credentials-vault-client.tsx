@@ -49,25 +49,28 @@ const ALL_TYPES = [...WEBSITE_TYPES, ...HOSTING_TYPES].filter(
   (t, i, arr) => arr.findIndex((x) => x.value === t.value) === i
 );
 
-const HOSTING_TYPE_VALUES = new Set(HOSTING_TYPES.map((t) => t.value));
-
-const TYPE_GRADIENTS: Record<string, string> = {
-  wordpress:  "from-blue-500 to-indigo-600",
-  cpanel:     "from-orange-500 to-red-500",
-  godaddy:    "from-green-500 to-emerald-600",
-  namecheap:  "from-red-500 to-rose-600",
-  hostinger:  "from-violet-500 to-purple-600",
-  cloudflare: "from-amber-400 to-orange-500",
-  ftp:        "from-purple-500 to-violet-600",
-  wix:        "from-slate-600 to-slate-800",
-  webflow:    "from-indigo-500 to-blue-600",
-  framer:     "from-pink-500 to-rose-600",
-  shopify:    "from-emerald-500 to-teal-600",
-  siteground: "from-sky-500 to-blue-600",
-  bluehost:   "from-blue-600 to-indigo-700",
-  wpengine:   "from-teal-500 to-cyan-600",
-  kinsta:     "from-fuchsia-500 to-purple-600",
-  custom:     "from-slate-400 to-slate-600",
+// Card header colours. One muted family — desaturated teals, slate blues,
+// navies and soft purples — rather than a saturated hue per brand: the vault is
+// a wall of cards, and full-strength oranges/pinks beside each other made it
+// read as noise. Hex rather than Tailwind classes because the value is chosen at
+// runtime, and Tailwind cannot generate a class it never sees in the source.
+const TYPE_COLOR: Record<string, string> = {
+  wordpress:  "#4a6b96",
+  cpanel:     "#2f7b88",
+  godaddy:    "#1e4e5c",
+  namecheap:  "#5a7fa6",
+  hostinger:  "#7d78b4",
+  cloudflare: "#3d8f9b",
+  ftp:        "#8a86bd",
+  wix:        "#28324f",
+  webflow:    "#4a54a8",
+  framer:     "#272d6b",
+  shopify:    "#2f7b88",
+  siteground: "#5a7fa6",
+  bluehost:   "#1e2a5e",
+  wpengine:   "#1e4e5c",
+  kinsta:     "#7d78b4",
+  custom:     "#5a7fa6",
 };
 
 const TYPE_BADGE: Record<string, string> = {
@@ -90,48 +93,20 @@ const TYPE_BADGE: Record<string, string> = {
 };
 
 // Solid brand dot shown beside each option in the type dropdown, so platforms
-// are recognisable at a glance. Hues match TYPE_BADGE / TYPE_GRADIENTS.
-const TYPE_DOT: Record<string, string> = {
-  wordpress:  "bg-blue-500",
-  cpanel:     "bg-orange-500",
-  godaddy:    "bg-green-500",
-  cloudflare: "bg-amber-500",
-  ftp:        "bg-purple-500",
-  shopify:    "bg-emerald-500",
-  namecheap:  "bg-red-500",
-  hostinger:  "bg-violet-500",
-  wix:        "bg-slate-600",
-  webflow:    "bg-indigo-500",
-  framer:     "bg-pink-500",
-  siteground: "bg-sky-500",
-  bluehost:   "bg-blue-600",
-  wpengine:   "bg-teal-500",
-  kinsta:     "bg-fuchsia-500",
-  custom:     "bg-slate-400",
-};
-
-function dot(t: string) { return TYPE_DOT[t] ?? "bg-slate-400"; }
+// are recognisable at a glance. Hues match TYPE_BADGE / TYPE_COLOR.
+function dot(t: string) { return TYPE_COLOR[t] ?? "#5a7fa6"; }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RevealData { username: string; password: string; notes: string; password_hidden?: boolean }
 
-// Vibrant gradients used for custom/other credentials. Since most vault items
-// are "custom", giving each a distinct hue (derived deterministically from its
-// name) keeps the grid lively instead of a wall of identical gray cards.
-const CUSTOM_GRADIENTS = [
-  "from-violet-500 to-purple-600",
-  "from-blue-500 to-indigo-600",
-  "from-sky-500 to-blue-600",
-  "from-cyan-500 to-teal-600",
-  "from-emerald-500 to-green-600",
-  "from-amber-500 to-orange-600",
-  "from-orange-500 to-red-500",
-  "from-rose-500 to-pink-600",
-  "from-fuchsia-500 to-purple-600",
-  "from-indigo-500 to-violet-600",
-  "from-teal-500 to-emerald-600",
-  "from-pink-500 to-rose-600",
+// Most vault items are "custom", so each gets a stable colour derived from its
+// name — enough variety to tell cards apart at a glance, all within the same
+// muted band so the grid still reads as one set.
+const CARD_COLORS = [
+  "#4a6b96", "#2f7b88", "#1e4e5c", "#5a7fa6", "#7d78b4",
+  "#3d8f9b", "#1e2a5e", "#4a54a8", "#8a86bd", "#272d6b",
+  "#4aa3ad", "#28324f",
 ];
 
 function hashString(s: string): number {
@@ -143,16 +118,15 @@ function hashString(s: string): number {
 function typeLabel(t: string) {
   return ALL_TYPES.find((x) => x.value === t)?.label ?? t;
 }
-function gradient(t: string) { return TYPE_GRADIENTS[t] ?? "from-slate-400 to-slate-600"; }
 function badge(t: string) { return TYPE_BADGE[t] ?? "bg-slate-50 text-slate-600 border-slate-200"; }
 
-// Gradient for a credential card: a branded color for known providers, or a
-// stable per-name vibrant color for custom/other entries.
-function cardGradient(cred: { credential_type: string; label?: string }): string {
-  const known = TYPE_GRADIENTS[cred.credential_type];
+/** Header colour for a card: the provider's colour when known, otherwise a
+ *  stable pick from the palette so the same credential always looks the same. */
+function cardColor(cred: { credential_type: string; label?: string }): string {
+  const known = TYPE_COLOR[cred.credential_type];
   if (known && cred.credential_type !== "custom") return known;
   const seed = cred.label || cred.credential_type || "";
-  return CUSTOM_GRADIENTS[hashString(seed) % CUSTOM_GRADIENTS.length];
+  return CARD_COLORS[hashString(seed) % CARD_COLORS.length];
 }
 
 // ─── Credential card ──────────────────────────────────────────────────────────
@@ -199,7 +173,10 @@ function CredCard({ cred, subtitle, canWrite, onView, onDelete, onShare }: {
       className="group border rounded-xl overflow-hidden bg-card hover:shadow-lg transition-all cursor-pointer select-none"
       onClick={onView}
     >
-      <div className={`relative h-[72px] bg-gradient-to-br ${cardGradient(cred)} flex items-center justify-center`}>
+      <div
+        className="relative flex h-[72px] items-center justify-center"
+        style={{ backgroundColor: cardColor(cred) }}
+      >
         <CardArt cred={cred} />
         {cred.login_url && (
           <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -382,7 +359,10 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0">
-        <div className={`h-24 bg-gradient-to-br ${cardGradient(cred)} flex items-center justify-center relative`}>
+        <div
+          className="relative flex h-24 items-center justify-center"
+          style={{ backgroundColor: cardColor(cred) }}
+        >
           <Lock className="h-10 w-10 text-white/75" />
         </div>
 
@@ -850,7 +830,10 @@ function ShareCredentialModal({ cred, teamId, onClose }: {
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="sm:max-w-2xl p-0 overflow-hidden gap-0">
-        <div className={`h-16 bg-gradient-to-br ${cardGradient(cred)} flex items-center px-5 gap-3`}>
+        <div
+          className="flex h-16 items-center gap-3 px-5"
+          style={{ backgroundColor: cardColor(cred) }}
+        >
           <Share2 className="h-6 w-6 text-white/80 shrink-0" />
           <h2 className="font-bold text-lg text-white truncate">Share: {cred.label}</h2>
         </div>

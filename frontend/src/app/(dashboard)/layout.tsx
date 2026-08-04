@@ -1,4 +1,4 @@
-﻿import Image from "next/image";
+import Image from "next/image";
 import { LogoutButton } from "@/components/logout-button";
 import { NavLinks } from "@/components/nav-links";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -9,6 +9,7 @@ import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { Team, User } from "@/lib/api";
 import { GlobalSearch } from "@/components/global-search";
+import { NotificationBell } from "@/components/notification-bell";
 import { FeatureGuard } from "@/components/feature-guard";
 
 // `feature` maps a nav item to a custom-access key; `always` items are shown to
@@ -26,14 +27,16 @@ const navItems = [
   { href: "/alerts", label: "Alerts", icon: "alerts", feature: "alerts" },
   // Reports moved into each website's Reports tab; the standalone page is gone.
   { href: "/credentials", label: "Credentials", icon: "credentials", feature: "credentials" },
-  // Team, Renewal Center and Settings are owner/manager-only. Developers manage
-  // their own security in Account and see their own actions in the Activity Log
-  // (the backend scopes the log per-user for non-managers).
+  // Team, Renewal Center and Activity Log are owner/manager-only. Developers no
+  // longer get the Activity Log page, but the per-user scoping in the backend
+  // still stands, so the dashboard "Recent activity" card and each website's
+  // activity tab keep working for them. Settings is open to everyone — see below.
   { href: "/team", label: "Team", icon: "team", managerOnly: true },
-  { href: "/logs", label: "Activity Log", icon: "logs", feature: "activity_log" },
+  { href: "/logs", label: "Activity Log", icon: "logs", managerOnly: true, feature: "activity_log" },
   { href: "/heatmap", label: "Heatmap", icon: "heatmap", always: true },
-  { href: "/account", label: "My Account", icon: "account", always: true },
-  { href: "/settings", label: "Settings", icon: "settings", managerOnly: true },
+  // My Account merged into Settings. Everyone gets the page — it holds their
+  // profile and 2FA — and the team half inside it renders only for managers.
+  { href: "/settings", label: "Settings", icon: "settings", always: true },
 ];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -88,6 +91,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <GlobalSearch />
         </div>
 
+        {/* Unread alert count. Lives in the sidebar because this layout has no
+            top bar to hang a bell off. */}
+        <div className="border-b px-1 py-1">
+          <NotificationBell />
+        </div>
+
         <NavLinks items={visibleNavItems.map(({ href, label, icon }) => ({ href, label, icon }))} />
         <div className="border-t px-3 py-3 space-y-1">
           <ThemeToggle />
@@ -98,7 +107,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       {/* Main content — flows in normal document flow so the body scrolls when
           content is taller than the viewport. min-w-0 lets wide children (e.g.
           tables) stay contained instead of forcing page-wide overflow. */}
-      <main className="flex-1 min-w-0">
+      <main className="flex-1 min-w-0 pb-[var(--chat-safe-area)]">
         {!isOwner && <FeatureGuard features={myFeatures} isManager={isManager} />}
         {children}
       </main>
