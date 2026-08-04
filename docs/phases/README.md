@@ -1,6 +1,6 @@
 # Digivault Delivery Phases
 
-This directory breaks the [Production Readiness Roadmap](../../PRODUCTION_READINESS_ROADMAP.md) into detailed, implementation-ready phases. Each phase file lists tasks, the exact files touched, acceptance criteria, and a test plan.
+This directory breaks the [Production Readiness Roadmap](../planning/production-readiness-roadmap.md) into detailed, implementation-ready phases. Each phase file lists tasks, the exact files touched, acceptance criteria, and a test plan.
 
 | Phase | Theme | Blocks launch? | File |
 |-------|-------|----------------|------|
@@ -23,4 +23,4 @@ This directory breaks the [Production Readiness Roadmap](../../PRODUCTION_READIN
 
 ## Definition of "launch ready"
 
-All of Phase 0 complete + Phase 1 items 1–2 + the full [Internal Launch Checklist](../../PRODUCTION_READINESS_ROADMAP.md#internal-launch-checklist).
+All of Phase 0 complete + Phase 1 items 1–2 + the full [Internal Launch Checklist](../planning/production-readiness-roadmap.md#internal-launch-checklist).

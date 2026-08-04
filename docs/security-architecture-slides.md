@@ -4,7 +4,7 @@ title: Digivault Security Architecture
 paginate: true
 theme: default
 ---
-
+fonts set krny hian
 <!--
 Presentable deck. Render with Marp:
   npx @marp-team/marp-cli docs/security-architecture-slides.md -o security.pdf

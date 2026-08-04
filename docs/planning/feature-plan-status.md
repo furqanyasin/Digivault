@@ -1,7 +1,7 @@
 # Digivault — Feature Plan & Status
 
 Status tracker for the Digivault WebOps platform. Audited against
-`digivault_webops_platform_features_master_spec.md` plus the recent improvement
+[master-feature-spec.md](master-feature-spec.md) plus the recent improvement
 tiers. Last updated 2026-06-17 (re-audited against the codebase; several items
 previously marked "not built" were already implemented — corrected below).
 
