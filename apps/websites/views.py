@@ -1,16 +1,13 @@
 import logging
 
 from django.db.models import Count, Q
-from rest_framework import generics, permissions, status
-
-logger = logging.getLogger(__name__)
+from rest_framework import permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import IsTeamMember, RolePermission
+from apps.common.permissions import IsTeamMember
 from apps.websites.models import Website, WebsiteAssignment
 from apps.audit.services import AuditService
 from apps.audit.models import ActivityLog
@@ -21,6 +18,8 @@ from apps.websites.serializers import (
     WebsiteCreateSerializer,
     WebsiteSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_script_urls(html: str) -> list[str]:
@@ -319,15 +318,20 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "can_edit": _user_role(request.user, team) in _MANAGER_ROLES,
         })
 
-    def list(self, request, *args, **kwargs):
-        # Self-heal status/health for the listed sites so the dashboard reflects
-        # reality without the user opening each site. One recalc per site — it
-        # writes status and health together. (The nightly
-        # websites.recalculate_all_health sweep is the backstop; revisit this
-        # per-request heal if a team ever has enough sites to feel it.)
-        for w in self.filter_queryset(self.get_queryset()):
-            w.recalculate_health_score()
-        return super().list(request, *args, **kwargs)
+    # NOTE: list() deliberately does NOT recalculate health.
+    #
+    # It used to recalculate every listed site on every request. That cost ~8
+    # queries and a write per site, making this endpoint 1.03s for 13 sites —
+    # six to seventeen times every other call the dashboard makes, on the
+    # critical path of every page load and every filter change, and growing
+    # linearly with the number of sites.
+    #
+    # It was a safety net from before the score had proper triggers. Health is
+    # now recalculated on ingest, on acknowledge/review, on a monitor state flip,
+    # after a domain check and after a security scan, plus a nightly
+    # websites.recalculate_all_health sweep. retrieve() still heals the single
+    # site being opened, which is cheap and is where a stale number would
+    # actually be noticed.
 
     def retrieve(self, request, *args, **kwargs):
         # Self-heal a stale status/health on view — e.g. a site left 'critical'
@@ -595,6 +599,138 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             for w in qs
         ]
         return Response(data)
+
+    @action(detail=False, methods=["get"], url_path="fleet-summary")
+    def fleet_summary(self, request):
+        """Team-wide roll-up of SEO, performance, security-header and
+        vulnerability state.
+
+        One query per area rather than per website: the dashboard needs all four
+        for every site, and fanning out would be 4 requests x N sites. Only
+        reads stored scan results — never triggers a scan.
+        """
+        from django.db.models import Avg, Count, Q, Sum
+        from django.db.models.functions import Coalesce
+
+        from apps.performance.models import PerformanceReport
+        from apps.site_health.models import (
+            SecurityHeaderReport,
+            SeoReport,
+            VulnerabilityReport,
+        )
+
+        site_ids = list(self.get_queryset().values_list("id", flat=True))
+        total = len(site_ids)
+        if not total:
+            return Response({
+                "total_sites": 0,
+                "seo": {}, "performance": {}, "security": {}, "vulnerabilities": {},
+            })
+
+        # ---- SEO -----------------------------------------------------------
+        seo = SeoReport.objects.filter(website_id__in=site_ids, check_status="done")
+        seo_agg = seo.aggregate(
+            checked=Count("id"),
+            indexable=Count("id", filter=Q(homepage_indexable=True)),
+            blocked=Count(
+                "id", filter=Q(robots_blocks_all=True) | Q(homepage_indexable=False)
+            ),
+            noindex_pages=Coalesce(Sum("noindex_count"), 0),
+        )
+
+        # ---- Performance: the newest run per site, per strategy -------------
+        # Ordered newest-first by the model's own Meta, so the first row seen for
+        # a (site, strategy) pair is the current one.
+        latest = {}
+        for row in (
+            PerformanceReport.objects
+            .filter(website_id__in=site_ids, performance_score__isnull=False)
+            # PerformanceReport keeps its own timestamp — checked_at, not the
+            # BaseModel created_at, since it does not inherit from it.
+            .order_by("website_id", "strategy", "-checked_at")
+            .values("website_id", "strategy", "performance_score")
+        ):
+            latest.setdefault((row["website_id"], row["strategy"]), row["performance_score"])
+        mobile = [v for (_, strat), v in latest.items() if strat == "mobile"]
+        desktop = [v for (_, strat), v in latest.items() if strat == "desktop"]
+        avg = lambda xs: round(sum(xs) / len(xs)) if xs else None
+
+        # ---- Security headers ----------------------------------------------
+        headers = SecurityHeaderReport.objects.filter(
+            website_id__in=site_ids, check_status="done"
+        )
+        header_agg = headers.aggregate(checked=Count("id"), avg_score=Avg("score"))
+        grades = dict(
+            headers.values_list("grade").annotate(n=Count("id")).values_list("grade", "n")
+        )
+
+        # ---- Vulnerabilities ------------------------------------------------
+        vulns = VulnerabilityReport.objects.filter(website_id__in=site_ids)
+        vuln_agg = vulns.aggregate(
+            critical=Count("id", filter=Q(severity="critical")),
+            high=Count("id", filter=Q(severity="high")),
+            medium=Count("id", filter=Q(severity="medium")),
+            low=Count("id", filter=Q(severity="low")),
+        )
+        vuln_agg["sites_affected"] = (
+            vulns.values("website_id").distinct().count()
+        )
+
+        # ---- Tracking coverage ---------------------------------------------
+        # Distinct sites carrying each kind of tag, from the classifier's own
+        # categories. "Has analytics" is the question an agency actually asks —
+        # a site with no measurement is invisible to the client's reporting.
+        from apps.scripts.models import Script
+
+        def sites_with(**flt):
+            return (
+                Script.objects.filter(website_id__in=site_ids, is_active=True, **flt)
+                .values("website_id").distinct().count()
+            )
+
+        analytics_sites = sites_with(category__in=["analytics", "tag_management"])
+        tracking = {
+            "analytics": analytics_sites,
+            "missing_analytics": total - analytics_sites,
+            "tag_manager": sites_with(category="tag_management"),
+            "advertising": sites_with(category="advertising"),
+            "call_tracking": sites_with(category="call_tracking"),
+            "unknown_scripts": sites_with(provider="unknown"),
+            "suspicious_sites": sites_with(is_suspicious=True),
+            "suspicious_scripts": Script.objects.filter(
+                website_id__in=site_ids, is_active=True, is_suspicious=True
+            ).count(),
+        }
+
+        return Response({
+            "total_sites": total,
+            "tracking": tracking,
+            "seo": {
+                "checked": seo_agg["checked"],
+                "not_checked": total - seo_agg["checked"],
+                "indexable": seo_agg["indexable"],
+                "blocked": seo_agg["blocked"],
+                "noindex_pages": seo_agg["noindex_pages"],
+            },
+            "performance": {
+                "measured": len({wid for wid, _ in latest}),
+                "not_measured": total - len({wid for wid, _ in latest}),
+                "avg_mobile": avg(mobile),
+                "avg_desktop": avg(desktop),
+                # Lighthouse's own bands: <50 poor, 50-89 needs work, 90+ good.
+                "poor_mobile": sum(1 for v in mobile if v < 50),
+                "good_mobile": sum(1 for v in mobile if v >= 90),
+            },
+            "security": {
+                "checked": header_agg["checked"],
+                "not_checked": total - header_agg["checked"],
+                "avg_score": round(header_agg["avg_score"]) if header_agg["avg_score"] is not None else None,
+                "grades": grades,
+                # A and B pass; C and below need work.
+                "failing": sum(n for g, n in grades.items() if g and g[0] in "CDF"),
+            },
+            "vulnerabilities": vuln_agg,
+        })
 
     @action(detail=False, methods=["get"], url_path="expiring-hosting")
     def expiring_hosting(self, request):

@@ -8,15 +8,6 @@ def _user_role(user, team) -> str | None:
     return membership.role if membership else None
 
 
-def can_view_credential(user, credential) -> bool:
-    role = _user_role(user, credential.team)
-    if role in (TeamMembership.Role.OWNER, TeamMembership.Role.MANAGER):
-        return True
-    if credential.created_by_id == getattr(user, "id", None):
-        return True
-    return credential.shares.filter(user=user).exists()
-
-
 def can_modify_credential(user, credential) -> bool:
     """Edit / delete / share / unshare permission.
 

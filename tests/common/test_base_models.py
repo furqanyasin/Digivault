@@ -1,6 +1,5 @@
 import uuid
 
-import pytest
 
 from apps.common.models import BaseModel
 

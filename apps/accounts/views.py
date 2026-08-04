@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import secrets
 
 from django.conf import settings

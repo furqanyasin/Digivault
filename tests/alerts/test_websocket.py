@@ -1,4 +1,3 @@
-import json
 
 import pytest
 from channels.testing import WebsocketCommunicator

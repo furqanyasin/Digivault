@@ -1,6 +1,5 @@
 """Tests for apps.scripts.normalize — stable URL identity."""
 
-import pytest
 
 from apps.scripts.normalize import normalize_page_url, normalize_script_url
 

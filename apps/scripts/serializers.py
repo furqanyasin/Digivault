@@ -4,9 +4,9 @@ from apps.common.serializers import BaseModelSerializer
 from apps.scripts.models import (
     DetectedForm,
     FormSubmissionError,
+    JsError,
     Script,
     ScriptChange,
-    ScriptSnapshot,
 )
 
 # Hard caps on ingest payload list lengths — a single page should never
@@ -61,6 +61,29 @@ class FormErrorIngestSerializer(serializers.Serializer):
     source = serializers.CharField(max_length=100, allow_blank=True, default="")
     form_id = serializers.CharField(max_length=200, allow_blank=True, default="")
     message = serializers.CharField(max_length=2000)
+
+
+class JsErrorIngestSerializer(serializers.Serializer):
+    """Posted by the snippet when a page throws an uncaught JavaScript error."""
+
+    site_id = serializers.CharField(max_length=64)
+    page_url = serializers.URLField(max_length=2048)
+    message = serializers.CharField(max_length=2000)
+    source_url = serializers.CharField(max_length=2048, allow_blank=True, default="")
+    line_no = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    col_no = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    stack = serializers.CharField(max_length=4000, allow_blank=True, default="")
+
+
+class JsErrorSerializer(BaseModelSerializer):
+    class Meta:
+        model = JsError
+        fields = (
+            "id", "message", "source_url", "line_no", "col_no", "stack",
+            "page_url", "browser", "hits", "is_resolved",
+            "last_seen_at", "created_at",
+        )
+        read_only_fields = fields
 
 
 class FormSubmissionIngestSerializer(serializers.Serializer):
@@ -119,6 +142,9 @@ class ScriptSerializer(BaseModelSerializer):
             "wp_plugin",
             "seen_on_pages",
             "is_active",
+            "is_suspicious",
+            "suspicion_severity",
+            "suspicion_reasons",
             "review_status",
             "first_seen_at",
             "last_seen_at",

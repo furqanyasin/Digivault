@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
-from apps.domains.models import DomainAlert, DomainInfo
+from apps.domains.models import DomainInfo
 
 
 class DomainInfoSerializer(BaseModelSerializer):
@@ -29,6 +29,12 @@ class DomainInfoSerializer(BaseModelSerializer):
             "smtp_status",
             "mx_hosts",
             "smtp_checked_at",
+            "spf_status",
+            "spf_record",
+            "dmarc_status",
+            "dmarc_record",
+            "dkim_status",
+            "dkim_selector",
             "ssl_issuer",
             "ssl_expires_at",
             "ssl_days_until_expiry",
@@ -39,9 +45,3 @@ class DomainInfoSerializer(BaseModelSerializer):
         )
         read_only_fields = fields
 
-
-class DomainAlertSerializer(BaseModelSerializer):
-    class Meta:
-        model = DomainAlert
-        fields = ("id", "alert_type", "days_until_expiry", "sent", "sent_at", "created_at")
-        read_only_fields = fields

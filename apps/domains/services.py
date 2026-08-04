@@ -59,6 +59,83 @@ def _resolve_mx(domain: str) -> list[str]:
     return [host for _pref, host in records]
 
 
+def _resolve_txt(name: str) -> list[str]:
+    """TXT records for a name, each joined from its string chunks.
+
+    Long TXT values arrive split into 255-byte chunks; DMARC and SPF policies
+    routinely exceed that, so the chunks must be concatenated before parsing or
+    the record reads as truncated.
+    """
+    import dns.resolver
+
+    answers = dns.resolver.resolve(name, "TXT", lifetime=8)
+    return ["".join(part.decode() for part in r.strings) for r in answers]
+
+
+# Selectors are not discoverable from DNS — you can only ask for ones you know.
+# These cover Google Workspace, Microsoft 365, Mailchimp, SendGrid, Zoho and the
+# common self-hosted default, which is most agency-managed mail.
+DKIM_SELECTORS = ["google", "selector1", "selector2", "k1", "s1", "s2", "zoho", "default", "dkim"]
+
+
+def check_email_auth(domain: str, *, resolve_txt=None) -> dict:
+    """Check SPF, DKIM and DMARC for a domain.
+
+    Returns spf_status/dmarc_status of pass|missing|error, the raw records for
+    display, and dkim_status of pass|missing|error with the selector that
+    answered. Never raises — a mail-auth failure must not fail the whole domain
+    check.
+
+    Statuses describe *presence and syntax*, not correctness: verifying that an
+    SPF policy actually lists the right senders needs the sending
+    infrastructure, which Digivault does not know.
+    """
+    resolve_txt = resolve_txt or _resolve_txt
+    out = {
+        "spf_status": "missing", "spf_record": "",
+        "dmarc_status": "missing", "dmarc_record": "",
+        "dkim_status": "missing", "dkim_selector": "",
+    }
+
+    # SPF lives on the domain apex as a TXT record starting v=spf1.
+    try:
+        for txt in resolve_txt(domain):
+            if txt.lower().startswith("v=spf1"):
+                out["spf_status"] = "pass"
+                out["spf_record"] = txt[:500]
+                break
+    except Exception as exc:
+        logger.warning("SPF lookup failed for %s: %s", domain, exc)
+        out["spf_status"] = "error"
+
+    # DMARC lives at _dmarc.<domain>.
+    try:
+        for txt in resolve_txt(f"_dmarc.{domain}"):
+            if txt.lower().startswith("v=dmarc1"):
+                out["dmarc_status"] = "pass"
+                out["dmarc_record"] = txt[:500]
+                break
+    except Exception as exc:
+        logger.warning("DMARC lookup failed for %s: %s", domain, exc)
+        out["dmarc_status"] = "error"
+
+    # DKIM: probe the known selectors and stop at the first that answers.
+    for selector in DKIM_SELECTORS:
+        try:
+            for txt in resolve_txt(f"{selector}._domainkey.{domain}"):
+                if "v=dkim1" in txt.lower() or "p=" in txt:
+                    out["dkim_status"] = "pass"
+                    out["dkim_selector"] = selector
+                    break
+        except Exception:
+            # A missing selector is the normal case — keep trying the rest.
+            continue
+        if out["dkim_status"] == "pass":
+            break
+
+    return out
+
+
 def _probe_smtp(host: str, timeout: int = 8) -> bool:
     """Open an SMTP connection and read the greeting. True if it responds."""
     import smtplib

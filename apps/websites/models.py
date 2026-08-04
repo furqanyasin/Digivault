@@ -1,7 +1,6 @@
-﻿import secrets
+import secrets
 
 from django.db import models
-from django.utils.text import slugify
 
 from apps.common.models import BaseModel
 from apps.common.querysets import TeamScopedQuerySet

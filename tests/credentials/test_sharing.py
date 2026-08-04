@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import TeamMembership
 from apps.audit.models import ActivityLog
-from apps.credentials.models import Credential, CredentialShare
+from apps.credentials.models import CredentialShare
 from apps.credentials.services import CredentialService
 
 

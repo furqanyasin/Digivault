@@ -36,6 +36,20 @@ SITES = [
     ("Lakeside Veterinary", "lakesidevet.example", "wix", "warning"),
     ("Bramble Garden Centre", "bramblegarden.example", "wordpress", "healthy"),
     ("Foxglove Photography", "foxglovephoto.example", "framer", "stale"),
+    ("Cedar Point Dentistry", "cedarpointdental.example", "wordpress", "healthy"),
+    ("Marlow & Vane Solicitors", "marlowvane.example", "wordpress", "warning"),
+    ("Ironbridge Plumbing", "ironbridgeplumbing.example", "wix", "healthy"),
+    ("Thornton Removals", "thorntonremovals.example", "wordpress", "critical"),
+    ("Saltmarsh Kitchens", "saltmarshkitchens.example", "shopify", "healthy"),
+    ("Vale Physiotherapy", "valephysio.example", "squarespace", "warning"),
+    ("Kestrel Driving School", "kestreldriving.example", "wordpress", "healthy"),
+    ("Bluebell Childcare", "bluebellchildcare.example", "webflow", "stale"),
+    ("Hollow Oak Brewery", "hollowoak.example", "shopify", "warning"),
+    ("Pennine Accountancy", "pennineaccounts.example", "wordpress", "healthy"),
+    ("Rookwood Landscaping", "rookwoodland.example", "framer", "critical"),
+    ("Quayside Dental Lab", "quaysidelab.example", "wordpress", "healthy"),
+    ("Ellis & Ward Estates", "ellisward.example", "wordpress", "warning"),
+    ("Meridian Fitness", "meridianfitness.example", "wix", "healthy"),
 ]
 
 THIRD_PARTY = [
@@ -121,6 +135,10 @@ class Command(BaseCommand):
             "--days", type=int, default=30,
             help="How much history to generate (default 30).",
         )
+        parser.add_argument(
+            "--limit", type=int, default=None,
+            help=f"Seed only the first N of the {len(SITES)} demo sites.",
+        )
 
     def handle(self, *args, **options):
         from apps.accounts.models import Team
@@ -147,7 +165,7 @@ class Command(BaseCommand):
 
         with patch("apps.websites.tasks.run_initial_checks.delay"):
             with transaction.atomic():
-                self._seed(team, options["days"])
+                self._seed(team, options["days"], options["limit"])
 
     # ------------------------------------------------------------------ purge
 
@@ -171,7 +189,7 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------- seed
 
-    def _seed(self, team, days: int):
+    def _seed(self, team, days: int, limit: int | None = None):
         from apps.clients.models import Client
         from apps.domains.models import DomainInfo
         from apps.monitors.models import Monitor, MonitorCheck
@@ -188,7 +206,8 @@ class Command(BaseCommand):
         ]
 
         created_sites = []
-        for idx, (site_name, domain, platform, shape) in enumerate(SITES):
+        sites = SITES[:limit] if limit else SITES
+        for idx, (site_name, domain, platform, shape) in enumerate(sites):
             client, _ = Client.objects.update_or_create(
                 team=team,
                 name=site_name,

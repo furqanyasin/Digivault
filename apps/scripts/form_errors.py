@@ -27,20 +27,6 @@ IMPORTANT_FORM_ERROR_KEYWORDS = (
     "504",
 )
 
-# Pure user-validation noise — never important on its own.
-_NOISE_KEYWORDS = (
-    "is required",
-    "field is required",
-    "please fill",
-    "invalid email",
-    "valid email",
-    "must be",
-    "too short",
-    "too long",
-    "captcha",
-    "please verify",
-)
-
 # Query params whose values may identify a person or grant access.
 _SENSITIVE_PARAMS = {"email", "token", "key", "password", "phone", "code", "auth", "session"}
 
@@ -59,11 +45,6 @@ def is_important_form_error(message: str) -> bool:
     if any(k in lower for k in IMPORTANT_FORM_ERROR_KEYWORDS):
         return True
     return False
-
-
-def is_validation_noise(message: str) -> bool:
-    lower = (message or "").lower()
-    return any(k in lower for k in _NOISE_KEYWORDS)
 
 
 def sanitize_page_url(url: str) -> str:

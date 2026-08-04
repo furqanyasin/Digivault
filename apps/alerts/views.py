@@ -1,5 +1,5 @@
 from django.utils import timezone
-from rest_framework import generics, permissions, status
+from rest_framework import generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -11,7 +11,7 @@ from apps.alerts.serializers import (
 )
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
-from apps.common.permissions import IsTeamMember, RolePermission
+from apps.common.permissions import IsTeamMember
 from apps.websites.models import Website
 
 

@@ -1,6 +1,5 @@
 import csv
 import io
-import logging
 import uuid
 from urllib.parse import urlparse
 
@@ -12,7 +11,20 @@ from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-logger = logging.getLogger(__name__)
+from apps.audit.models import ActivityLog
+from apps.audit.services import AuditService, site_meta
+from apps.common.permissions import IsTeamMember, RolePermission
+from apps.credentials.models import Credential, CredentialAccessLog, CredentialShare
+from apps.credentials.permissions import can_modify_credential
+from apps.credentials.serializers import (
+    CredentialAccessLogSerializer,
+    CredentialSerializer,
+    CredentialShareSerializer,
+    CredentialShareWriteSerializer,
+    CredentialWriteSerializer,
+    RevealedCredentialSerializer,
+)
+from apps.credentials.services import CredentialService
 
 
 def _display_name(user) -> str:
@@ -31,19 +43,6 @@ class CredentialSaveThrottle(UserRateThrottle):
 class HandoffExchangeThrottle(AnonRateThrottle):
     rate = "20/minute"
     scope = "handoff_exchange"
-
-from apps.common.permissions import IsTeamMember, RolePermission
-from apps.credentials.models import Credential, CredentialAccessLog
-from apps.credentials.permissions import can_modify_credential
-from apps.credentials.serializers import (
-    CredentialAccessLogSerializer,
-    CredentialSerializer,
-    CredentialWriteSerializer,
-    RevealedCredentialSerializer,
-)
-from apps.credentials.services import CredentialService
-from apps.audit.services import AuditService
-from apps.audit.models import ActivityLog
 
 
 def _get_client_ip(request) -> str | None:
@@ -110,6 +109,7 @@ class TeamCredentialListCreateView(generics.ListCreateAPIView):
             request, ActivityLog.Action.CREDENTIAL_CREATED,
             description=f"Created credential '{credential.label}'",
             resource_type="credential", resource_id=credential.pk,
+            metadata=site_meta(credential),
         )
         return Response(
             CredentialSerializer(credential).data, status=status.HTTP_201_CREATED
@@ -166,6 +166,7 @@ class CredentialListCreateView(generics.ListCreateAPIView):
             request, ActivityLog.Action.CREDENTIAL_CREATED,
             description=f"Created credential '{credential.label}'",
             resource_type="credential", resource_id=credential.pk,
+            metadata=site_meta(credential),
         )
         return Response(
             CredentialSerializer(credential).data, status=status.HTTP_201_CREATED
@@ -214,7 +215,7 @@ class CredentialDetailView(generics.RetrieveUpdateDestroyAPIView):
             request, ActivityLog.Action.CREDENTIAL_UPDATED,
             description=f"Updated credential '{updated.label}'",
             resource_type="credential", resource_id=updated.pk,
-            metadata={"fields_changed": changed_fields},
+            metadata=site_meta(updated, fields_changed=changed_fields),
         )
         return Response(CredentialSerializer(updated).data)
 
@@ -226,6 +227,7 @@ class CredentialDetailView(generics.RetrieveUpdateDestroyAPIView):
             self.request, ActivityLog.Action.CREDENTIAL_DELETED,
             description=f"Deleted credential '{instance.label}'",
             resource_type="credential", resource_id=instance.pk,
+            metadata=site_meta(instance),
         )
         instance.delete()
 
@@ -263,6 +265,7 @@ class CredentialRevealView(APIView):
             request, ActivityLog.Action.CREDENTIAL_REVEALED,
             description=f"Revealed credential '{credential.label}'",
             resource_type="credential", resource_id=credential.pk,
+            metadata=site_meta(credential),
         )
         return Response(RevealedCredentialSerializer(revealed).data)
 
@@ -271,7 +274,7 @@ class CredentialAccessLogView(generics.ListAPIView):
     """GET /api/v1/websites/<website_pk>/credential-audit/"""
 
     serializer_class = CredentialAccessLogSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, RolePermission]
     required_role = "manager"
 
     def get_queryset(self):
@@ -456,13 +459,6 @@ class WebHandoffExchangeView(APIView):
             )
         cache.delete(key)
         return Response(tokens)
-
-
-from apps.credentials.models import CredentialShare
-from apps.credentials.serializers import (
-    CredentialShareSerializer,
-    CredentialShareWriteSerializer,
-)
 
 
 class CredentialShareListCreateView(APIView):

@@ -13,6 +13,7 @@ from apps.domains.services import (
     HOSTING_ALERT_THRESHOLDS,
     SSL_ALERT_THRESHOLDS,
     DomainIntelligenceService,
+    check_email_auth,
     check_smtp,
 )
 from apps.websites.models import Website
@@ -53,12 +54,15 @@ def check_domain(self, website_id: str) -> None:
         },
     )
 
-    # Mail (SMTP) health — best-effort, never blocks the domain check.
+    # Mail health — SMTP reachability plus SPF/DKIM/DMARC. Both are
+    # best-effort and never block the domain check.
     smtp = check_smtp(website.domain)
+    email_auth = check_email_auth(website.domain)
     DomainInfo.objects.filter(pk=domain_info.pk).update(
         smtp_status=smtp["smtp_status"],
         mx_hosts=smtp["mx_hosts"],
         smtp_checked_at=timezone.now(),
+        **email_auth,
     )
 
     _create_expiry_alerts(domain_info)

@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.models import ActivityLog
-from apps.audit.services import AuditService
+from apps.audit.services import AuditService, site_meta
 from apps.common.mixins import TeamScopedMixin
 from apps.common.permissions import IsTeamMember
 from apps.monitors.models import Monitor, MonitorCheck, MonitorNotificationRule, NotificationChannel
@@ -18,7 +18,6 @@ from apps.monitors.serializers import (
     MonitorSerializer,
     NotificationChannelSerializer,
 )
-from apps.monitors.tasks import check_single_monitor
 
 
 class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
@@ -41,6 +40,7 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
             self.request, ActivityLog.Action.MONITOR_CREATED,
             description=f"Created {monitor.monitor_type} monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
 
 
@@ -57,6 +57,7 @@ class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
             self.request, ActivityLog.Action.MONITOR_UPDATED,
             description=f"Updated monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
 
     def perform_destroy(self, instance):
@@ -64,6 +65,7 @@ class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
             self.request, ActivityLog.Action.MONITOR_DELETED,
             description=f"Deleted monitor '{instance.name}'",
             resource_type="monitor", resource_id=instance.pk,
+            metadata=site_meta(instance),
         )
         instance.delete()
 
@@ -195,6 +197,7 @@ class MonitorPauseView(APIView):
             request, ActivityLog.Action.MONITOR_PAUSED,
             description=f"Paused monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
         return Response(MonitorSerializer(monitor).data)
 
@@ -216,6 +219,7 @@ class MonitorResumeView(APIView):
             request, ActivityLog.Action.MONITOR_RESUMED,
             description=f"Resumed monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
         return Response(MonitorSerializer(monitor).data)
 
@@ -429,6 +433,7 @@ class MonitorNotificationRuleListCreateView(generics.ListCreateAPIView):
             self.request, ActivityLog.Action.MONITOR_RULE_CREATED,
             description=f"Added notification rule to monitor '{monitor.name}'",
             resource_type="monitor", resource_id=monitor.pk,
+            metadata=site_meta(monitor),
         )
 
 
@@ -452,5 +457,6 @@ class MonitorNotificationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
             self.request, ActivityLog.Action.MONITOR_RULE_DELETED,
             description=f"Removed notification rule from monitor '{instance.monitor.name}'",
             resource_type="monitor", resource_id=instance.monitor_id,
+            metadata=site_meta(instance.monitor),
         )
         instance.delete()

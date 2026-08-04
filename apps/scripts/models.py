@@ -91,6 +91,14 @@ class Script(BaseModel):
         IGNORED = "ignored", "Ignored"
 
     is_active = models.BooleanField(default=True, db_index=True)
+
+    # Heuristic injected-code flags, set on ingest from apps.scripts.suspicion.
+    # Advisory only: Digivault sees the URL, not the script body, so these mark
+    # things worth a human look rather than proven malware. Reasons are stored so
+    # the flag is never shown without its justification.
+    is_suspicious = models.BooleanField(default=False, db_index=True)
+    suspicion_severity = models.CharField(max_length=10, blank=True)
+    suspicion_reasons = models.JSONField(default=list, blank=True)
     review_status = models.CharField(
         max_length=20, choices=ReviewStatus.choices, default=ReviewStatus.PENDING, db_index=True
     )
@@ -298,6 +306,55 @@ class DetectedForm(BaseModel):
 
     def __str__(self) -> str:
         return f"Form {self.form_action or '(no action)'} on {self.page_url}"
+
+
+class JsError(BaseModel):
+    """A JavaScript error caught on a client page by the tracking snippet.
+
+    Deduplicated per (website, fingerprint) with a hit counter rather than one
+    row per occurrence: a broken script on a busy page throws thousands of
+    identical errors, and storing each would bury the signal and the disk.
+
+    page_url and message are sanitised before save, and no user input, cookie or
+    storage value is ever captured — only the browser's own error metadata.
+    """
+
+    website = models.ForeignKey(
+        "websites.Website",
+        on_delete=models.CASCADE,
+        related_name="js_errors",
+    )
+    # Stable hash of message + source + line, so repeats collapse onto one row.
+    fingerprint = models.CharField(max_length=64, db_index=True)
+    message = models.TextField()
+    # The file that threw, plus position — what a developer needs to find it.
+    source_url = models.TextField(blank=True)
+    line_no = models.PositiveIntegerField(null=True, blank=True)
+    col_no = models.PositiveIntegerField(null=True, blank=True)
+    # First frames only; a full trace can be enormous and adds little here.
+    stack = models.TextField(blank=True)
+    page_url = models.TextField()
+    # Coarse browser label, not a full user-agent string — enough to spot a
+    # browser-specific break without storing a fingerprintable identifier.
+    browser = models.CharField(max_length=60, blank=True)
+    hits = models.PositiveIntegerField(default=1)
+    last_seen_at = models.DateTimeField(auto_now=True)
+    is_resolved = models.BooleanField(default=False, db_index=True)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["website", "fingerprint"], name="jserror_unique_per_site"
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["website", "-last_seen_at"]),
+            models.Index(fields=["website", "is_resolved"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"JsError({self.website}: {self.message[:60]})"
 
 
 class FormSubmissionError(BaseModel):

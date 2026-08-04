@@ -6,7 +6,6 @@ delegates all heavy work here so the snippet endpoint stays under 50ms.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from urllib.parse import urlparse
@@ -17,6 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.scripts.classifier import ScriptClassifier
+from apps.scripts.suspicion import analyse
 from apps.scripts.diff_engine import DiffEngine
 from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
 from apps.scripts.normalize import normalize_page_url, normalize_script_url
@@ -298,6 +298,9 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
     src = script_data["src"]
     classification = ScriptClassifier.classify(src)
     domain = ScriptClassifier.extract_domain(src)
+    # Re-assessed on every ingest, not just on create: a URL can start benign and
+    # be swapped later, which is exactly the case worth catching.
+    suspicion = analyse(src, site_domain=website.domain)
 
     script, created = Script.objects.get_or_create(
         website=website,
@@ -315,6 +318,9 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
             "wp_plugin": script_data.get("wp_plugin", ""),
             "wp_post_id": script_data.get("wp_post_id"),
             "seen_on_pages": [page_url],
+            "is_suspicious": suspicion.is_suspicious,
+            "suspicion_severity": suspicion.severity,
+            "suspicion_reasons": list(suspicion.reasons),
         },
     )
 
@@ -327,6 +333,9 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
             is_active=True,
             src_url=src,
             src_domain=domain,
+            is_suspicious=suspicion.is_suspicious,
+            suspicion_severity=suspicion.severity,
+            suspicion_reasons=list(suspicion.reasons),
             provider=classification.provider,
             category=classification.category,
             location=script_data.get("location", script.location),

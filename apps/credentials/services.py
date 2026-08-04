@@ -9,7 +9,7 @@ from __future__ import annotations
 from django.db import transaction
 
 from apps.accounts.models import TeamMembership
-from apps.common.exceptions import ForbiddenError, NotFoundError
+from apps.common.exceptions import ForbiddenError
 from apps.credentials.models import Credential, CredentialAccessLog
 
 

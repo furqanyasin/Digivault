@@ -1,4 +1,3 @@
-import pytest
 
 from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.models import Script
