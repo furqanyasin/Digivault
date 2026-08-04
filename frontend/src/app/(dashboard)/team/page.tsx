@@ -1,9 +1,8 @@
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import type { User, Team, TeamMember } from "@/lib/api";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Users, UserCircle } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Users } from "lucide-react";
 import { TeamManagementClient } from "@/components/team-management-client";
 
 interface PasswordResetReq {
@@ -41,12 +40,12 @@ async function getData(token: string) {
     }
   }
 
-  return { user, teams, members, resetRequests, activeTeam };
+  return { user, members, resetRequests, activeTeam };
 }
 
 export default async function TeamPage() {
   const token = await getAccessToken();
-  const { user, teams, members, resetRequests, activeTeam } = await getData(token ?? "");
+  const { user, members, resetRequests, activeTeam } = await getData(token ?? "");
 
   const myMembership = user ? members.find((m) => m.user.id === user.id) : null;
   const myRole = activeTeam?.my_role ?? myMembership?.role ?? "viewer";
@@ -71,80 +70,18 @@ export default async function TeamPage() {
   }
 
   return (
-    <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Team</h1>
-        <p className="text-muted-foreground mt-1">Manage your team members and invitations</p>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Profile */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <UserCircle className="h-5 w-5" />
-              Your profile
-            </CardTitle>
-            <CardDescription>Account details</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {user ? (
-              <>
-                <Row label="Name" value={`${user.first_name} ${user.last_name}`.trim() || "—"} />
-                <Row label="Email" value={user.email} mono />
-                <Row label="Timezone" value={user.timezone || "—"} />
-                <Row label="Your role" value={myRole} />
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-sm text-muted-foreground">Active team</span>
-                  <Badge variant="outline">{activeTeam?.name ?? "None"}</Badge>
-                </div>
-              </>
-            ) : (
-              <p className="text-muted-foreground text-sm">Could not load profile.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Team info */}
-        {activeTeam && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
-                {activeTeam.name}
-              </CardTitle>
-              <CardDescription>Team details</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Row label="Slug" value={activeTeam.slug} mono />
-              <Row label="Plan" value={activeTeam.plan} />
-              <div className="flex items-center justify-between pt-1">
-                <span className="text-sm text-muted-foreground">Members</span>
-                <Badge variant="secondary">{members.length}</Badge>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
+    <div className="p-8">
       {activeTeam && (
         <TeamManagementClient
           teamId={activeTeam.id}
+          teamName={activeTeam.name}
+          plan={activeTeam.plan}
           myRole={myRole}
           myMembershipId={myMembershipId}
           initialMembers={members}
           initialResetRequests={resetRequests}
         />
       )}
-    </div>
-  );
-}
-
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-center justify-between border-b pb-2 last:border-0 last:pb-0">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={`font-medium text-sm ${mono ? "font-mono" : ""}`}>{value}</span>
     </div>
   );
 }
