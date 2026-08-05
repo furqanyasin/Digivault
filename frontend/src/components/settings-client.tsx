@@ -16,6 +16,15 @@ interface TeamSettings {
   clickup_api_token_masked: string;
   clickup_connected: boolean;
   clickup_list_id: string;
+  clickup_chat_url: string;
+  clickup_chat_connected: boolean;
+}
+
+interface MemberMatch {
+  user_id: string;
+  email: string;
+  clickup_user_id?: string;
+  clickup_username?: string;
 }
 
 interface Props {
@@ -34,6 +43,107 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
   const maskedToken = settings?.clickup_api_token_masked ?? "";
   const [listId, setListId] = useState(settings?.clickup_list_id ?? "");
   const [savingList, setSavingList] = useState(false);
+  const [chatUrl, setChatUrl] = useState(settings?.clickup_chat_url ?? "");
+  const [editingChat, setEditingChat] = useState(!settings?.clickup_chat_url);
+  const [savingChat, setSavingChat] = useState(false);
+  const [creatingChannel, setCreatingChannel] = useState(false);
+  const [matched, setMatched] = useState<MemberMatch[]>([]);
+  const [unmatched, setUnmatched] = useState<MemberMatch[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+
+  async function handleSaveChatUrl(next: string) {
+    if (!activeTeamId) return;
+    setSavingChat(true);
+    try {
+      const res = await fetch(`/api/teams/${activeTeamId}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clickup_chat_url: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ variant: "destructive", title: "Error", description: data?.detail || "Failed to save." });
+        return;
+      }
+      setChatUrl(next);
+      setEditingChat(!next);
+      toast({
+        title: "Saved",
+        description: next
+          ? "Website problems will be posted to that channel."
+          : "Team channel cleared — nothing will be posted.",
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    } finally {
+      setSavingChat(false);
+    }
+  }
+
+  async function handleCreateChannel() {
+    if (!activeTeamId) return;
+    setCreatingChannel(true);
+    try {
+      const res = await fetch(`/api/teams/${activeTeamId}/settings/clickup-channel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Digivault — Web Team" }),
+      });
+      const data = await res.json();
+      const payload = data?.data ?? data;
+      if (!res.ok) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: payload?.detail || "Could not create the channel.",
+        });
+        return;
+      }
+      setChatUrl(payload.clickup_chat_url || "");
+      setEditingChat(!payload.clickup_chat_url);
+      setMatched(payload.matched || []);
+      setUnmatched(payload.unmatched || []);
+      toast({
+        title: "Channel created",
+        description: `${(payload.matched || []).length} member(s) added in ClickUp.`,
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    } finally {
+      setCreatingChannel(false);
+    }
+  }
+
+  async function handleSyncMembers() {
+    if (!activeTeamId) return;
+    const body = {
+      overrides: Object.entries(overrides)
+        .filter(([, v]) => v.trim())
+        .map(([user_id, clickup_user_id]) => ({ user_id, clickup_user_id: clickup_user_id.trim() })),
+    };
+    try {
+      const res = await fetch(`/api/teams/${activeTeamId}/settings/clickup-members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      const payload = data?.data ?? data;
+      if (!res.ok) {
+        toast({ variant: "destructive", title: "Error", description: payload?.detail || "Sync failed." });
+        return;
+      }
+      setMatched(payload.matched || []);
+      setUnmatched(payload.unmatched || []);
+      setOverrides({});
+      toast({
+        title: "Synced",
+        description: `${(payload.matched || []).length} matched, ${(payload.unmatched || []).length} unmatched.`,
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    }
+  }
 
   async function handleSaveListId() {
     if (!activeTeamId) return;
@@ -254,6 +364,94 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
                 {savingList ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : "Save list"}
               </Button>
             </div>
+          </div>
+
+          {/* Team channel — where website problems are announced, with the
+              owning developer addressed. Separate from the issue list: that is
+              where work is tracked, this is where people are told. */}
+          <div className="space-y-3 border-t pt-5">
+            <Label htmlFor="clickup-chat">Web team channel</Label>
+            <p className="text-xs text-muted-foreground">
+              Digivault posts website problems here and addresses the developer assigned to
+              that client. Leave it blank and nothing is posted.
+            </p>
+
+            {chatUrl && !editingChat ? (
+              <div className="flex items-center gap-3 flex-wrap">
+                <a
+                  href={chatUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm inline-flex items-center gap-1 underline"
+                >
+                  Open channel in ClickUp <ExternalLink className="h-3 w-3" />
+                </a>
+                <Button variant="outline" size="sm" onClick={() => setEditingChat(true)}>
+                  Change
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSaveChatUrl("")}
+                  disabled={savingChat}
+                >
+                  Clear
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <Button
+                  variant="outline"
+                  onClick={handleCreateChannel}
+                  disabled={creatingChannel || !connected}
+                >
+                  {creatingChannel ? (
+                    <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating…</>
+                  ) : (
+                    "Create web team channel"
+                  )}
+                </Button>
+                <div className="flex gap-3 flex-wrap items-center">
+                  <Input
+                    id="clickup-chat"
+                    placeholder="https://your-team.clickup.com/9001/chat/r/abc-123"
+                    value={chatUrl}
+                    onChange={(e) => setChatUrl(e.target.value)}
+                    className="max-w-md"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => handleSaveChatUrl(chatUrl.trim())}
+                    disabled={savingChat || !chatUrl.trim()}
+                  >
+                    {savingChat ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</> : "Save link"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {(matched.length > 0 || unmatched.length > 0) && (
+              <div className="space-y-2 rounded-md bg-muted/40 p-3">
+                <p className="text-xs font-medium">
+                  {matched.length} member(s) matched in ClickUp
+                  {unmatched.length > 0 && `, ${unmatched.length} not found`}
+                </p>
+                {unmatched.map((m) => (
+                  <div key={m.user_id} className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-muted-foreground min-w-48">{m.email}</span>
+                    <Input
+                      placeholder="ClickUp user ID"
+                      value={overrides[m.user_id] ?? ""}
+                      onChange={(e) => setOverrides({ ...overrides, [m.user_id]: e.target.value })}
+                      className="max-w-40 h-8 text-xs"
+                    />
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={handleSyncMembers}>
+                  {Object.values(overrides).some((v) => v.trim()) ? "Save & re-sync" : "Re-sync members"}
+                </Button>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
