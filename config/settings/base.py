@@ -57,6 +57,10 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "csp.middleware.CSPMiddleware",
+    # Before CorsMiddleware: the public ingest endpoints are reached from every
+    # client website's own origin, which no allowlist can enumerate. See the
+    # module docstring for why this is separate from CORS_ALLOWED_ORIGINS.
+    "apps.common.ingest_cors.PublicIngestCorsMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
