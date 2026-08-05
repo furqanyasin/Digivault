@@ -203,6 +203,39 @@ def notify_status_change(monitor: "Monitor", old_status: str, new_status: str) -
     for channel in channels.values():
         dispatch(channel, monitor, old_status, new_status)
 
+    # The shared team channel is announced separately from the per-website
+    # channels above: a team gets it whether or not any website channel is set.
+    if monitor.website_id:
+        _announce_in_team_channel(monitor, old_status, new_status, is_recovery)
+
+
+def _announce_in_team_channel(monitor, old_status: str, new_status: str, is_recovery: bool) -> None:
+    """Post the status change into the team's ClickUp channel.
+
+    Deliberately best-effort and separate from `dispatch` — this is one shared
+    feed for the whole web team, not a configured channel row.
+    """
+    from apps.integrations import chat
+
+    subject = f"monitor:{monitor.id}:down"
+    website = monitor.website
+    if is_recovery:
+        chat.notify_recovery(
+            website,
+            subject=subject,
+            title=f"back {new_status.upper()}",
+            detail=f"{monitor.name} recovered — {monitor.url}",
+        )
+        return
+
+    chat.notify_problem(
+        website,
+        subject=subject,
+        title=f"is {new_status.upper()}",
+        detail=f"{monitor.name} went {old_status.upper()} → {new_status.upper()}\n{monitor.url}",
+        tags=["uptime"],
+    )
+
 
 # ------------------------------------------------------------------
 # HTTP helper
