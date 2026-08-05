@@ -16,7 +16,6 @@ import { ScriptsTab, countScriptDomains } from "@/components/scripts-tab";
 import { PluginsTab } from "@/components/plugins-tab";
 import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
-import { SiteEventsTab } from "@/components/site-events-tab";
 import { SecurityTab } from "@/components/security-tab";
 import { SecurityHeadersPanel } from "@/components/security-headers-panel";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
@@ -257,10 +256,29 @@ export default async function WebsiteDetailPage({
     (s) => s.wp_plugin || /\/wp-content\/plugins\//.test(s.src_url)
   );
   const showPhpErrors = isWordPress && phpErrors.length > 0;
-  const showSiteEvents = isWordPress && siteEvents.length > 0;
 
   const visibleChanges = changes.filter((c) => !isInternalChange(c));
   const pendingChanges = visibleChanges.filter((c) => !c.is_acknowledged);
+
+  // One timeline. Script diffs and site events answer the same question — "what
+  // changed on this site" — and reading them in two places means correlating a
+  // plugin update against a script change by eye, which is exactly the link
+  // worth seeing. Script changes carry an acknowledgement state; site events are
+  // observations with nothing to decide, so that column reads "—" for them.
+  const changeLog = [
+    ...visibleChanges.map((change) => ({
+      kind: "script" as const,
+      id: `change-${change.id}`,
+      at: change.created_at,
+      change,
+    })),
+    ...siteEvents.map((event) => ({
+      kind: "event" as const,
+      id: `event-${event.id}`,
+      at: event.occurred_at,
+      event,
+    })),
+  ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 
   // Overview chunk metrics. Everything here comes from data the page already
   // fetched, so the summary grid costs no extra requests.
@@ -376,9 +394,8 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="uptime">Uptime &amp; Downtime {monitors.length > 0 ? `(${monitors.length})` : ""}</TabsTrigger>
           <TabsTrigger value="access">Access & Domain</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
-          <TabsTrigger value="changelog">Change Log ({visibleChanges.length})</TabsTrigger>
+          <TabsTrigger value="changelog">Change Log ({changeLog.length})</TabsTrigger>
           {showPhpErrors && <TabsTrigger value="php-errors">PHP Errors ({phpErrors.length})</TabsTrigger>}
-          {showSiteEvents && <TabsTrigger value="site-events">Site Events ({siteEvents.length})</TabsTrigger>}
           <TabsTrigger value="security">Security {vulns.length > 0 ? `(${vulns.length})` : ""}</TabsTrigger>
           <TabsTrigger value="seo">SEO</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
@@ -613,14 +630,17 @@ export default async function WebsiteDetailPage({
         <TabsContent value="changelog">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Change Log ({changes.length})</CardTitle>
+              <CardTitle className="text-base">Change Log ({changeLog.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {visibleChanges.length === 0 ? (
+              {changeLog.length === 0 ? (
                 <div className="p-10 flex flex-col items-center gap-2 text-center">
                   <CheckCircle className="h-10 w-10 text-emerald-500" />
                   <p className="font-medium">No changes detected</p>
-                  <p className="text-sm text-muted-foreground">Digivault will alert you when scripts are added, removed, or modified.</p>
+                  <p className="text-sm text-muted-foreground">
+                    Digivault will alert you when scripts are added, removed or modified, when a
+                    plugin, theme or WordPress core is updated, and when a new page appears.
+                  </p>
                 </div>
               ) : (
                 <Table>
@@ -636,22 +656,23 @@ export default async function WebsiteDetailPage({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {visibleChanges.map((change) => (
-                      <TableRow key={change.id} className={`border-l-4 ${SEV_STRIPE[change.severity] ?? "border-l-transparent"}`}>
+                    {changeLog.map((entry) =>
+                      entry.kind === "script" ? (
+                      <TableRow key={entry.id} className={`border-l-4 ${SEV_STRIPE[entry.change.severity] ?? "border-l-transparent"}`}>
                         <TableCell className="p-0" />
-                        <TableCell><Badge variant={severityVariant(change.severity)} className="capitalize">{change.severity}</Badge></TableCell>
-                        <TableCell className="capitalize font-medium text-sm">{change.change_type}</TableCell>
-                        <TableCell className="font-mono text-xs max-w-[200px]" title={change.script?.src_url}>
-                          {change.script?.src_url ? smartUrl(change.script.src_url) : "—"}
+                        <TableCell><Badge variant={severityVariant(entry.change.severity)} className="capitalize">{entry.change.severity}</Badge></TableCell>
+                        <TableCell className="capitalize font-medium text-sm">{entry.change.change_type}</TableCell>
+                        <TableCell className="font-mono text-xs max-w-[200px]" title={entry.change.script?.src_url}>
+                          {entry.change.script?.src_url ? smartUrl(entry.change.script.src_url) : "—"}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{change.description}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{entry.change.description}</TableCell>
                         <TableCell>
-                          {change.is_acknowledged ? (
+                          {entry.change.is_acknowledged ? (
                             <span className="flex items-center gap-1 text-xs text-emerald-600">
                               <CheckCircle className="h-3 w-3" /> Acknowledged
-                              {change.acknowledged_by_email && (
+                              {entry.change.acknowledged_by_email && (
                                 <span className="text-muted-foreground">
-                                  by {change.acknowledged_by_email.split("@")[0]}
+                                  by {entry.change.acknowledged_by_email.split("@")[0]}
                                 </span>
                               )}
                             </span>
@@ -659,9 +680,27 @@ export default async function WebsiteDetailPage({
                             <span className="text-xs text-amber-600">Pending</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(change.created_at)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(entry.change.created_at)}</TableCell>
                       </TableRow>
-                    ))}
+                      ) : (
+                      /* Site events (plugin/theme/core updated, new page) have no
+                         script and nothing to acknowledge — they are observations,
+                         not pending decisions. */
+                      <TableRow key={entry.id} className={`border-l-4 ${SEV_STRIPE[entry.event.severity] ?? "border-l-transparent"}`}>
+                        <TableCell className="p-0" />
+                        <TableCell><Badge variant={severityVariant(entry.event.severity)} className="capitalize">{entry.event.severity}</Badge></TableCell>
+                        <TableCell className="capitalize font-medium text-sm">
+                          {entry.event.event_type.replace(/_/g, " ")}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">—</TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate" title={entry.event.summary}>
+                          {entry.event.summary}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(entry.event.occurred_at)}</TableCell>
+                      </TableRow>
+                      )
+                    )}
                   </TableBody>
                 </Table>
               )}
@@ -710,19 +749,8 @@ export default async function WebsiteDetailPage({
           </TabsContent>
         )}
 
-        {/* ── Site Events ── */}
-        {showSiteEvents && (
-          <TabsContent value="site-events">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Site Events</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 px-4 pb-4">
-                <SiteEventsTab events={siteEvents} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
+        {/* Site events are folded into the Change Log above rather than living
+            in their own tab — see the changeLog timeline. */}
 
         {/* ── Security ── */}
         <TabsContent value="security">
