@@ -103,14 +103,21 @@ class TeamInvitationSerializer(BaseModelSerializer):
 class TeamSettingsSerializer(serializers.ModelSerializer):
     clickup_api_token = serializers.CharField(allow_blank=True, required=False)
     clickup_connected = serializers.SerializerMethodField()
+    clickup_chat_connected = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
-        fields = ("id", "name", "clickup_api_token", "clickup_connected", "clickup_list_id")
+        fields = (
+            "id", "name", "clickup_api_token", "clickup_connected",
+            "clickup_list_id", "clickup_chat_url", "clickup_chat_connected",
+        )
         read_only_fields = ("id",)
 
     def get_clickup_connected(self, obj) -> bool:
         return bool(obj.clickup_api_token)
+
+    def get_clickup_chat_connected(self, obj) -> bool:
+        return bool(obj.clickup_chat_url)
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

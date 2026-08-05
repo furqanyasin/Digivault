@@ -11,6 +11,8 @@ interface TeamSettings {
   clickup_api_token_masked: string;
   clickup_connected: boolean;
   clickup_list_id: string;
+  clickup_chat_url: string;
+  clickup_chat_connected: boolean;
 }
 
 async function getData(token: string) {

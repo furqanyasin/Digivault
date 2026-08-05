@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import urllib.request
 from typing import TYPE_CHECKING
 
-from apps.integrations.clickup import ClickUpClient
+# parse_clickup_chat is re-exported: it used to live here, and tests plus other
+# callers still import it from this module.
+from apps.integrations.clickup import ClickUpClient, parse_clickup_chat  # noqa: F401
 
 if TYPE_CHECKING:
     from apps.monitors.models import Monitor, NotificationChannel
@@ -57,17 +58,6 @@ def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
     except Exception:
         logger.exception("Email delivery failed for channel %s", channel.id)
         raise
-
-
-# Matches a ClickUp Chat channel link, e.g.
-# https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438
-_CLICKUP_CHAT_RE = re.compile(r"clickup\.com/(\d+)/chat/(?:r/)?([^/?#]+)", re.I)
-
-
-def parse_clickup_chat(url: str) -> tuple[str | None, str | None]:
-    """Return (workspace_id, channel_id) from a ClickUp Chat channel link."""
-    m = _CLICKUP_CHAT_RE.search(url or "")
-    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 def post_clickup(config: dict, text: str) -> bool:
@@ -212,6 +202,39 @@ def notify_status_change(monitor: "Monitor", old_status: str, new_status: str) -
 
     for channel in channels.values():
         dispatch(channel, monitor, old_status, new_status)
+
+    # The shared team channel is announced separately from the per-website
+    # channels above: a team gets it whether or not any website channel is set.
+    if monitor.website_id:
+        _announce_in_team_channel(monitor, old_status, new_status, is_recovery)
+
+
+def _announce_in_team_channel(monitor, old_status: str, new_status: str, is_recovery: bool) -> None:
+    """Post the status change into the team's ClickUp channel.
+
+    Deliberately best-effort and separate from `dispatch` — this is one shared
+    feed for the whole web team, not a configured channel row.
+    """
+    from apps.integrations import chat
+
+    subject = f"monitor:{monitor.id}:down"
+    website = monitor.website
+    if is_recovery:
+        chat.notify_recovery(
+            website,
+            subject=subject,
+            title=f"back {new_status.upper()}",
+            detail=f"{monitor.name} recovered — {monitor.url}",
+        )
+        return
+
+    chat.notify_problem(
+        website,
+        subject=subject,
+        title=f"is {new_status.upper()}",
+        detail=f"{monitor.name} went {old_status.upper()} → {new_status.upper()}\n{monitor.url}",
+        tags=["uptime"],
+    )
 
 
 # ------------------------------------------------------------------

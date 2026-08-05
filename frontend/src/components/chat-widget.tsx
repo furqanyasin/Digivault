@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
-import { MessageCircle, X, Send, Bot, User } from "lucide-react";
+import { MessageCircle, X, Send, Bot, User, RotateCcw } from "lucide-react";
 
 interface Message {
   id: number;
   role: "user" | "bot";
   text: string;
+  /** Next steps offered under this reply. The backend picks them per intent so
+   *  they never re-ask the question just answered. */
+  suggestions?: string[];
 }
 
 let _id = 0;
@@ -59,10 +62,15 @@ const SUGGESTED_QUESTIONS = [
   "Detected forms",
 ];
 
+// Used when a reply arrives without its own suggestions — an older backend, or a
+// network error. Leaving the user with a bare input box is the thing to avoid.
+const FALLBACK_SUGGESTIONS = SUGGESTED_QUESTIONS.slice(0, 4);
+
 const WELCOME: Message = {
   id: 0,
   role: "bot",
   text: "Hi! I'm your Digivault assistant 👋\n\nI can check website statuses, show script alerts, monitor uptime, look up client details, and more.\n\nTry one of the quick questions below, or type **help** to see everything I can do.",
+  suggestions: SUGGESTED_QUESTIONS,
 };
 
 export function ChatWidget() {
@@ -92,30 +100,54 @@ export function ChatWidget() {
     setInput("");
     setLoading(true);
 
-    // Minimum 1.2s thinking time for a natural feel
+    // A short floor so the thinking dots register as a beat rather than a flash.
+    // This used to be 1200ms, which made every lookup feel slower than it was.
     const [res] = await Promise.all([
       fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),
       }).catch(() => null),
-      new Promise((r) => setTimeout(r, 1200)),
+      new Promise((r) => setTimeout(r, 250)),
     ]);
 
     try {
+      // The /api/chat route already unwraps the DRF envelope, so this is the
+      // intent result itself. Do NOT reach for `.data` here — that is the
+      // intent's own payload (domain, counts), not the reply.
       const data = res ? await res.json() : null;
       const reply: string =
-        data?.reply ??
-        (res?.ok ? "Done!" : "Something went wrong. Please try again.");
-      setMessages((prev) => [...prev, { id: nextId(), role: "bot", text: reply }]);
+        data?.reply ?? (res?.ok ? "Done!" : "Something went wrong. Please try again.");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: "bot",
+          text: reply,
+          // Fall back to the opening questions rather than leaving a dead end if
+          // the reply arrives without any.
+          suggestions: data?.suggestions?.length ? data.suggestions : FALLBACK_SUGGESTIONS,
+        },
+      ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "bot", text: "Network error. Please try again." },
+        {
+          id: nextId(),
+          role: "bot",
+          text: "Network error. Please try again.",
+          suggestions: FALLBACK_SUGGESTIONS,
+        },
       ]);
     } finally {
       setLoading(false);
     }
+  }
+
+  function reset() {
+    setMessages([WELCOME]);
+    setInput("");
+    inputRef.current?.focus();
   }
 
   function onKey(e: KeyboardEvent<HTMLInputElement>) {
@@ -125,7 +157,12 @@ export function ChatWidget() {
     }
   }
 
-  const showSuggestions = messages.length <= 1 && !loading;
+  // Chips hang off the newest reply only. Keeping them under every past message
+  // made the transcript a wall of buttons, and clicking an old one re-asked a
+  // question whose context had moved on.
+  const last = messages[messages.length - 1];
+  const activeSuggestions =
+    !loading && last?.role === "bot" ? last.suggestions ?? [] : [];
 
   return (
     <>
@@ -138,9 +175,10 @@ export function ChatWidget() {
         {open ? <X className="h-5 w-5" /> : <MessageCircle className="h-5 w-5" />}
       </button>
 
-      {/* Chat panel */}
+      {/* Chat panel. Width is capped to the viewport so it does not run off the
+          edge on a phone, where a fixed 380px is wider than the screen. */}
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-[380px] max-h-[560px] flex flex-col rounded-xl border bg-card shadow-2xl overflow-hidden">
+        <div className="fixed bottom-24 right-6 left-6 sm:left-auto z-50 sm:w-[380px] max-h-[70vh] sm:max-h-[560px] flex flex-col rounded-xl border bg-card shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-4 py-3 border-b bg-primary/5">
             <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center">
@@ -150,12 +188,27 @@ export function ChatWidget() {
               <p className="font-semibold text-sm leading-none">Digivault Assistant</p>
               <p className="text-xs text-emerald-600 mt-0.5">● Online</p>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="ml-auto flex items-center gap-1">
+              {/* A long thread with a misunderstood question in it was previously
+                  only clearable by reloading the page. */}
+              {messages.length > 1 && (
+                <button
+                  onClick={reset}
+                  title="Start over"
+                  aria-label="Start over"
+                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close chat"
+                className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Messages */}
@@ -202,12 +255,15 @@ export function ChatWidget() {
               </div>
             )}
 
-            {/* Suggested questions — only shown on fresh chat */}
-            {showSuggestions && (
+            {/* Next steps for the newest reply. Present after every answer, not
+                just the welcome — that was the dead end. */}
+            {activeSuggestions.length > 0 && (
               <div className="pt-1">
-                <p className="text-xs text-muted-foreground mb-2">Quick questions:</p>
+                <p className="text-xs text-muted-foreground mb-2">
+                  {messages.length <= 1 ? "Quick questions:" : "What next?"}
+                </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {SUGGESTED_QUESTIONS.map((q) => (
+                  {activeSuggestions.map((q) => (
                     <button
                       key={q}
                       type="button"

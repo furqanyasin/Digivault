@@ -22,6 +22,9 @@ def chat(request):
             ),
             'type': 'no_team',
             'data': None,
+            # Nothing the assistant offers works without a team, so no chips —
+            # suggesting actions that would all fail is worse than none.
+            'suggestions': [],
         })
 
     result = process_message(team, message)
