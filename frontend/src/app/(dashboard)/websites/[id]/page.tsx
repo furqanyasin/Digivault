@@ -12,7 +12,7 @@ import { CopySnippet } from "@/components/copy-snippet";
 import { RefreshDomainButton } from "@/components/refresh-domain-button";
 import { PerformanceTab } from "@/components/performance-tab";
 import { VerifySnippetButton } from "@/components/verify-snippet-button";
-import { ScriptsTab } from "@/components/scripts-tab";
+import { ScriptsTab, countScriptDomains } from "@/components/scripts-tab";
 import { PluginsTab } from "@/components/plugins-tab";
 import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
@@ -366,7 +366,11 @@ export default async function WebsiteDetailPage({
       <Tabs key={tab} defaultValue={tab}>
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="scripts">Scripts ({displayScripts.length})</TabsTrigger>
+          {/* Counts distinct third-party domains, matching the rows the table
+              renders from the same array — not raw Script records. Three files
+              from googletagmanager.com are one service, and counting files made
+              the badge read 9 next to a 7-row table. */}
+          <TabsTrigger value="scripts">Scripts ({countScriptDomains(scriptsForTab)})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
           <TabsTrigger value="forms">Forms ({forms.filter((f) => f.is_managed !== false).length})</TabsTrigger>
           <TabsTrigger value="uptime">Uptime &amp; Downtime {monitors.length > 0 ? `(${monitors.length})` : ""}</TabsTrigger>
@@ -412,7 +416,12 @@ export default async function WebsiteDetailPage({
         <TabsContent value="scripts">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Scripts ({displayScripts.length} active)</CardTitle>
+              <CardTitle className="text-base">
+                Scripts ({countScriptDomains(scriptsForTab)}
+                {scriptsForTab.length !== countScriptDomains(scriptsForTab) &&
+                  ` · ${scriptsForTab.length} files`}
+                )
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <ScriptsTab scripts={scriptsForTab} websiteId={id} />
