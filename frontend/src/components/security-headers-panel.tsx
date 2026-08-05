@@ -69,7 +69,9 @@ const RECOMMENDED: HeaderGuide[] = [
   { name: "Content-Security-Policy", value: CSP_STARTER, key: "content-security-policy", priority: "High", confidence: "test" },
 ];
 
-export const HEADER_GUIDE = new Map(RECOMMENDED.map((h) => [h.key, h]));
+// Not exported: this module is "use client", so an exported value imported by a
+// server component becomes a client reference and throws only at runtime.
+const HEADER_GUIDE = new Map(RECOMMENDED.map((h) => [h.key, h]));
 
 type Platform = "cloudflare" | "nginx" | "apache" | "wordpress";
 
