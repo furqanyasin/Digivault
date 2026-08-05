@@ -22,6 +22,7 @@ from apps.scripts.form_errors import (
     sanitize_page_url,
 )
 from apps.scripts.models import DetectedForm, FormSubmissionError, JsError, Script, ScriptChange
+from apps.scripts.normalize import normalize_page_url
 from apps.scripts.serializers import (
     DetectedFormSerializer,
     FormErrorIngestSerializer,
@@ -298,11 +299,17 @@ class FormSubmissionIngestView(APIView):
         from django.db.models import F
 
         fingerprint = DetectedForm.compute_fingerprint(data["form"])
+        # DetectedForm.page_url holds the *normalized* page identity (see
+        # process_ingest_payload), while the snippet reports
+        # window.location.href verbatim — carrying www., UTM params, a fragment
+        # and a trailing slash. Matching those raw against each other silently
+        # matched zero rows, so live sites sat at 0 submissions forever.
+        page_url = normalize_page_url(data["page_url"])
         # Increment only if the form was already detected on this page — avoids
         # counting phantom submissions for forms we've never catalogued.
         updated = DetectedForm.objects.filter(
             website=website,
-            page_url=data["page_url"],
+            page_url=page_url,
             fingerprint=fingerprint,
         ).update(
             submission_count=F("submission_count") + 1,
