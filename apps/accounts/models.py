@@ -88,6 +88,11 @@ class Team(BaseModel):
     # ClickUp List that Digivault opens issue tasks in. Blank means the team
     # has not wired that up yet, and reporting stays a no-op.
     clickup_list_id = models.CharField(max_length=64, blank=True, default="")
+    # ClickUp Chat channel the whole web team sits in — where website problems
+    # are announced. Stored as the URL the user sees; workspace and channel ids
+    # are parsed out on use so there is only one thing to configure. Blank means
+    # chat posting is a no-op.
+    clickup_chat_url = models.CharField(max_length=500, blank=True, default="")
 
     @property
     def clickup_api_token(self) -> str:

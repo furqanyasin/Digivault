@@ -864,6 +864,22 @@ class TeamSettingsView(APIView):
             changed_fields.append("clickup_list_id")
             updated.append("issue list")
 
+        if "clickup_chat_url" in request.data:
+            from apps.integrations.clickup import parse_clickup_chat
+
+            chat_url = (request.data.get("clickup_chat_url") or "").strip()
+            # A blank value is an intentional clear. A non-blank value that does
+            # not parse would store a channel we can never post to, so reject it
+            # here rather than failing silently at alert time.
+            if chat_url and parse_clickup_chat(chat_url) == (None, None):
+                return Response(
+                    {"detail": "That does not look like a ClickUp Chat channel link."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            team.clickup_chat_url = chat_url
+            changed_fields.append("clickup_chat_url")
+            updated.append("team channel")
+
         if changed_fields:
             team.save(update_fields=changed_fields)
             AuditService.log_request(
