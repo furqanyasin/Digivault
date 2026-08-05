@@ -57,6 +57,36 @@ class TestFormSubmissionCount:
         assert resp.data["counted"] is True
         assert DetectedForm.objects.get(website=website, page_url=stored).submission_count == 1
 
+    def test_div_based_form_submission_is_counted(self, website):
+        # A form with no <form> element is stored with detection_type "dom", and
+        # the fingerprint covers detection_type — so the snippet must report the
+        # descriptor it catalogued, not rebuild one as "native". It used to
+        # hardcode "native", which could never match a stored dom form.
+        dom_form = {
+            "form_id": "multiStepForm", "form_name": "", "form_action": "",
+            "form_method": "post", "detection_type": "dom", "provider": "",
+            "fields": [{"name": "email", "type": "email", "label": "Email", "required": True}],
+        }
+        _upsert_form(website, PAGE, dom_form)
+
+        resp = self._post(website.site_id, form=dom_form)
+
+        assert resp.data["counted"] is True
+        assert DetectedForm.objects.get(website=website, page_url=PAGE).submission_count == 1
+
+    def test_native_descriptor_does_not_count_against_a_dom_form(self, website):
+        # The old bug, pinned: same form, described as native, must not match.
+        dom_form = {
+            "form_id": "multiStepForm", "form_name": "", "form_action": "",
+            "form_method": "post", "detection_type": "dom", "provider": "",
+            "fields": [{"name": "email", "type": "email", "label": "Email", "required": True}],
+        }
+        _upsert_form(website, PAGE, dom_form)
+
+        resp = self._post(website.site_id, form={**dom_form, "detection_type": "native"})
+
+        assert resp.data["counted"] is False
+
     def test_submission_for_undetected_form_is_ignored(self, website):
         # No _upsert_form first → nothing to increment, but still a clean 202.
         resp = self._post(website.site_id)
