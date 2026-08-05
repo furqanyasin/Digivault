@@ -60,6 +60,34 @@ _SENDERS = {
 }
 
 
+def _expiry_title(alert) -> str:
+    kind = {
+        "ssl": "SSL certificate",
+        "hosting": "Hosting plan",
+    }.get(alert.alert_type, "Domain registration")
+    return f"{kind} expires in {alert.days_until_expiry} days"
+
+
+def _announce_in_team_channel(alert, website, body: str) -> None:
+    """Post an expiry alert into the team's ClickUp channel, best-effort.
+
+    Wrapped rather than trusted: deliver_domain_alert decides whether the alert
+    counts as sent, and a chat failure must not change that decision.
+    """
+    from apps.integrations import chat
+
+    try:
+        chat.notify_problem(
+            website,
+            subject=f"domain:{alert.domain_info_id}:{alert.alert_type}",
+            title=_expiry_title(alert),
+            detail=body,
+            tags=["expiry"],
+        )
+    except Exception:
+        logger.exception("Team channel announce failed for domain alert %s", alert.id)
+
+
 def deliver_domain_alert(alert) -> bool:
     """Send one DomainAlert to every active channel for its team.
 
@@ -70,12 +98,17 @@ def deliver_domain_alert(alert) -> bool:
     from apps.monitors.notifications import resolve_channels
 
     website = alert.domain_info.website
+    subject, body = _alert_message(alert)
+
+    # The shared team channel is independent of configured channels — a team
+    # with none still wants expiry in its feed.
+    _announce_in_team_channel(alert, website, body)
+
     channels = resolve_channels(website)
     if not channels:
         logger.info("No active channels for %s; domain alert %s left unsent", website.domain, alert.id)
         return False
 
-    subject, body = _alert_message(alert)
     delivered_any = False
     for channel in channels:
         sender = _SENDERS.get(channel.channel_type)
