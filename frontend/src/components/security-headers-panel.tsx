@@ -80,7 +80,7 @@ const PLATFORMS: { key: Platform; label: string; note: string }[] = [
   { key: "cloudflare", label: "Cloudflare", note: "Best: applied at the edge, before a request reaches the origin at all." },
   { key: "nginx", label: "Nginx", note: "Best: one config block, sent on every response including static files." },
   { key: "apache", label: "Apache", note: "Good: same coverage as Nginx, but .htaccess is re-read per request." },
-  { key: "wordpress", label: "WordPress", note: "Fallback only: PHP misses static assets and any full-page-cached response. Use it when you have no server or CDN access." },
+  { key: "wordpress", label: "WordPress", note: "Fallback only, and as an mu-plugin rather than functions.php — PHP misses static assets and full-page-cached responses, and theme code stops working the day the theme changes." },
 ];
 
 type CspMode = "report" | "enforce";
@@ -128,13 +128,27 @@ function buildSnippet(platform: Platform, cspMode: CspMode): string {
   }
   if (platform === "wordpress") {
     return (
-      modeNote +
-      "// Fallback when there is no server/CDN access. These headers are absent on\n" +
-      "// static assets and on any response served from a full-page cache.\n" +
-      "// Drop in a small mu-plugin (survives theme changes) or functions.php.\n" +
+      "<?php\n" +
+      "// Save as wp-content/mu-plugins/security-headers.php — must-use plugins load\n" +
+      "// automatically and early, and survive theme switches and theme updates.\n" +
+      "// functions.php also works, but the headers vanish the day the theme changes.\n" +
+      "// Either way PHP only runs for requests WordPress handles: static assets and\n" +
+      "// full-page-cached responses go out without these headers.\n" +
+      modeNote.replace("# ", "// ") +
       "add_action('send_headers', function () {\n" +
+      "    // wp-admin doesn't need these, and a CSP there fights the editor.\n" +
+      "    if (is_admin()) {\n" +
+      "        return;\n" +
+      "    }\n" +
+      "    // A plugin or stray output may have flushed the response already;\n" +
+      "    // calling header() after that is a PHP warning, not a header.\n" +
+      "    if (headers_sent()) {\n" +
+      "        return;\n" +
+      "    }\n\n" +
       headers.map((h) => `    header("${phpString(`${h.name}: ${h.value}`)}");`).join("\n") +
-      "\n});"
+      // Priority 20: run after the default send_headers callbacks so these values
+      // are the last ones set and win over anything a plugin sent earlier.
+      "\n}, 20);"
     );
   }
   // cloudflare

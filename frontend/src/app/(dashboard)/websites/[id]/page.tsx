@@ -373,10 +373,6 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="access">Access & Domain</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="changelog">Change Log ({visibleChanges.length})</TabsTrigger>
-          {/* Unconditional: unlike PHP Errors this applies to every platform, and
-              the panel has its own empty state. It previously had a TabsContent
-              but no trigger, so collected errors were unreachable in the UI. */}
-          <TabsTrigger value="js-errors">JS Errors {jsErrors.length > 0 ? `(${jsErrors.length})` : ""}</TabsTrigger>
           {showPhpErrors && <TabsTrigger value="php-errors">PHP Errors ({phpErrors.length})</TabsTrigger>}
           {showSiteEvents && <TabsTrigger value="site-events">Site Events ({siteEvents.length})</TabsTrigger>}
           <TabsTrigger value="security">Security {vulns.length > 0 ? `(${vulns.length})` : ""}</TabsTrigger>
@@ -728,6 +724,21 @@ export default async function WebsiteDetailPage({
             <CardContent className="px-4 pb-4 space-y-6">
               <SecurityHeadersPanel websiteId={id} report={headerReport} />
               <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} scripts={allActiveScripts} />
+
+              {/* Lives here rather than as its own tab: a script throwing is a
+                  security signal (broken third-party code, a blocked or tampered
+                  request), and it belongs beside the header grade and the
+                  vulnerability scan instead of widening an 11-tab strip. */}
+              <div className="space-y-2">
+                <div>
+                  <h3 className="font-medium text-sm">JavaScript Errors</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Uncaught errors collected from real page loads
+                    {jsErrors.length > 0 && ` · ${jsErrors.length} distinct`}
+                  </p>
+                </div>
+                <JsErrorsTab errors={jsErrors} />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -742,11 +753,6 @@ export default async function WebsiteDetailPage({
               <UptimeTab monitors={monitors} websiteId={id} statusPage={website.status_page} />
             </CardContent>
           </Card>
-        </TabsContent>
-
-        {/* ── JavaScript errors ── */}
-        <TabsContent value="js-errors">
-          <JsErrorsTab errors={jsErrors} />
         </TabsContent>
 
         {/* ── SEO ── */}
