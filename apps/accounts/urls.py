@@ -13,6 +13,8 @@ from apps.accounts.totp_views import (
     TotpVerifyView,
 )
 from apps.accounts.views import (
+    ClickUpChannelView,
+    ClickUpMembersView,
     ClickUpTestView,
     InvitationAcceptView,
     MeView,
@@ -67,6 +69,8 @@ urlpatterns = [
     path("teams/<uuid:team_pk>/invitations/<uuid:pk>/", TeamInvitationDeleteView.as_view(), name="team-invitation-delete"),
     path("teams/<uuid:pk>/settings/", TeamSettingsView.as_view(), name="team-settings"),
     path("teams/<uuid:pk>/settings/clickup-test/", ClickUpTestView.as_view(), name="clickup-test"),
+    path("teams/<uuid:pk>/settings/clickup-channel/", ClickUpChannelView.as_view(), name="clickup-channel"),
+    path("teams/<uuid:pk>/settings/clickup-members/", ClickUpMembersView.as_view(), name="clickup-members"),
     # Invitations
     path("invitations/<str:token>/", InvitationAcceptView.as_view(), name="invitation-view"),
     path("invitations/<str:token>/accept/", InvitationAcceptView.as_view(), name="invitation-accept"),

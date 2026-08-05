@@ -25,6 +25,8 @@ from apps.accounts.services import TeamService
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.common.permissions import IsTeamMember
+from apps.integrations.clickup import ClickUpClient, ClickUpError
+from apps.integrations.members import set_member_link, sync_member_links
 
 logger = logging.getLogger(__name__)
 
@@ -908,8 +910,6 @@ class ClickUpTestView(APIView):
             return Response({"detail": "No ClickUp API token configured.", "connected": False}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            from apps.integrations.clickup import ClickUpClient
-
             user_data = ClickUpClient(token).whoami().get("user", {})
             return Response({
                 "connected": True,
@@ -918,3 +918,115 @@ class ClickUpTestView(APIView):
         except Exception as exc:
             logger.warning("ClickUp connectivity check failed for team %s: %s", pk, exc)
             return Response({"connected": False, "detail": "Could not reach ClickUp. Check your API token."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class _ClickUpManagerView(APIView):
+    """Shared auth for the ClickUp management endpoints: team member, manager+."""
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def _team_or_error(self, request, pk):
+        try:
+            team = Team.objects.get(pk=pk)
+        except Team.DoesNotExist:
+            return None, Response(status=status.HTTP_404_NOT_FOUND)
+        if not TeamMembership.objects.filter(user=request.user, team=team).exists():
+            return None, Response({"detail": "Not a member."}, status=status.HTTP_403_FORBIDDEN)
+        my_level, _ = _my_level(request.user, team)
+        if my_level < ROLE_LEVELS["manager"]:
+            return None, Response(
+                {"detail": "Manager or higher required."}, status=status.HTTP_403_FORBIDDEN
+            )
+        return team, None
+
+
+class ClickUpChannelView(_ClickUpManagerView):
+    """POST /api/v1/auth/teams/<pk>/settings/clickup-channel/
+
+    Creates the web team's ClickUp Chat channel with every member we could match
+    in ClickUp, and stores its URL on the team.
+    """
+
+    def post(self, request, pk):
+        team, err = self._team_or_error(request, pk)
+        if err:
+            return err
+
+        token = team.clickup_api_token
+        if not token:
+            return Response(
+                {"detail": "Connect ClickUp first — no API token configured."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        sync = sync_member_links(team)
+        workspace_id = sync.get("workspace_id")
+        if not workspace_id:
+            return Response(
+                {"detail": "Could not read your ClickUp workspace. Check the API token."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        name = (request.data.get("name") or "Digivault — Web Team").strip()
+        user_ids = [m["clickup_user_id"] for m in sync["matched"] if m.get("clickup_user_id")]
+
+        try:
+            channel = ClickUpClient(token).create_chat_channel(
+                workspace_id,
+                name=name,
+                user_ids=user_ids,
+                description="Website problems reported by Digivault.",
+            )
+        except ClickUpError as exc:
+            logger.warning("ClickUp channel creation failed for team %s: %s", pk, exc)
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        url = channel.get("url") or ""
+        if url:
+            team.clickup_chat_url = url
+            team.save(update_fields=["clickup_chat_url"])
+            AuditService.log_request(
+                request, ActivityLog.Action.SETTINGS_INTEGRATION_UPDATED,
+                description="Created the ClickUp web team channel",
+                resource_type="team", resource_id=str(team.pk),
+            )
+
+        return Response({
+            "clickup_chat_url": team.clickup_chat_url,
+            "matched": sync["matched"],
+            "unmatched": sync["unmatched"],
+        })
+
+
+class ClickUpMembersView(_ClickUpManagerView):
+    """POST /api/v1/auth/teams/<pk>/settings/clickup-members/
+
+    Re-runs email matching and applies any manual `overrides`. An override is how
+    a member whose ClickUp email differs gets mapped at all.
+    """
+
+    def post(self, request, pk):
+        team, err = self._team_or_error(request, pk)
+        if err:
+            return err
+
+        sync = sync_member_links(team)
+
+        overrides = request.data.get("overrides") or []
+        for override in overrides:
+            user_id = (override or {}).get("user_id")
+            clickup_user_id = str((override or {}).get("clickup_user_id") or "").strip()
+            if not (user_id and clickup_user_id):
+                continue
+            # Scoped to team membership — an override must not create a mapping
+            # for someone outside the team.
+            membership = TeamMembership.objects.filter(
+                team=team, user_id=user_id
+            ).select_related("user").first()
+            if membership:
+                set_member_link(team, membership.user, clickup_user_id)
+
+        if overrides:
+            sync = sync_member_links(team)
+
+        return Response({"matched": sync["matched"], "unmatched": sync["unmatched"]})
