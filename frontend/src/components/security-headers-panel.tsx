@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, AlertTriangle, X, RefreshCw, Loader2, Wrench, Copy, ClipboardCheck } from "lucide-react";
+import { Check, AlertTriangle, X, RefreshCw, Loader2, Wrench, Copy, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { SecurityHeaderReport } from "@/lib/api";
 import { fmtDateTime } from "@/lib/utils";
@@ -164,6 +164,10 @@ function HeaderFixGuide({ failCount }: { failCount: number }) {
   const [platform, setPlatform] = useState<Platform>("cloudflare");
   const [cspMode, setCspMode] = useState<CspMode>("report");
   const [copied, setCopied] = useState(false);
+  // Collapsed by default: the guide carries a snippet plus the caveats for HSTS
+  // preload, COOP popups and CSP rollout, which together dwarf the grade and
+  // checklist people come to this panel to read.
+  const [open, setOpen] = useState(false);
   const snippet = buildSnippet(platform, cspMode);
   const activeNote = PLATFORMS.find((p) => p.key === platform)?.note;
 
@@ -179,10 +183,31 @@ function HeaderFixGuide({ failCount }: { failCount: number }) {
 
   return (
     <div className="flex-1 min-w-0 rounded-lg border bg-muted/30 p-3 space-y-2.5">
-      <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls="header-fix-guide"
+        className="flex w-full items-center gap-2 text-left"
+      >
         <Wrench className="h-4 w-4 text-muted-foreground shrink-0" />
-        <h4 className="text-sm font-medium">How to fix {failCount > 0 ? `the ${failCount} missing header${failCount > 1 ? "s" : ""}` : "these"}</h4>
-      </div>
+        <h4 className="text-sm font-medium flex-1">How to fix {failCount > 0 ? `the ${failCount} missing header${failCount > 1 ? "s" : ""}` : "these"}</h4>
+        {open ? (
+          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
+        )}
+      </button>
+
+      {!open && (
+        <p className="text-xs text-muted-foreground">
+          Copy-paste config for Cloudflare, Nginx, Apache or WordPress — plus which values are safe to apply
+          unread and which need testing first.
+        </p>
+      )}
+
+      {open && (
+      <div className="space-y-2.5" id="header-fix-guide">
       <p className="text-xs text-muted-foreground">
         These are set by the <span className="font-medium">web server / CDN</span> — not in page content. Four of the
         seven are safe to paste as-is; three can break a working site and are explained below.
@@ -267,6 +292,8 @@ function HeaderFixGuide({ failCount }: { failCount: number }) {
           After deploying, click <span className="font-medium">Check Headers</span> to re-grade.
         </p>
       </div>
+      </div>
+      )}
     </div>
   );
 }
