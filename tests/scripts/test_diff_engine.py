@@ -56,6 +56,28 @@ class TestDiffEngine:
         assert len(changes) == 1
         assert changes[0].change_type == ScriptChange.ChangeType.MOVED
 
+    def test_detached_script_is_not_a_move(self):
+        # The snippet reports location "unknown" when a tag sits in neither head
+        # nor body — i.e. it was detached from the DOM, which GTM, Meta Pixel,
+        # Hotjar, Clarity and HubSpot all do after loading. Rescans then flip
+        # between "head" and "unknown", which used to mint an endless stream of
+        # MEDIUM "moved from head to unknown" changes. Absence of information is
+        # not a change.
+        for before, after in (("head", "unknown"), ("unknown", "head"), ("body", "unknown")):
+            prev = [self._script(self.GTM, location=before)]
+            curr = [self._script(self.GTM, location=after)]
+            moved = [
+                c for c in DiffEngine.diff(prev, curr)
+                if c.change_type == ScriptChange.ChangeType.MOVED
+            ]
+            assert moved == [], f"{before} -> {after} should not report a move"
+
+    def test_real_move_still_detected_alongside_unknown_suppression(self):
+        prev = [self._script(self.GTM, location="head")]
+        curr = [self._script(self.GTM, location="body")]
+        changes = DiffEngine.diff(prev, curr)
+        assert [c.change_type for c in changes] == [ScriptChange.ChangeType.MOVED]
+
     def test_inline_content_change_detected(self):
         prev = [self._script("", location="body", is_inline=True, inline_hash="aaa")]
         curr = [self._script("", location="body", is_inline=True, inline_hash="bbb")]

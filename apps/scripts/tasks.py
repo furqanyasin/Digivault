@@ -20,6 +20,8 @@ from apps.scripts.suspicion import analyse
 from apps.scripts.diff_engine import DiffEngine
 from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
 from apps.scripts.normalize import normalize_page_url, normalize_script_url
+from apps.scripts.wp_assets import diff_assets
+from apps.site_health.models import SiteEvent
 from apps.websites.models import Website
 
 # ---------------------------------------------------------------------------
@@ -196,6 +198,27 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
             # --- 3. Run diff engine on filtered lists ---
             changes = DiffEngine.diff(trackable_previous, trackable_current)
 
+            # --- 3b. WordPress plugin / theme / core changes ---
+            # Fed the UNFILTERED lists on purpose: /wp-includes/ is dropped from
+            # script tracking as noise, and it is the only place the core version
+            # appears.
+            _record_wp_asset_events(website, raw_previous, scripts_data)
+
+            # A page nobody had loaded before. Skipped on the very first ingest
+            # for a site, when every page is new by definition.
+            if previous_snapshot is None and (
+                ScriptSnapshot.objects.filter(website=website)
+                .exclude(pk=snapshot.pk)
+                .exists()
+            ):
+                _record_site_event(
+                    website,
+                    SiteEvent.EventType.PAGE_DISCOVERED,
+                    f"New page found: {page_url}",
+                    "info",
+                    {"page_url": page_url},
+                )
+
             # --- 4. Upsert Script records ---
             for script_data in trackable_current:
                 _upsert_script(website, script_data, page_url)
@@ -291,6 +314,35 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
     except Exception as exc:
         logger.exception("process_ingest_payload failed for site_id=%s", site_id)
         raise self.retry(exc=exc)
+
+
+def _record_site_event(
+    website: Website, event_type: str, summary: str, severity: str, details: dict
+) -> None:
+    """Create a SiteEvent unless that exact change is already recorded.
+
+    Deduped on (website, event_type, summary) rather than a timestamp window: the
+    same plugin update is enqueued on every page of the site and re-reported by
+    every visitor until the previous snapshot rolls over, so a time window would
+    still let duplicates through. The summary carries the slug and both version
+    numbers, which makes it a natural key for "this specific change".
+    """
+    SiteEvent.objects.get_or_create(
+        website=website,
+        event_type=event_type,
+        summary=summary,
+        defaults={"severity": severity, "details": details},
+    )
+
+
+def _record_wp_asset_events(
+    website: Website, raw_previous: list[dict], raw_current: list[dict]
+) -> None:
+    """Record WordPress plugin / theme / core changes seen in script URLs."""
+    for ev in diff_assets(raw_previous, raw_current):
+        _record_site_event(
+            website, ev["event_type"], ev["summary"], ev["severity"], ev["details"]
+        )
 
 
 def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script:

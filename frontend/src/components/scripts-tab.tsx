@@ -23,13 +23,23 @@ function providerVariant(p: string): "default" | "secondary" | "destructive" | "
   return "default";
 }
 
-function shortDomain(url: string) {
+export function shortDomain(url: string) {
   try {
     const u = new URL(url.startsWith("//") ? `https:${url}` : url);
     return u.hostname;
   } catch {
     return url;
   }
+}
+
+/** Number of rows the table will render: one per distinct third-party domain.
+ *
+ *  Exported so the tab badge and the panel heading count the same thing the
+ *  table shows. They used to count raw Script rows, so a site loading three
+ *  files from googletagmanager.com read "Scripts (9)" beside a 7-row table.
+ */
+export function countScriptDomains(scripts: { src_url: string }[]): number {
+  return new Set(scripts.map((s) => shortDomain(s.src_url))).size;
 }
 
 // One provider entry can span several files; the row shows the aggregate.

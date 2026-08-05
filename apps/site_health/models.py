@@ -41,6 +41,10 @@ class SiteEvent(BaseModel):
         CORE_UPDATED = "core_updated", "Core Updated"
         DEPLOYMENT = "deployment", "Deployment"
         MANUAL = "manual", "Manual Entry"
+        # Passive discovery: a page URL the snippet had never reported before.
+        # There is no matching "page updated" — the snippet sees a page's scripts,
+        # not its content, so an edit is invisible without a WordPress-side hook.
+        PAGE_DISCOVERED = "page_discovered", "Page Discovered"
         SEO_NOINDEX_DETECTED = "seo_noindex_detected", "SEO: noindex detected"
         SEO_ROBOTS_BLOCK = "seo_robots_block", "SEO: robots.txt blocks all"
         SEO_SITEMAP_MISSING = "seo_sitemap_missing", "SEO: sitemap missing"

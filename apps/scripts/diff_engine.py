@@ -200,17 +200,30 @@ class DiffEngine:
     ) -> ChangeResult | None:
         result = ScriptClassifier.classify(url)
 
-        # Location change
-        if prev.get("location") != curr.get("location"):
+        # Location change.
+        #
+        # "unknown" is not a location — the snippet emits it when the tag is in
+        # neither document.head nor document.body, i.e. it has been detached
+        # from the DOM. GTM, Meta Pixel, Hotjar, Clarity and HubSpot all do that
+        # after loading, and the snippet rescans on a delay and a MutationObserver,
+        # so one scan saw "head" and the next saw the detached node. Comparing the
+        # two produced a MEDIUM "moved from head to unknown" on one page load and
+        # "moved from unknown to head" on the next, forever. Absence of
+        # information is not a change, so only compare two known locations.
+        prev_loc, curr_loc = prev.get("location"), curr.get("location")
+        # Blacklist the sentinel rather than whitelisting known locations, so a
+        # genuinely new location value stays diffable instead of being silently
+        # dropped by a stale allowlist.
+        unknown = {None, "", "unknown"}
+        if prev_loc != curr_loc and prev_loc not in unknown and curr_loc not in unknown:
             return ChangeResult(
                 change_type=cls._CT.MOVED,
                 severity=cls._SEV.MEDIUM,
                 description=(
-                    f"{result.provider or 'Script'} moved from "
-                    f"{prev.get('location')} to {curr.get('location')}"
+                    f"{result.provider or 'Script'} moved from {prev_loc} to {curr_loc}"
                 ),
-                old_value={"location": prev.get("location")},
-                new_value={"location": curr.get("location")},
+                old_value={"location": prev_loc},
+                new_value={"location": curr_loc},
                 src_url=url,
                 provider=result.provider,
             )
