@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  UserPlus, Trash2, Check, ShieldAlert, ShieldOff, X, ScrollText,
+  UserPlus, Trash2, Check, ShieldAlert, ShieldCheck, ShieldOff, X, ScrollText,
   MoreHorizontal, Search, SlidersHorizontal, KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -448,24 +448,13 @@ export function TeamManagementClient({
             return (
               <div key={member.id} className={cn(i > 0 && "border-t")}>
                 <div className="flex items-center gap-4 p-4 transition-colors hover:bg-muted/40">
-                  {/* The dot is the one piece of colour here that isn't
-                      decorative: green means the account has 2FA on. */}
-                  <div className="relative shrink-0">
-                    <div
-                      className={cn(
-                        "flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold",
-                        ROLE_AVATAR[member.role] ?? ROLE_AVATAR.viewer
-                      )}
-                    >
-                      {initials(member)}
-                    </div>
-                    <span
-                      title={member.totp_enabled ? "Two-factor authentication on" : "No two-factor authentication"}
-                      className={cn(
-                        "absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full ring-2 ring-card",
-                        member.totp_enabled ? "bg-emerald-500" : "bg-muted-foreground/40"
-                      )}
-                    />
+                  <div
+                    className={cn(
+                      "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
+                      ROLE_AVATAR[member.role] ?? ROLE_AVATAR.viewer
+                    )}
+                  >
+                    {initials(member)}
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -479,6 +468,27 @@ export function TeamManagementClient({
                   <span className="hidden md:block shrink-0 text-xs text-muted-foreground">
                     {joinedLabel(member.created_at)}
                   </span>
+
+                  {/* Deliberately not a pill: the role badge beside it already is
+                      one, and ROLE_BADGE uses these same two colours, so a second
+                      pill would read as a second role. Amber rather than grey for
+                      the off state — an account without 2FA is a gap worth seeing. */}
+                  <span
+                    className={cn(
+                      "hidden sm:flex shrink-0 items-center gap-1 text-xs font-medium",
+                      member.totp_enabled
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-amber-600 dark:text-amber-400"
+                    )}
+                  >
+                    {member.totp_enabled ? (
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    {member.totp_enabled ? "2FA on" : "No 2FA"}
+                  </span>
+
                   <span
                     className={cn(
                       "shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize",
