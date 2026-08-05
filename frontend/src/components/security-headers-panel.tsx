@@ -11,63 +11,147 @@ interface Props {
   report: SecurityHeaderReport | null;
 }
 
-// Recommended directives for the headers Digivault grades, ordered to match the
-// checklist. The CSP is a permissive *starter* — a strict policy must be tuned
-// per-site or it will block legitimate scripts/styles (see the caveat below).
-const RECOMMENDED: { name: string; value: string }[] = [
-  { name: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains; preload" },
-  { name: "X-Frame-Options", value: "SAMEORIGIN" },
-  { name: "X-Content-Type-Options", value: "nosniff" },
-  { name: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { name: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-  { name: "Cross-Origin-Opener-Policy", value: "same-origin" },
-  { name: "Content-Security-Policy", value: "default-src 'self'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'self'" },
+// A permissive *starter* CSP. Deliberately broader than the old value, which
+// declared only default-src/img/script/style/font/connect: every other fetch
+// directive falls back to default-src 'self', so iframes were silently blocked
+// — reCAPTCHA, Stripe Checkout, YouTube and Vimeo embeds all need frame-src.
+//
+// form-action allows https: rather than 'self' alone, because agency sites
+// routinely POST to Mailchimp/HubSpot/payment gateways. object-src 'none' and
+// base-uri 'self' are the two directives that are safe to lock down outright.
+const CSP_STARTER = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
+  "style-src 'self' 'unsafe-inline' https:",
+  "img-src 'self' data: https:",
+  "font-src 'self' data: https:",
+  "connect-src 'self' https:",
+  "frame-src 'self' https:",
+  "media-src 'self' https:",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self' https:",
+  "frame-ancestors 'self'",
+].join("; ");
+
+// `paste` headers are safe to apply unread. `test` headers can take a working
+// site down and must be verified first — the UI labels them differently and the
+// guide explains why for each.
+type Confidence = "paste" | "test";
+
+interface HeaderGuide {
+  name: string;
+  value: string;
+  key: string; // matches the report key from the backend grader
+  priority: "High" | "Medium" | "Low";
+  confidence: Confidence;
+}
+
+// Two values here are deliberately NOT the strictest option available:
+//
+//   HSTS omits `preload`. Submission to the browser preload list is effectively
+//   permanent and applies to every subdomain — mail., dev., staging., legacy
+//   hosts must all serve HTTPS indefinitely or they become unreachable, with no
+//   quick way back. It is a verified decision, never a paste-in default.
+//
+//   COOP is same-origin-allow-popups, not same-origin. Full isolation severs
+//   window.opener, which breaks Google/Microsoft/Facebook sign-in and Stripe and
+//   PayPal popup checkouts. The grader accepts allow-popups as a pass, so this
+//   costs nothing in score.
+const RECOMMENDED: HeaderGuide[] = [
+  { name: "X-Content-Type-Options", value: "nosniff", key: "x-content-type-options", priority: "High", confidence: "paste" },
+  { name: "X-Frame-Options", value: "SAMEORIGIN", key: "x-frame-options", priority: "High", confidence: "paste" },
+  { name: "Referrer-Policy", value: "strict-origin-when-cross-origin", key: "referrer-policy", priority: "High", confidence: "paste" },
+  { name: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()", key: "permissions-policy", priority: "Medium", confidence: "paste" },
+  { name: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains", key: "strict-transport-security", priority: "High", confidence: "test" },
+  { name: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups", key: "cross-origin-opener-policy", priority: "Low", confidence: "test" },
+  { name: "Content-Security-Policy", value: CSP_STARTER, key: "content-security-policy", priority: "High", confidence: "test" },
 ];
 
-type Platform = "nginx" | "apache" | "wordpress" | "cloudflare";
+export const HEADER_GUIDE = new Map(RECOMMENDED.map((h) => [h.key, h]));
 
-const PLATFORMS: { key: Platform; label: string }[] = [
-  { key: "nginx", label: "Nginx" },
-  { key: "apache", label: "Apache" },
-  { key: "wordpress", label: "WordPress" },
-  { key: "cloudflare", label: "Cloudflare" },
+type Platform = "cloudflare" | "nginx" | "apache" | "wordpress";
+
+// Ordered best-first. Headers belong in the edge or the web server: they are
+// then sent on every response, including static assets and cached pages, and
+// cannot be bypassed. PHP runs only for requests WordPress actually handles.
+const PLATFORMS: { key: Platform; label: string; note: string }[] = [
+  { key: "cloudflare", label: "Cloudflare", note: "Best: applied at the edge, before a request reaches the origin at all." },
+  { key: "nginx", label: "Nginx", note: "Best: one config block, sent on every response including static files." },
+  { key: "apache", label: "Apache", note: "Good: same coverage as Nginx, but .htaccess is re-read per request." },
+  { key: "wordpress", label: "WordPress", note: "Fallback only: PHP misses static assets and any full-page-cached response. Use it when you have no server or CDN access." },
 ];
 
-function buildSnippet(platform: Platform): string {
+type CspMode = "report" | "enforce";
+
+// PHP double-quoted strings interpolate $ and honour backslash escapes. The old
+// snippet used SINGLE quotes, which is a hard parse error the moment a value
+// contains one — and the CSP is full of 'self'.
+function phpString(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$");
+}
+
+// The CSP is emitted under whichever header name the chosen mode calls for;
+// Report-Only is byte-identical apart from the name, so the same value can be
+// promoted to enforcing once the violation reports are clean.
+function headersFor(cspMode: CspMode): { name: string; value: string }[] {
+  return RECOMMENDED.map((h) =>
+    h.key === "content-security-policy" && cspMode === "report"
+      ? { name: "Content-Security-Policy-Report-Only", value: h.value }
+      : { name: h.name, value: h.value }
+  );
+}
+
+function buildSnippet(platform: Platform, cspMode: CspMode): string {
+  const headers = headersFor(cspMode);
+  const modeNote =
+    cspMode === "report"
+      ? "# CSP is in Report-Only mode: violations are reported, nothing is blocked.\n"
+      : "# CSP is ENFORCING. Only switch to this once Report-Only shows no violations.\n";
+
   if (platform === "nginx") {
     return (
+      modeNote +
       "# Add inside the server { } block, then: nginx -t && systemctl reload nginx\n" +
-      RECOMMENDED.map((h) => `add_header ${h.name} "${h.value}" always;`).join("\n")
+      headers.map((h) => `add_header ${h.name} "${h.value}" always;`).join("\n")
     );
   }
   if (platform === "apache") {
     return (
+      modeNote +
       "# Add to .htaccess or the <VirtualHost> (needs mod_headers)\n" +
       "<IfModule mod_headers.c>\n" +
-      RECOMMENDED.map((h) => `  Header always set ${h.name} "${h.value}"`).join("\n") +
+      headers.map((h) => `  Header always set ${h.name} "${h.value}"`).join("\n") +
       "\n</IfModule>"
     );
   }
   if (platform === "wordpress") {
     return (
-      "// Drop in the theme's functions.php or a small mu-plugin\n" +
+      modeNote +
+      "// Fallback when there is no server/CDN access. These headers are absent on\n" +
+      "// static assets and on any response served from a full-page cache.\n" +
+      "// Drop in a small mu-plugin (survives theme changes) or functions.php.\n" +
       "add_action('send_headers', function () {\n" +
-      RECOMMENDED.map((h) => `    header('${h.name}: ${h.value}');`).join("\n") +
+      headers.map((h) => `    header("${phpString(`${h.name}: ${h.value}`)}");`).join("\n") +
       "\n});"
     );
   }
   // cloudflare
   return (
+    modeNote.replace("# ", "") +
     "Cloudflare → Rules → Transform Rules → Modify Response Header → Create rule\n" +
     'Apply to: Hostname equals your domain, then "Set static" for each:\n\n' +
-    RECOMMENDED.map((h) => `${h.name}: ${h.value}`).join("\n")
+    headers.map((h) => `${h.name}: ${h.value}`).join("\n")
   );
 }
 
 function HeaderFixGuide({ failCount }: { failCount: number }) {
-  const [platform, setPlatform] = useState<Platform>("nginx");
+  const [platform, setPlatform] = useState<Platform>("cloudflare");
+  const [cspMode, setCspMode] = useState<CspMode>("report");
   const [copied, setCopied] = useState(false);
-  const snippet = buildSnippet(platform);
+  const snippet = buildSnippet(platform, cspMode);
+  const activeNote = PLATFORMS.find((p) => p.key === platform)?.note;
 
   async function copy() {
     try {
@@ -86,8 +170,8 @@ function HeaderFixGuide({ failCount }: { failCount: number }) {
         <h4 className="text-sm font-medium">How to fix {failCount > 0 ? `the ${failCount} missing header${failCount > 1 ? "s" : ""}` : "these"}</h4>
       </div>
       <p className="text-xs text-muted-foreground">
-        These are set by the <span className="font-medium">web server / CDN</span> — not in page content. Pick the
-        client&apos;s stack and add the block once; it covers every header above.
+        These are set by the <span className="font-medium">web server / CDN</span> — not in page content. Four of the
+        seven are safe to paste as-is; three can break a working site and are explained below.
       </p>
 
       <div className="flex flex-wrap gap-1">
@@ -101,6 +185,29 @@ function HeaderFixGuide({ failCount }: { failCount: number }) {
             }`}
           >
             {p.label}
+          </button>
+        ))}
+      </div>
+      {activeNote && <p className="text-[11px] text-muted-foreground">{activeNote}</p>}
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-muted-foreground mr-0.5">CSP mode:</span>
+        {(
+          [
+            { key: "report" as CspMode, label: "Report-Only (start here)" },
+            { key: "enforce" as CspMode, label: "Enforcing" },
+          ]
+        ).map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => setCspMode(m.key)}
+            aria-pressed={cspMode === m.key}
+            className={`px-2 py-0.5 rounded text-[11px] border transition-colors ${
+              cspMode === m.key ? "bg-foreground text-background border-foreground" : "hover:bg-muted"
+            }`}
+          >
+            {m.label}
           </button>
         ))}
       </div>
@@ -119,12 +226,33 @@ function HeaderFixGuide({ failCount }: { failCount: number }) {
         </button>
       </div>
 
-      <p className="text-[11px] text-amber-600 dark:text-amber-500 leading-relaxed">
-        <span className="font-medium">Heads-up on Content-Security-Policy:</span> the value above is a permissive
-        starter so it won&apos;t break the site. Tighten it gradually (remove <code className="font-mono">&apos;unsafe-inline&apos;</code>/
-        <code className="font-mono">&apos;unsafe-eval&apos;</code>, allowlist real third-party domains) and re-test —
-        a too-strict CSP can block analytics, chat widgets and fonts. After deploying, click <span className="font-medium">Check Headers</span> to re-grade.
-      </p>
+      <div className="space-y-1.5 text-[11px] leading-relaxed text-amber-600 dark:text-amber-500">
+        <p>
+          <span className="font-medium">Content-Security-Policy is a starter, not a finished policy.</span> Deploy it in
+          Report-Only first and read the violation reports — production sites usually need extra allowlisting for
+          analytics, ad pixels, embeds and payment providers (reCAPTCHA needs{" "}
+          <code className="font-mono">frame-src https://www.google.com</code>, Stripe{" "}
+          <code className="font-mono">https://js.stripe.com</code>). It still carries{" "}
+          <code className="font-mono">&apos;unsafe-inline&apos;</code> and <code className="font-mono">&apos;unsafe-eval&apos;</code>,
+          which most WordPress themes need but which materially weaken the policy — removing them via nonces or hashes
+          is the real win, not merely having the header.
+        </p>
+        <p>
+          <span className="font-medium">HSTS is shown without <code className="font-mono">preload</code> on purpose.</span>{" "}
+          Preloading is effectively permanent and covers every subdomain. Add it only once you have confirmed that{" "}
+          <em>all</em> of them — mail, dev, staging, legacy hosts — serve valid HTTPS and always will.
+        </p>
+        <p>
+          <span className="font-medium">Cross-Origin-Opener-Policy is optional.</span>{" "}
+          <code className="font-mono">same-origin-allow-popups</code> is used here rather than{" "}
+          <code className="font-mono">same-origin</code> because full isolation severs{" "}
+          <code className="font-mono">window.opener</code> and breaks Google/Microsoft/Facebook sign-in and Stripe and
+          PayPal popups. Test those flows before enabling either value.
+        </p>
+        <p className="text-muted-foreground">
+          After deploying, click <span className="font-medium">Check Headers</span> to re-grade.
+        </p>
+      </div>
     </div>
   );
 }
@@ -224,7 +352,9 @@ export function SecurityHeadersPanel({ websiteId, report }: Props) {
 
           {/* Header checklist */}
           <div className="lg:w-[44%] space-y-2 min-w-0 shrink-0">
-            {data.headers.map((h) => (
+            {data.headers.map((h) => {
+              const guide = HEADER_GUIDE.get(h.key);
+              return (
               <div key={h.key} className="flex items-start gap-2.5">
                 {STATUS_ICON[h.status]}
                 <div className="min-w-0 flex-1">
@@ -232,6 +362,27 @@ export function SecurityHeadersPanel({ websiteId, report }: Props) {
                     <span className="text-sm font-medium">{h.name}</span>
                     {!h.present && (
                       <span className="text-xs text-red-600 font-medium">missing</span>
+                    )}
+                    {/* Not every missing header is equally urgent, and not every
+                        fix is equally safe — the two are independent, so both are
+                        labelled rather than collapsed into one severity. */}
+                    {guide && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {guide.priority} priority
+                      </span>
+                    )}
+                    {guide?.confidence === "test" && (
+                      <span
+                        className="text-[10px] font-medium text-amber-600 dark:text-amber-500"
+                        title="Applying this header can break a working site — verify before deploying"
+                      >
+                        test first
+                      </span>
+                    )}
+                    {guide?.confidence === "paste" && (
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-500">
+                        safe default
+                      </span>
                     )}
                   </div>
                   {h.present && h.value && (
@@ -242,7 +393,8 @@ export function SecurityHeadersPanel({ websiteId, report }: Props) {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* How-to-fix guide — fills the space beside the checklist */}

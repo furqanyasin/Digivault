@@ -9,14 +9,16 @@ The fetch lives in `seo_checker.fetch`, which already enforces SSRF guards.
 from __future__ import annotations
 
 # Each header carries a weight (sum = 100) used for the overall score. `check`
-# returns ("pass" | "warn" | "fail", value, recommendation). A "warn" earns
-# half the weight — the header is present but weaker than recommended.
+# takes (value, all_headers) and returns ("pass" | "warn" | "fail", value,
+# recommendation). A "warn" earns half the weight — the header is present but
+# weaker than recommended. Most checks only need their own value; the full dict
+# is passed so a check can consider related headers (see `_csp` and Report-Only).
 #
 # Header name keys are stored lowercase to match `seo_checker.fetch`, which
 # lowercases header names.
 
 
-def _hsts(value: str | None):
+def _hsts(value: str | None, headers: dict):
     if not value:
         return "fail", "", "Add Strict-Transport-Security to force HTTPS and prevent SSL-stripping."
     v = value.lower()
@@ -35,8 +37,19 @@ def _hsts(value: str | None):
     return "pass", value, ""
 
 
-def _csp(value: str | None):
+def _csp(value: str | None, headers: dict):
     if not value:
+        # Digivault's own fix guide tells operators to deploy a starter policy in
+        # Report-Only first and read the violation reports. Grading that as a flat
+        # failure would contradict our own advice, so it earns partial credit —
+        # the site is mid-rollout, not unprotected by neglect.
+        if headers.get("content-security-policy-report-only"):
+            return (
+                "warn",
+                "",
+                "Report-Only CSP found: violations are being reported but nothing is blocked yet. "
+                "Once the reports are clean, send the same policy as Content-Security-Policy to enforce it.",
+            )
         return "fail", "", "Add a Content-Security-Policy to mitigate XSS and data-injection attacks."
     v = value.lower()
     if "unsafe-inline" in v or "unsafe-eval" in v:
@@ -46,7 +59,7 @@ def _csp(value: str | None):
     return "pass", value, ""
 
 
-def _x_frame(value: str | None):
+def _x_frame(value: str | None, headers: dict):
     if not value:
         return "fail", "", "Add X-Frame-Options: SAMEORIGIN (or a CSP frame-ancestors) to prevent clickjacking."
     v = value.strip().upper()
@@ -55,7 +68,7 @@ def _x_frame(value: str | None):
     return "warn", value, "Use DENY or SAMEORIGIN."
 
 
-def _x_content_type(value: str | None):
+def _x_content_type(value: str | None, headers: dict):
     if not value:
         return "fail", "", "Add X-Content-Type-Options: nosniff to stop MIME-type sniffing."
     if value.strip().lower() == "nosniff":
@@ -63,7 +76,7 @@ def _x_content_type(value: str | None):
     return "warn", value, "Value should be exactly 'nosniff'."
 
 
-def _referrer_policy(value: str | None):
+def _referrer_policy(value: str | None, headers: dict):
     if not value:
         return "fail", "", "Add a Referrer-Policy (e.g. strict-origin-when-cross-origin) to limit referrer leakage."
     weak = {"unsafe-url", "no-referrer-when-downgrade", ""}
@@ -72,18 +85,26 @@ def _referrer_policy(value: str | None):
     return "pass", value, ""
 
 
-def _permissions_policy(value: str | None):
+def _permissions_policy(value: str | None, headers: dict):
     if not value:
         return "fail", "", "Add a Permissions-Policy to disable unused browser features (camera, geolocation, etc.)."
     return "pass", value, ""
 
 
-def _coop(value: str | None):
+def _coop(value: str | None, headers: dict):
+    # Optional by design, and the recommendation is deliberately allow-popups:
+    # plain same-origin severs window.opener, which breaks Google/Microsoft/
+    # Facebook sign-in and Stripe and PayPal popup checkouts.
     if not value:
-        return "warn", "", "Consider Cross-Origin-Opener-Policy: same-origin to isolate your browsing context."
+        return (
+            "warn",
+            "",
+            "Optional: Cross-Origin-Opener-Policy: same-origin-allow-popups isolates the browsing "
+            "context while keeping third-party sign-in and payment popups working. Test those flows first.",
+        )
     if value.strip().lower() in ("same-origin", "same-origin-allow-popups"):
         return "pass", value, ""
-    return "warn", value, "Use same-origin for strongest isolation."
+    return "warn", value, "Use same-origin-allow-popups (or same-origin if the site opens no third-party popups)."
 
 
 # (header key, display label, weight, check fn)
@@ -133,7 +154,7 @@ def grade_headers(headers: dict) -> dict:
     counts = {"pass": 0, "warn": 0, "fail": 0}
     for key, label, weight, fn in _CHECKS:
         raw = lower.get(key)
-        status, value, recommendation = fn(raw)
+        status, value, recommendation = fn(raw, lower)
         earned += weight * _SCORE_WEIGHT[status]
         total += weight
         counts[status] += 1
