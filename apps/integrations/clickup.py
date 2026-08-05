@@ -12,6 +12,7 @@ change that, and nothing else here.
 from __future__ import annotations
 
 import logging
+import re
 
 import requests
 
@@ -19,6 +20,20 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.clickup.com/api"
 DEFAULT_TIMEOUT = 10
+
+# Matches a ClickUp Chat channel link, e.g.
+# https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438
+_CHAT_URL_RE = re.compile(r"clickup\.com/(\d+)/chat/(?:r/)?([^/?#]+)", re.I)
+
+
+def parse_clickup_chat(url: str) -> tuple[str | None, str | None]:
+    """Return (workspace_id, channel_id) from a ClickUp Chat channel link.
+
+    Both None when the URL is blank or is not a chat link — callers treat that
+    as "no chat target configured", not as an error.
+    """
+    m = _CHAT_URL_RE.search(url or "")
+    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 class ClickUpError(RuntimeError):

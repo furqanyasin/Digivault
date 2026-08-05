@@ -116,3 +116,31 @@ def test_a_client_without_a_token_refuses_to_call_out():
 
     with pytest.raises(ClickUpError):
         client.whoami()
+
+
+# ---------------------------------------------------------------------------
+# Chat link parsing — lives here rather than in monitors because integrations,
+# domains and site_health all need it now.
+# ---------------------------------------------------------------------------
+
+def test_parse_clickup_chat_lives_on_the_clickup_module():
+    from apps.integrations.clickup import parse_clickup_chat
+
+    ws, ch = parse_clickup_chat("https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438")
+    assert (ws, ch) == ("25658037", "rf0nn-49438")
+    assert parse_clickup_chat("") == (None, None)
+    assert parse_clickup_chat("https://example.com/x") == (None, None)
+
+
+def test_a_synthesized_channel_url_parses_back():
+    """create_chat_channel builds its URL by hand; it must round-trip."""
+    from apps.integrations.clickup import parse_clickup_chat
+
+    assert parse_clickup_chat("https://app.clickup.com/9001/chat/r/chan-77") == ("9001", "chan-77")
+
+
+def test_monitors_still_re_exports_parse_clickup_chat():
+    from apps.integrations.clickup import parse_clickup_chat as from_integrations
+    from apps.monitors.notifications import parse_clickup_chat as from_monitors
+
+    assert from_monitors is from_integrations

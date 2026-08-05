@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import urllib.request
 from typing import TYPE_CHECKING
 
-from apps.integrations.clickup import ClickUpClient
+# parse_clickup_chat is re-exported: it used to live here, and tests plus other
+# callers still import it from this module.
+from apps.integrations.clickup import ClickUpClient, parse_clickup_chat  # noqa: F401
 
 if TYPE_CHECKING:
     from apps.monitors.models import Monitor, NotificationChannel
@@ -57,17 +58,6 @@ def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
     except Exception:
         logger.exception("Email delivery failed for channel %s", channel.id)
         raise
-
-
-# Matches a ClickUp Chat channel link, e.g.
-# https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438
-_CLICKUP_CHAT_RE = re.compile(r"clickup\.com/(\d+)/chat/(?:r/)?([^/?#]+)", re.I)
-
-
-def parse_clickup_chat(url: str) -> tuple[str | None, str | None]:
-    """Return (workspace_id, channel_id) from a ClickUp Chat channel link."""
-    m = _CLICKUP_CHAT_RE.search(url or "")
-    return (m.group(1), m.group(2)) if m else (None, None)
 
 
 def post_clickup(config: dict, text: str) -> bool:
