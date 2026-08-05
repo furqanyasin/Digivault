@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   Lock, ExternalLink, Pencil, Trash2, Plus,
-  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server, Share2, Upload,
+  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server, Share2, Upload, FileDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,20 @@ import { useToast } from "@/hooks/use-toast";
 import type { Credential, CredentialShare, Website } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+// A template for the CSV importer, offered next to the Import button so nobody
+// has to reverse-engineer the column names from an error message. The header row
+// is exactly what CredentialImportView reads (a LastPass export's own columns);
+// the rows demonstrate a site login, a hosting panel, and a TOTP secret.
+// `grouping` and the URL are what the importer's type guesser reads, so these
+// examples land as wordpress / siteground / cloudflare rather than "custom".
+const SAMPLE_CSV = [
+  "url,username,password,totp,extra,name,grouping,fav",
+  'https://example.com/wp-admin,admin@example.com,"Repl4ce-Me!",,"Main WordPress admin — replace before importing.",Example Co — WordPress Admin,Website Credentials,0',
+  'https://my.siteground.com,agency@youragency.com,"H0sting-Pass!",JBSWY3DPEHPK3PXP,"Hosting control panel. The totp column becomes a note.",SiteGround — Hosting,Hosting,0',
+  'https://dash.cloudflare.com,dns@youragency.com,"DNS-Pass-123!",,,Cloudflare — DNS,Hosting,0',
+  "",
+].join("\n");
 
 const WEBSITE_TYPES = [
   { value: "wordpress",  label: "WordPress Admin" },
@@ -1005,6 +1019,20 @@ export function CredentialsVaultClient({
   const [shareTarget, setShareTarget] = useState<Credential | null>(null);
   const [importing, setImporting] = useState(false);
 
+  // Built and downloaded in the browser — a static template needs no round trip.
+  // The leading BOM is for Excel, which reads a BOM-less UTF-8 CSV as ANSI and
+  // mangles the em dashes. The importer decodes utf-8-sig, so it strips cleanly.
+  function handleDownloadSample() {
+    const url = URL.createObjectURL(
+      new Blob(["﻿" + SAMPLE_CSV], { type: "text/csv;charset=utf-8" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "digivault-vault-sample.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1087,6 +1115,9 @@ export function CredentialsVaultClient({
         </div>
         {canWrite && (
           <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={handleDownloadSample} title="Download a CSV template with the columns the importer expects">
+              <FileDown className="h-4 w-4 mr-1.5" />Sample CSV
+            </Button>
             <label className="cursor-pointer">
               <input type="file" accept=".csv" className="hidden" onChange={handleImportCsv} disabled={importing} />
               <Button variant="outline" asChild>
