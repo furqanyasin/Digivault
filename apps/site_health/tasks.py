@@ -400,7 +400,14 @@ def run_seo_check(website_id: str) -> None:
         SiteEvent.objects.create(
             website=website, event_type=event_type, severity=severity, summary=summary,
         )
-        notify_team(website, f"[Digivault] {summary}", f"{summary} — {website.domain}")
+        notify_team(
+            website,
+            f"[Digivault] {summary}",
+            f"{summary} — {website.domain}",
+            # The event type is the stable part of the issue; the summary text
+            # carries changing detail and would fragment task dedup.
+            subject_key=f"sitehealth:{website.id}:{event_type}",
+        )
 
     label = website.name or website.domain
     if prev["homepage_indexable"] is True and report.homepage_indexable is False:
@@ -446,6 +453,7 @@ def run_seo_check(website_id: str) -> None:
             website,
             f"[Digivault] {label} on-page SEO changed: {what}",
             f"On-page SEO changed on {website.domain}: {what}",
+            subject_key=f"sitehealth:{website.id}:{SiteEvent.EventType.SEO_META_CHANGED}",
         )
 
 
