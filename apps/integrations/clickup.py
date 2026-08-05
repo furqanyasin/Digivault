@@ -117,11 +117,59 @@ class ClickUpClient:
     def comment(self, task_id: str, text: str) -> dict:
         return self._request("POST", f"task/{task_id}/comment", json={"comment_text": text})
 
-    def post_chat(self, workspace_id: str, channel_id: str, text: str) -> dict:
+    def workspaces(self) -> list:
+        """The workspaces (ClickUp calls them "teams") this token can see.
+
+        Each carries a `members` list, which is how a Digivault user is matched
+        to a ClickUp user id.
+        """
+        return self._request("GET", "team").get("teams", [])
+
+    def create_chat_channel(
+        self,
+        workspace_id: str,
+        *,
+        name: str,
+        user_ids: list | None = None,
+        description: str = "",
+        visibility: str = "PRIVATE",
+    ) -> dict:
+        """Create a Chat channel with `user_ids` already in it.
+
+        ClickUp does not reliably return a browsable URL, so one is synthesized
+        in the shape `parse_clickup_chat` understands — that keeps the channel
+        target a single stored URL rather than a pair of id columns.
+        """
+        body: dict = {"name": name, "visibility": visibility}
+        if description:
+            body["description"] = description
+        # Sent only when non-empty — ClickUp rejects an empty user_ids array.
+        if user_ids:
+            body["user_ids"] = user_ids
+
+        channel = self._request(
+            "POST", f"workspaces/{workspace_id}/chat/channels", json=body, version="v3"
+        )
+        if not channel.get("url") and channel.get("id"):
+            channel["url"] = f"https://app.clickup.com/{workspace_id}/chat/r/{channel['id']}"
+        return channel
+
+    def post_chat(
+        self, workspace_id: str, channel_id: str, text: str, *, followers: list | None = None
+    ) -> dict:
+        """Post a markdown message to a Chat channel.
+
+        `followers` is what actually notifies someone: ClickUp documents no
+        request-side syntax for an inline @-mention in a v3 chat message, so the
+        body's "@name" is for human readers and this is the real ping.
+        """
+        body: dict = {"type": "message", "content": text, "content_format": "text/md"}
+        if followers:
+            body["followers"] = followers
         return self._request(
             "POST",
             f"workspaces/{workspace_id}/chat/channels/{channel_id}/messages",
-            json={"type": "message", "content": text, "content_format": "text/md"},
+            json=body,
             version="v3",
         )
 

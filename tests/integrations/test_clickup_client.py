@@ -144,3 +144,76 @@ def test_monitors_still_re_exports_parse_clickup_chat():
     from apps.monitors.notifications import parse_clickup_chat as from_monitors
 
     assert from_monitors is from_integrations
+
+
+# ---------------------------------------------------------------------------
+# Workspaces, channel creation, message followers
+# ---------------------------------------------------------------------------
+
+def test_workspaces_reads_the_v2_team_endpoint():
+    session = RecordingSession(
+        FakeResponse(200, {"teams": [{"id": "9001", "name": "Digilatics", "members": []}]})
+    )
+    client = ClickUpClient("pk_test", session=session)
+
+    teams = client.workspaces()
+
+    assert session.last["url"] == "https://api.clickup.com/api/v2/team"
+    assert teams[0]["id"] == "9001"
+
+
+def test_workspaces_returns_empty_when_clickup_sends_no_teams_key():
+    session = RecordingSession(FakeResponse(200, {}))
+
+    assert ClickUpClient("pk_test", session=session).workspaces() == []
+
+
+def test_create_chat_channel_posts_name_and_user_ids():
+    session = RecordingSession(FakeResponse(200, {"id": "chan-77"}))
+    client = ClickUpClient("pk_test", session=session)
+
+    channel = client.create_chat_channel("9001", name="Web Team", user_ids=[11, 22])
+
+    assert session.last["url"] == "https://api.clickup.com/api/v3/workspaces/9001/chat/channels"
+    assert session.last["json"]["name"] == "Web Team"
+    assert session.last["json"]["user_ids"] == [11, 22]
+    assert session.last["json"]["visibility"] == "PRIVATE"
+    # ClickUp returned no url, so we synthesize one that parses back.
+    assert channel["url"] == "https://app.clickup.com/9001/chat/r/chan-77"
+
+
+def test_create_chat_channel_omits_empty_user_ids():
+    """ClickUp rejects a null/empty user_ids array."""
+    session = RecordingSession(FakeResponse(200, {"id": "chan-1"}))
+
+    ClickUpClient("pk_test", session=session).create_chat_channel("9001", name="X", user_ids=[])
+
+    assert "user_ids" not in session.last["json"]
+
+
+def test_create_chat_channel_keeps_a_url_clickup_provided():
+    session = RecordingSession(
+        FakeResponse(200, {"id": "chan-77", "url": "https://real.clickup.com/9001/chat/r/chan-77"})
+    )
+
+    channel = ClickUpClient("pk_test", session=session).create_chat_channel("9001", name="X")
+
+    assert channel["url"] == "https://real.clickup.com/9001/chat/r/chan-77"
+
+
+def test_post_chat_sends_followers_when_given():
+    session = RecordingSession(FakeResponse(200, {"id": "msg-1"}))
+
+    ClickUpClient("pk_test", session=session).post_chat("9001", "chan-77", "hi", followers=[11])
+
+    assert session.last["json"]["followers"] == [11]
+    assert session.last["json"]["content"] == "hi"
+    assert session.last["json"]["content_format"] == "text/md"
+
+
+def test_post_chat_omits_followers_when_empty():
+    session = RecordingSession(FakeResponse(200, {"id": "msg-1"}))
+
+    ClickUpClient("pk_test", session=session).post_chat("9001", "chan-77", "hi", followers=[])
+
+    assert "followers" not in session.last["json"]
