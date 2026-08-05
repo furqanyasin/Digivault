@@ -93,8 +93,17 @@
     return inp.parentElement || inp;
   }
 
+  // Descriptor + owning element for every form catalogued on this page load.
+  // Submission counting looks the element up here and reports the SAME
+  // descriptor that was ingested, so the server recomputes an identical
+  // fingerprint. Rebuilding a descriptor at submit time cannot work: the
+  // fingerprint covers detection_type, so a div-detected form described as
+  // "native" hashes to something that was never stored.
+  var trackedForms = [];
+
   function collectForms() {
     var result = [];
+    trackedForms = [];
 
     // --- 1. Native <form> elements ---
     var forms = document.querySelectorAll('form');
@@ -106,7 +115,7 @@
         if (!isFieldInput(inputs[j])) continue;
         fieldList.push(describeField(inputs[j]));
       }
-      result.push({
+      var nativeDesc = {
         form_id: f.id || '',
         form_name: f.getAttribute('name') || '',
         form_action: f.action || '',
@@ -114,7 +123,9 @@
         detection_type: 'native',
         provider: '',
         fields: fieldList
-      });
+      };
+      result.push(nativeDesc);
+      trackedForms.push({ el: f, desc: nativeDesc });
     }
 
     // --- 2. Div-based forms: inputs not inside any <form> ---
@@ -139,7 +150,7 @@
       );
       // Noise filter: keep only groups with a submit control or 2+ fields.
       if (!hasSubmit && grp.fields.length < 2) continue;
-      result.push({
+      var domDesc = {
         form_id: grp.container.id || '',
         form_name: (grp.container.getAttribute && grp.container.getAttribute('name')) || '',
         form_action: '',
@@ -147,7 +158,9 @@
         detection_type: 'dom',
         provider: '',
         fields: grp.fields
-      });
+      };
+      result.push(domDesc);
+      trackedForms.push({ el: grp.container, desc: domDesc });
     }
 
     // --- 3. Embedded third-party forms (iframes) ---
@@ -185,7 +198,7 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.6'
+      snippet_version: '1.7'
     });
     if (navigator.sendBeacon) {
       var blob = new Blob([payload], { type: 'application/json' });
@@ -274,26 +287,41 @@
   // Count a native <form> submission. Describes the form the same way
   // collectForms() does so the server can match it by fingerprint. Only native
   // forms are countable — embedded third-party iframes never reach this event.
-  function sendFormSubmission(form) {
-    if (!form || form.tagName !== 'FORM') return;
-    var fieldList = [];
-    var inputs = form.querySelectorAll('input, textarea, select');
-    for (var i = 0; i < inputs.length; i++) {
-      if (!isFieldInput(inputs[i])) continue;
-      fieldList.push(describeField(inputs[i]));
+  // Descriptor of the tracked form containing `node`, or null. Walking the
+  // catalogue rather than the DOM is what keeps the reported descriptor
+  // byte-identical to the ingested one.
+  function trackedFormFor(node) {
+    // A form submitted before the first collectForms() would find an empty
+    // catalogue — populate it rather than dropping the submission.
+    if (!trackedForms.length) {
+      try { collectForms(); } catch (err) { return null; }
     }
+    for (var i = 0; i < trackedForms.length; i++) {
+      var t = trackedForms[i];
+      if (t.el && t.el.contains && t.el.contains(node)) return t.desc;
+    }
+    return null;
+  }
+
+  // A submit event and a click on the submit button both fire for the same
+  // send, and a multi-step form may re-click while the request is in flight.
+  // Count one submission per form per window.
+  var submitSeen = {};
+  var SUBMIT_DEDUPE_MS = 3000;
+
+  function sendFormSubmission(desc) {
+    if (!desc) return;
+    var names = [];
+    for (var i = 0; i < desc.fields.length; i++) names.push(desc.fields[i].name);
+    var key = desc.detection_type + '|' + desc.form_id + '|' + desc.form_action + '|' + names.join(',');
+    var now = new Date().getTime();
+    if (submitSeen[key] && now - submitSeen[key] < SUBMIT_DEDUPE_MS) return;
+    submitSeen[key] = now;
+
     var payload = JSON.stringify({
       site_id: siteId,
       page_url: window.location.href,
-      form: {
-        form_id: form.id || '',
-        form_name: form.getAttribute('name') || '',
-        form_action: form.action || '',
-        form_method: (form.method || 'post').toLowerCase(),
-        detection_type: 'native',
-        provider: '',
-        fields: fieldList
-      }
+      form: desc
     });
     if (navigator.sendBeacon) {
       navigator.sendBeacon(formSubmitUrl, new Blob([payload], { type: 'application/json' }));
@@ -304,6 +332,31 @@
       xhr.send(payload);
     }
   }
+
+  // Clicks on submit-style controls, for the forms a `submit` event never
+  // covers: div-based forms with no <form> element at all, and multi-step or
+  // AJAX forms whose final button is type="button" and posts via fetch.
+  //
+  // Scoped to controls inside an already-catalogued form, so this can only ever
+  // count against a form the backend has stored — it cannot invent one. Note
+  // this measures submit *attempts*, which is what the native `submit` event
+  // measured too: neither knows whether the server accepted it.
+  var SUBMIT_CONTROL = 'button, input[type="submit"], input[type="image"], [role="button"]';
+
+  document.addEventListener('click', function (e) {
+    try {
+      var node = e.target;
+      if (!node || !node.closest) return;
+      var control = node.closest(SUBMIT_CONTROL);
+      if (!control) return;
+      // Explicit reset/plain buttons that aren't submits are still ambiguous in
+      // a div form, but a reset never submits anything.
+      if (control.type === 'reset') return;
+      var desc = trackedFormFor(control);
+      if (desc) sendFormSubmission(desc);
+    } catch (err) { /* never break the host page */ }
+  }, true);
+
 
   function sendFormError(source, formId, message) {
     var key = (source + '|' + formId + '|' + message).slice(0, 200);
@@ -372,7 +425,7 @@
   document.addEventListener('submit', function (e) {
     watchForm = e.target && e.target.tagName === 'FORM' ? e.target : null;
     watchUntil = Date.now() + 20000;
-    if (watchForm) sendFormSubmission(watchForm);
+    if (watchForm) sendFormSubmission(trackedFormFor(watchForm) || null);
     if (errObserver || typeof MutationObserver === 'undefined') return;
     errObserver = new MutationObserver(function (mutations) {
       if (Date.now() > watchUntil) return;
