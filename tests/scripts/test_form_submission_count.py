@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
 from apps.scripts.models import DetectedForm
+from apps.scripts.normalize import normalize_page_url
 from apps.scripts.tasks import _upsert_form
 from apps.websites.models import Website
 
@@ -39,6 +40,22 @@ class TestFormSubmissionCount:
         assert self._post(website.site_id).status_code == 202
         form = DetectedForm.objects.get(website=website, page_url=PAGE)
         assert form.submission_count == 2
+
+    def test_submission_counted_when_href_carries_www_query_and_slash(self, website):
+        # Reality check. Ingest stores the *normalized* page identity, while the
+        # snippet reports window.location.href verbatim — which in the wild has
+        # www., UTM params, a fragment and a trailing slash. Matching those two
+        # against each other raw is why counts sat at 0 on live sites.
+        stored = normalize_page_url("https://www.forms.io/contact/")
+        _upsert_form(website, stored, FORM)
+
+        resp = self._post(
+            website.site_id,
+            page="https://www.forms.io/contact/?utm_source=newsletter&gclid=abc#form",
+        )
+
+        assert resp.data["counted"] is True
+        assert DetectedForm.objects.get(website=website, page_url=stored).submission_count == 1
 
     def test_submission_for_undetected_form_is_ignored(self, website):
         # No _upsert_form first → nothing to increment, but still a clean 202.
