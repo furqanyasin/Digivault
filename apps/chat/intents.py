@@ -2,6 +2,8 @@ import re
 
 from django.db.models import Q
 
+from .followups import suggest
+
 
 # ---------------------------------------------------------------------------
 # Intent detection
@@ -666,4 +668,8 @@ _HANDLERS = {
 def process_message(team, message: str) -> dict:
     intent, params = detect_intent(message)
     handler = _HANDLERS.get(intent, handle_fallback)
-    return handler(team, params)
+    result = handler(team, params)
+    # Attached here rather than in each handler so a new intent gets follow-ups
+    # for free, and can never ship a reply that dead-ends the conversation.
+    result['suggestions'] = suggest(result)
+    return result
