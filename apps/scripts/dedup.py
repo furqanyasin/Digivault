@@ -75,6 +75,48 @@ def merge_duplicate_scripts(script_model, script_change_model) -> int:
     return deleted
 
 
+def collapse_duplicate_changes(script_change_model, notification_model) -> int:
+    """Collapse repeat unacknowledged ScriptChange rows onto one row each.
+
+    Grouped exactly like the runtime dedupe in `process_ingest_payload`:
+    (website, change_type, script) — falling back to the description when the
+    change has no Script, since that is the only identity such a row carries.
+
+    Keeper = **newest** created_at, the opposite of `merge_duplicate_scripts`.
+    A Script row is an identity whose oldest row holds the true first_seen; a
+    change row is one observation, and its description quotes the raw URL as it
+    looked at the time. After 0017/0019 merged the Script rows underneath them,
+    keeping the oldest change would leave the list quoting a URL the surviving
+    Script no longer displays.
+
+    Acknowledged rows are left alone — they record that someone acted, and the
+    runtime dedupe likewise only suppresses against open changes (or ones inside
+    the cooldown). Notifications on the deleted rows are repointed at the keeper
+    rather than left dangling. Returns the number of rows deleted.
+    """
+    groups: dict[tuple, list] = defaultdict(list)
+    for change in (
+        script_change_model.objects.filter(acknowledged_at__isnull=True)
+        .order_by("created_at")
+    ):
+        identity = change.script_id or ("description", change.description)
+        groups[(change.website_id, change.change_type, identity)].append(change)
+
+    deleted = 0
+    for dupes in groups.values():
+        if len(dupes) < 2:
+            continue
+        # Ordered oldest-first above, so the keeper is the last one.
+        keeper, rest = dupes[-1], dupes[:-1]
+        loser_pks = [d.pk for d in rest]
+        notification_model.objects.filter(script_change_id__in=loser_pks).update(
+            script_change_id=keeper.pk
+        )
+        script_change_model.objects.filter(pk__in=loser_pks).delete()
+        deleted += len(loser_pks)
+    return deleted
+
+
 def merge_duplicate_forms(detected_form_model) -> int:
     """Recompute DetectedForm fingerprints and merge the resulting duplicates.
 

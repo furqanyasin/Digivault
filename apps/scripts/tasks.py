@@ -320,6 +320,17 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                 ).update(acknowledged_at=timezone.now())
 
             # --- 5. Persist ScriptChange records ---
+            # Two ingests for the same website overlap constantly — the snippet
+            # posts several times per page load and each post is its own task —
+            # and the dedupe below cannot see a row a sibling transaction has not
+            # committed yet. Without this lock both tasks read "no such change"
+            # and both insert, which is precisely the site-wide duplicate the
+            # dedupe exists to prevent. Step 7 already UPDATEs this row before
+            # commit, so the lock is one every ingest takes anyway; taking it
+            # here only moves it earlier in the same transaction.
+            Website.objects.select_for_update().filter(pk=website.pk).first()
+
+            created_changes: list[ScriptChange] = []
             for change in changes:
                 script_obj = None
                 if change.src_url:
@@ -344,7 +355,7 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                     | Q(created_at__gte=timezone.now() - _CHANGE_COOLDOWN)
                 ).exists():
                     continue
-                ScriptChange.objects.create(
+                created_changes.append(ScriptChange.objects.create(
                     website=website,
                     script=script_obj,
                     change_type=change.change_type,
@@ -352,16 +363,18 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                     description=change.description,
                     old_value=change.old_value,
                     new_value=change.new_value,
-                )
+                ))
 
             # --- 5b. Dispatch alert notifications for each change ---
+            # Only the rows this task created. Selecting by "created since my
+            # snapshot" instead swept up changes committed by overlapping ingests
+            # for the same website, which had already notified for them
+            # themselves — one change turned into a notification per concurrent
+            # task, and the client got the same alert several times over.
             from apps.alerts.services import AlertService
             from apps.alerts.tasks import deliver_notification
 
-            for change_record in ScriptChange.objects.filter(
-                website=website,
-                created_at__gte=snapshot.captured_at,
-            ):
+            for change_record in created_changes:
                 notifications = AlertService.dispatch_for_change(change_record)
                 for notif in notifications:
                     if notif.rule and notif.rule.delivery_mode == "immediate":
