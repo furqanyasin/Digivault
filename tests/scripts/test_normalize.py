@@ -173,6 +173,128 @@ class TestHashedFilenames:
         assert normalize_script_url("") == ""
 
 
+class TestTimestampedPathSegments:
+    """Cache-busters also live in path segments, not just filenames and queries.
+
+    HubSpot serves analytics from `/analytics/<epoch_ms>/<portal_id>.js` and
+    rotates the timestamp roughly every 30 minutes, so one portal minted a fresh
+    Script row on every visit — seven rows for one tag in a single day. The
+    filename rule never sees it: the volatile part is a directory, and it is all
+    digits rather than hex.
+    """
+
+    def test_hubspot_analytics_timestamp_is_volatile(self):
+        assert (
+            normalize_script_url("https://js.hs-analytics.net/analytics/1785996600000/46377927.js")
+            == "https://js.hs-analytics.net/analytics/46377927.js"
+        )
+
+    def test_every_rotation_yields_the_same_identity(self):
+        seen = {
+            normalize_script_url(f"https://js.hs-analytics.net/analytics/{ts}/46377927.js")
+            for ts in (
+                "1785996600000",
+                "1785964500000",
+                "1785958800000",
+                "1785982500000",
+                "1785962700000",
+                "1785960600000",
+                "1785993900000",
+            )
+        }
+        assert len(seen) == 1
+
+    def test_two_portals_stay_separate(self):
+        """The portal id is the identity — only the timestamp may be dropped."""
+        a = normalize_script_url("https://js.hs-analytics.net/analytics/1785996600000/46377927.js")
+        b = normalize_script_url("https://js.hs-analytics.net/analytics/1785996600000/11223344.js")
+        assert a != b
+
+    def test_a_meta_pixel_id_in_the_path_is_kept(self):
+        """A 16-digit pixel id is an account, not a timestamp — never strip it."""
+        out = normalize_script_url(
+            "https://connect.facebook.net/signals/config/7847387958713764?v=2.9.370"
+        )
+        assert out == "https://connect.facebook.net/signals/config/7847387958713764"
+
+    def test_a_short_numeric_path_segment_is_kept(self):
+        """Account/version directories like /v3/ or /12345/ are identity."""
+        url = "https://cdn.example.com/v3/12345/widget.js"
+        assert normalize_script_url(url) == url
+
+    def test_a_digit_run_that_is_not_a_plausible_date_is_kept(self):
+        """13 digits alone is not enough — it has to land in a sane date range."""
+        url = "https://cdn.example.com/9999999999999/widget.js"
+        assert normalize_script_url(url) == url
+
+    def test_epoch_seconds_segment_is_volatile(self):
+        a = normalize_script_url("https://cdn.example.com/build/1785996600/app.js")
+        b = normalize_script_url("https://cdn.example.com/build/1785964500/app.js")
+        assert a == b == "https://cdn.example.com/build/app.js"
+
+
+class TestMetaPixelRuntimeParams:
+    """Meta's pixel config carries its library version and an experiment list.
+
+    `v=2.9.370` moves on every Meta release and `ex_m=` is a rotating list of
+    experiment ids, so the same pixel would start listing twice the next time
+    either changed.
+    """
+
+    def test_library_version_is_volatile(self):
+        a = normalize_script_url("https://connect.facebook.net/signals/config/123?v=2.9.370")
+        b = normalize_script_url("https://connect.facebook.net/signals/config/123?v=2.9.371")
+        assert a == b == "https://connect.facebook.net/signals/config/123"
+
+    def test_experiment_list_is_volatile(self):
+        out = normalize_script_url(
+            "https://connect.facebook.net/signals/config/7847387958713764"
+            "?v=2.9.370&r=stable&domain=digilatics.com"
+            "&hme=589ca7d2e122c6385be4e33d0bc38dace8e88b62db3f4bee0e6f01d386858e70"
+            "&ex_m=108%2C210%2C160%2C22%2C73"
+        )
+        assert out == (
+            "https://connect.facebook.net/signals/config/7847387958713764"
+            "?domain=digilatics.com&r=stable"
+        )
+
+
+class TestLibraryVersionPathSegments:
+    """Vendors that put the library version in the path, not a query param.
+
+    Microsoft Clarity serves /0.8.69/clarity.js and ships a release every few
+    days, so the raw path minted a new identity — and a high-severity "Unknown
+    script detected" — on every release.
+    """
+
+    def test_clarity_release_yields_same_identity(self):
+        a = normalize_script_url("https://scripts.clarity.ms/0.8.69/clarity.js")
+        b = normalize_script_url("https://scripts.clarity.ms/0.8.71/clarity.js")
+        assert a == b == "https://scripts.clarity.ms/clarity.js"
+
+    def test_prerelease_and_v_prefixed_versions_collapse_too(self):
+        base = "https://scripts.clarity.ms/clarity.js"
+        assert normalize_script_url("https://scripts.clarity.ms/0.8.67-beta/clarity.js") == base
+        assert normalize_script_url("https://scripts.clarity.ms/v0.8.67/clarity.js") == base
+
+    def test_account_id_segments_are_not_mistaken_for_versions(self):
+        # The identity of a tag IS its account id — these must not collapse.
+        assert (
+            normalize_script_url("https://js.hs-banner.com/v2/46377927/banner.js")
+            != normalize_script_url("https://js.hs-banner.com/v2/99999999/banner.js")
+        )
+        assert (
+            normalize_script_url("https://www.clarity.ms/tag/i9x3wxzn9k")
+            == "https://www.clarity.ms/tag/i9x3wxzn9k"
+        )
+
+    def test_locale_and_word_segments_survive(self):
+        assert (
+            normalize_script_url("https://connect.facebook.net/en_US/fbevents.js")
+            == "https://connect.facebook.net/en_US/fbevents.js"
+        )
+
+
 class TestNormalizePageUrl:
     def test_strips_query_and_fragment(self):
         assert (

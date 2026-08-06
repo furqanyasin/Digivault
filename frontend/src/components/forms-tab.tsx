@@ -32,10 +32,15 @@ function formSignature(f: DetectedForm): string {
   return [f.detection_type, f.form_id, f.form_name, f.form_action, f.provider, fields].join("|");
 }
 
-// Errors that belong to a form: matched by the HTML form id when both have one.
+// Errors that belong to a form. The snippet identifies an error's form as
+// `id || name`, while a detected form keeps id and name in separate columns, so
+// matching on id alone could never link a form identified only by its name —
+// every Elementor form, among others. Those forms always read 100% success no
+// matter how many failures were recorded against them.
 function errorsForForm(f: DetectedForm, errors: FormSubmissionError[]): FormSubmissionError[] {
-  if (!f.form_id) return [];
-  return errors.filter((e) => e.form_id && e.form_id === f.form_id);
+  const keys = [f.form_id, f.form_name].filter(Boolean);
+  if (keys.length === 0) return [];
+  return errors.filter((e) => e.form_id && keys.includes(e.form_id));
 }
 
 // Share of observed submits that didn't produce a server-side failure. Null when

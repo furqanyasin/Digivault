@@ -284,6 +284,16 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # ------------------------------------------------------------------
+# Monitors
+# ------------------------------------------------------------------
+
+# Ceiling on how many uptime checks leave the platform per beat tick (30s).
+# All checks share one public egress IP, so a simultaneous fleet-wide burst
+# reads as a scanner sweep to Cloudflare/Sucuri/AWS WAF and gets that IP
+# challenged or blackholed. Raise only if outbound checks fall behind.
+MONITOR_MAX_CHECKS_PER_TICK = env.int("MONITOR_MAX_CHECKS_PER_TICK", default=8)
+
+# ------------------------------------------------------------------
 # Vault
 # ------------------------------------------------------------------
 

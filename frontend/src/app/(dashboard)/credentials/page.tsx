@@ -7,8 +7,10 @@ export default async function CredentialsPage() {
   const token = await getAccessToken();
 
   const [credentials, websites, me] = await Promise.all([
-    api.get<Credential[]>("/api/v1/credentials/", token ?? "").catch(() => [] as Credential[]),
-    api.get<Website[]>("/api/v1/websites/", token ?? "").catch(() => [] as Website[]),
+    // getAll on both: these lists page at 25, and the vault needs every
+    // credential plus every website for the "link to website" picker.
+    api.getAll<Credential>("/api/v1/credentials/", token ?? "").catch(() => [] as Credential[]),
+    api.getAll<Website>("/api/v1/websites/", token ?? "").catch(() => [] as Website[]),
     api.get<User>("/api/v1/auth/me/", token ?? "").catch(() => null as User | null),
   ]);
 

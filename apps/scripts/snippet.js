@@ -15,27 +15,41 @@
     return src.indexOf('/wp-includes/') !== -1 || src.indexOf('/wp-admin/') !== -1;
   }
 
+  // Everything this page load has shown us, keyed by src. Each post carries the
+  // union rather than a fresh scan: we post at DOMContentLoaded, at 2.5s, and
+  // after each DOM mutation burst, and the first of those fires before GTM has
+  // injected GA4, Meta Pixel, Clarity and HubSpot. A per-post scan therefore
+  // made the early posts look like a *smaller inventory of the page*, which the
+  // backend could not tell apart from those tags having been uninstalled.
+  var seenScripts = {};
+
   function collectScripts() {
     var tags = document.querySelectorAll('script');
-    var scripts = [];
-    var seen = {};
     for (var i = 0; i < tags.length; i++) {
       var t = tags[i];
       var src = (t.src || '').trim();
       if (!src) continue;
-      if (seen[src]) continue;
       if (isWpCore(src)) continue;
-      seen[src] = true;
       var loc = 'unknown';
       if (document.head && document.head.contains(t)) loc = 'head';
       else if (document.body && document.body.contains(t)) loc = 'body';
-      scripts.push({
+      // GTM, Meta Pixel, Hotjar, Clarity and HubSpot all detach their tag once
+      // loaded, which reads as 'unknown'. Keep the real location we saw earlier
+      // instead of overwriting it with the absence of one.
+      if (loc === 'unknown' && seenScripts[src]) continue;
+      seenScripts[src] = {
         src: src,
         location: loc,
         is_async: t.async || false,
         is_defer: t.defer || false,
         is_inline: false
-      });
+      };
+    }
+    var scripts = [];
+    for (var key in seenScripts) {
+      if (Object.prototype.hasOwnProperty.call(seenScripts, key)) {
+        scripts.push(seenScripts[key]);
+      }
     }
     return scripts;
   }
@@ -198,7 +212,7 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.7'
+      snippet_version: '1.9'
     });
     if (navigator.sendBeacon) {
       var blob = new Blob([payload], { type: 'application/json' });
@@ -290,17 +304,33 @@
   // Descriptor of the tracked form containing `node`, or null. Walking the
   // catalogue rather than the DOM is what keeps the reported descriptor
   // byte-identical to the ingested one.
-  function trackedFormFor(node) {
-    // A form submitted before the first collectForms() would find an empty
-    // catalogue — populate it rather than dropping the submission.
-    if (!trackedForms.length) {
-      try { collectForms(); } catch (err) { return null; }
-    }
+  function lookupTrackedForm(node) {
     for (var i = 0; i < trackedForms.length; i++) {
       var t = trackedForms[i];
       if (t.el && t.el.contains && t.el.contains(node)) return t.desc;
     }
     return null;
+  }
+
+  // Re-cataloguing walks the whole DOM, so throttle it: a submit-looking
+  // control that belongs to no form at all must not rescan on every click.
+  var lastRecatalogue = 0;
+  var RECATALOGUE_MS = 1000;
+
+  function trackedFormFor(node) {
+    var desc = lookupTrackedForm(node);
+    if (desc) return desc;
+    // The form may not be in the catalogue at all: submitted before the first
+    // collectForms(), or first rendered after the last one — an Elementor popup
+    // opened past the 30s observer window is the common case. Checking only for
+    // an *empty* catalogue missed that second case entirely, and every
+    // submission on such a form was dropped. The server stores a form it first
+    // sees on a submit report, so re-cataloguing here loses nothing.
+    var now = new Date().getTime();
+    if (now - lastRecatalogue < RECATALOGUE_MS) return null;
+    lastRecatalogue = now;
+    try { collectForms(); } catch (err) { return null; }
+    return lookupTrackedForm(node);
   }
 
   // A submit event and a click on the submit button both fire for the same
@@ -337,11 +367,46 @@
   // covers: div-based forms with no <form> element at all, and multi-step or
   // AJAX forms whose final button is type="button" and posts via fetch.
   //
-  // Scoped to controls inside an already-catalogued form, so this can only ever
-  // count against a form the backend has stored — it cannot invent one. Note
-  // this measures submit *attempts*, which is what the native `submit` event
-  // measured too: neither knows whether the server accepted it.
+  // Note this measures submit *attempts*, which is what the native `submit`
+  // event measured too: neither knows whether the server accepted it.
   var SUBMIT_CONTROL = 'button, input[type="submit"], input[type="image"], [role="button"]';
+
+  // Step navigation, option pickers and utility buttons all sit inside the same
+  // form as the real submit control, so counting every click inside a form made
+  // one visitor walking a multi-step form look like several conversions — six
+  // "Next" clicks reported three submissions on a live site. A click now counts
+  // only when the control reads as a *final* submit.
+  //
+  // "continue" is treated as step navigation, which loses the occasional
+  // "Continue to payment" submit — the deliberate trade, since it is far more
+  // often a wizard's Next button.
+  var NAV_TEXT = /\b(next|back|prev|previous|continue|skip|cancel|close|dismiss|reset|clear|search|filter|log\s?in|login|sign\s?in|forgot|show|hide|toggle|upload|browse|remove|delete|edit)\b/i;
+  var SUBMIT_TEXT = /\b(submit|send|apply|subscribe|register|sign\s?up|get\s+(a\s+)?(quote|started|demo|estimate|audit|price)|request|book|reserve|schedule|confirm|finish|complete|pay|checkout|order|contact)\b/i;
+
+  function controlLabel(control) {
+    var text = (control.textContent || control.value || '').trim();
+    if (!text) {
+      text = control.getAttribute('aria-label') ||
+        control.getAttribute('title') || control.name || '';
+    }
+    return String(text).slice(0, 120);
+  }
+
+  // True when clicking this control plausibly submits the form, rather than
+  // moving between steps or picking an option.
+  function isSubmitControl(control) {
+    var type = (control.getAttribute('type') || '').toLowerCase();
+    if (type === 'reset') return false;
+    var label = controlLabel(control);
+    // A step button is a step button even when it is a native submit — a
+    // server-rendered wizard advances with type="submit".
+    if (NAV_TEXT.test(label)) return false;
+    if (type === 'submit' || type === 'image') return true;
+    // A <button> with no type inside a real <form> submits by default.
+    if (control.tagName === 'BUTTON' && !type && control.form) return true;
+    // Otherwise only the label can identify the AJAX submit control.
+    return SUBMIT_TEXT.test(label);
+  }
 
   document.addEventListener('click', function (e) {
     try {
@@ -349,9 +414,7 @@
       if (!node || !node.closest) return;
       var control = node.closest(SUBMIT_CONTROL);
       if (!control) return;
-      // Explicit reset/plain buttons that aren't submits are still ambiguous in
-      // a div form, but a reset never submits anything.
-      if (control.type === 'reset') return;
+      if (!isSubmitControl(control)) return;
       var desc = trackedFormFor(control);
       if (desc) sendFormSubmission(desc);
     } catch (err) { /* never break the host page */ }

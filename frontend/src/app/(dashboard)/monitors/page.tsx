@@ -43,7 +43,10 @@ function fmt(ms: number | null) {
 
 export default async function MonitorsPage() {
   const token = await getAccessToken();
-  const monitors = await api.get<Monitor[]>("/api/v1/monitors/", token ?? "").catch(() => [] as Monitor[]);
+  // getAll, not get: /api/v1/monitors/ pages at 25 (StandardPagination), so a
+  // plain get silently truncated the table and every summary count once a team
+  // passed 25 monitors.
+  const monitors = await api.getAll<Monitor>("/api/v1/monitors/", token ?? "").catch(() => [] as Monitor[]);
 
   const up = monitors.filter((m) => m.status === "up").length;
   const down = monitors.filter((m) => m.status === "down").length;

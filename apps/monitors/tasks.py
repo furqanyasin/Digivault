@@ -1,13 +1,23 @@
 """Celery tasks for uptime monitoring."""
 
 import logging
+from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
+from django.db.models import DateTimeField, ExpressionWrapper, F, Q
 from django.utils import timezone
 
 from apps.monitors.notifications import notify_status_change
 
 logger = logging.getLogger(__name__)
+
+# Every check leaves the platform from the same public IP. Firing all monitors
+# at once looks like a scanner sweep to Cloudflare/Sucuri/AWS WAF, which is how
+# the IP gets challenged or blackholed. Beat ticks every 30s, so a cap here
+# spreads the fleet across the interval instead of bursting; because a dispatched
+# monitor stops being due, the fleet also self-declusters after one full cycle.
+DEFAULT_MAX_CHECKS_PER_TICK = 8
 
 
 @shared_task(name="monitors.run_due_checks")
@@ -20,20 +30,43 @@ def run_due_checks():
     from apps.monitors.models import Monitor
 
     now = timezone.now()
-    monitors = Monitor.objects.filter(is_active=True).exclude(status="paused")
+    limit = getattr(
+        settings, "MONITOR_MAX_CHECKS_PER_TICK", DEFAULT_MAX_CHECKS_PER_TICK
+    )
 
-    due = []
-    for m in monitors:
-        if m.last_checked_at is None:
-            due.append(m.pk)
-        else:
-            seconds_since = (now - m.last_checked_at).total_seconds()
-            if seconds_since >= m.check_interval:
-                due.append(m.pk)
+    # Due-ness is evaluated in the database so the per-tick cap becomes a real
+    # LIMIT instead of scanning every monitor. Oldest first (never-checked ahead
+    # of everything) so the cap defers the least overdue monitor rather than
+    # starving the same tail every tick.
+    due_at = ExpressionWrapper(
+        F("last_checked_at") + timedelta(seconds=1) * F("check_interval"),
+        output_field=DateTimeField(),
+    )
+    candidates = (
+        Monitor.objects.filter(is_active=True)
+        .exclude(status="paused")
+        .annotate(due_at=due_at)
+        .filter(Q(last_checked_at__isnull=True) | Q(due_at__lte=now))
+        .order_by(F("last_checked_at").asc(nulls_first=True))
+        .values_list("pk", "last_checked_at")[:limit]
+    )
 
-    logger.info("run_due_checks: %d monitors due", len(due))
-    for pk in due:
-        check_single_monitor.delay(str(pk))
+    dispatched = 0
+    for pk, last_checked_at in candidates:
+        # Claim the monitor before dispatching. Beat fires every 30s but a check
+        # can run for up to `timeout` seconds, and only the completion path
+        # writes last_checked_at — so without this compare-and-set a slow or
+        # timing-out monitor still looks due on the next tick and gets checked
+        # twice per interval, double-counting failures and doubling outbound load.
+        claimed = Monitor.objects.filter(
+            pk=pk, last_checked_at=last_checked_at
+        ).update(last_checked_at=now)
+
+        if claimed:
+            check_single_monitor.delay(str(pk))
+            dispatched += 1
+
+    logger.info("run_due_checks: %d monitors dispatched", dispatched)
 
 
 @shared_task(

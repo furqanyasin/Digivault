@@ -69,8 +69,11 @@ class Monitor(models.Model):
     port = models.PositiveIntegerField(null=True, blank=True)
 
     # Scheduling
+    # 15 minutes, not seconds: every check leaves from the platform's single
+    # public IP, and frequent polling across the whole client fleet is what gets
+    # that IP challenged or blocked by Cloudflare/Sucuri/AWS WAF.
     check_interval = models.PositiveIntegerField(
-        default=CheckInterval.MINUTES_5,
+        default=CheckInterval.MINUTES_15,
         choices=CheckInterval.choices,
     )
     timeout = models.PositiveIntegerField(default=30, help_text="Seconds")

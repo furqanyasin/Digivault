@@ -83,15 +83,56 @@ class TestFormSubmissionCount:
         }
         _upsert_form(website, PAGE, dom_form)
 
-        resp = self._post(website.site_id, form={**dom_form, "detection_type": "native"})
+        self._post(website.site_id, form={**dom_form, "detection_type": "native"})
 
-        assert resp.data["counted"] is False
+        # The submit is still recorded (against its own descriptor), but it must
+        # never land on the dom row — that mis-attribution was the original bug.
+        dom_row = DetectedForm.objects.get(
+            website=website, page_url=PAGE, detection_type="dom"
+        )
+        assert dom_row.submission_count == 0
 
-    def test_submission_for_undetected_form_is_ignored(self, website):
-        # No _upsert_form first → nothing to increment, but still a clean 202.
+    def test_submission_for_a_not_yet_catalogued_form_is_recorded(self, website):
+        # A form can first appear *after* the last collectForms() of the page —
+        # an Elementor popup opened past the snippet's 30s observer window, say.
+        # Dropping that submit lost the real conversion and left the form
+        # invisible. The descriptor arrives through the same serializer ingest
+        # uses, so record it exactly as ingest would have.
         resp = self._post(website.site_id)
+
         assert resp.status_code == 202
-        assert resp.data["counted"] is False
+        assert resp.data["counted"] is True
+        form = DetectedForm.objects.get(website=website, page_url=PAGE)
+        assert form.submission_count == 1
+        assert form.form_name == "contact"
+        assert form.last_submission_at is not None
+
+    def test_late_form_is_not_duplicated_by_a_later_ingest(self, website):
+        # The row created from a submit must be the same row ingest then updates,
+        # or the form would appear twice with the count on the wrong copy.
+        self._post(website.site_id)
+        _upsert_form(website, PAGE, FORM)
+
+        form = DetectedForm.objects.get(website=website, page_url=PAGE)
+        assert form.submission_count == 1
+
+    def test_submission_from_a_campaign_url_counts_on_the_canonical_row(self, website):
+        # `form.action` resolves to the document URL for an action-less form, so
+        # a visitor arriving on a UTM link reports a different action than the
+        # one already stored. That used to mint a duplicate row per campaign and
+        # scatter the counts; identity must ignore the query string.
+        action_less = {**FORM, "form_action": "https://forms.io/contact"}
+        _upsert_form(website, PAGE, action_less)
+
+        resp = self._post(
+            website.site_id,
+            form={**action_less, "form_action": "https://forms.io/contact?utm_source=ads"},
+            page="https://forms.io/contact?utm_source=ads",
+        )
+
+        assert resp.data["counted"] is True
+        assert DetectedForm.objects.filter(website=website).count() == 1
+        assert DetectedForm.objects.get(website=website).submission_count == 1
 
     def test_unknown_site_returns_404(self):
         assert self._post("does-not-exist").status_code == 404

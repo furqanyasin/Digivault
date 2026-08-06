@@ -47,7 +47,7 @@ def _create_uptime_monitor_db_only(website):
             defaults={
                 "name": website.name or website.domain,
                 "monitor_type": Monitor.MonitorType.HTTP,
-                "check_interval": 300,
+                "check_interval": 900,
                 "timeout": 30,
                 "retry_count": 1,
             },

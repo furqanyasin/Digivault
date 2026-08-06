@@ -842,7 +842,7 @@ it checked, which distinguishes "tag missing" from "page didn't load".
 does synchronous DB-only work then defers all network I/O:
 
 1. `_create_uptime_monitor_db_only()` — `get_or_create` an HTTP `Monitor` keyed
-   `(team, url)` with a 300 s interval, 30 s timeout and `retry_count=1`, and links
+   `(team, url)` with a 900 s interval, 30 s timeout and `retry_count=1`, and links
    `monitor.website`.
 2. `_create_status_page()` — creates a public `StatusPage` slugged from the domain
    and adds the monitor. **Idempotent per team + domain**: it looks for an existing
@@ -1412,8 +1412,9 @@ Types: `http`, `ping`, `port`, `ssl`. Statuses: `up`, `down`, `degraded`, `pause
 HTTP options: `expected_status_code` (default 200), `request_method`,
 `request_headers` (JSON), `request_body`, `keyword` (response body must contain it).
 Port option: `port`. Scheduling: `check_interval` ∈ {30 s, 1, 2, 5, 10, 15, 30 min,
-1 h} default 300 s, `timeout` default 30 s, `retry_count` default 3 (consecutive
-failures before an incident).
+1 h} default **900 s**, `timeout` default 30 s, `retry_count` default 3 (consecutive
+failures before an incident). The UI only offers 5 min and slower — all checks share
+one egress IP, and frequent fleet-wide polling gets it blocked by client WAFs.
 
 State: `status`, `is_active`, `consecutive_failures`, `is_alerting`,
 `last_checked_at`, `last_response_time`, cached `uptime_24h` / `uptime_7d` /
@@ -1443,7 +1444,18 @@ with a single `.update()`.
 
 `monitors.run_due_checks` runs **every 30 seconds** from beat. It selects active,
 non-paused monitors and queues `check_single_monitor` for each whose
-`last_checked_at` is null or older than its `check_interval`.
+`last_checked_at` is null or older than its `check_interval`, oldest first.
+
+Two guards protect the platform's single egress IP, which client WAFs
+(Cloudflare, Sucuri, AWS WAF) will challenge or blackhole if it behaves like a
+scanner:
+
+- **Claim before dispatch.** `last_checked_at` is stamped with a compare-and-set
+  *at dispatch*, not only on completion. Without it a check slower than the 30 s
+  beat tick still looked due on the next tick and ran twice per interval.
+- **`MONITOR_MAX_CHECKS_PER_TICK`** (default 8) caps checks leaving per tick, so
+  the fleet spreads across the interval instead of bursting. Dispatched monitors
+  stop being due, so the fleet self-declusters after one full cycle.
 
 `monitors.check_single_monitor` (`max_retries=0` — a retry would double-count) writes
 a `MonitorCheck` row and then:

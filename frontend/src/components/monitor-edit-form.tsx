@@ -11,11 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import type { Monitor } from "@/lib/api";
 
+// Kept in sync with the new-monitor form: sub-5-minute polling across the client
+// fleet is what gets the platform's egress IP blocked by the sites' WAFs.
 const INTERVALS = [
-  { value: "30", label: "30 seconds" },
-  { value: "60", label: "1 minute" },
   { value: "300", label: "5 minutes" },
   { value: "600", label: "10 minutes" },
+  { value: "900", label: "15 minutes (recommended)" },
   { value: "1800", label: "30 minutes" },
   { value: "3600", label: "1 hour" },
 ];
