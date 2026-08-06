@@ -1,9 +1,13 @@
 """Announcing website problems in the team's ClickUp Chat channel.
 
-One channel holds the whole web team; every problem posted there names the site,
-the problem, and the developer who owns that client. `notify_problem` is the only
-function alert paths need — it opens (or comments on) the ClickUp task for the
-issue and posts the message that links to it.
+One channel carries every client and every website, so a message only works if
+it says — on its own — which client it belongs to, which site broke, what
+exactly went wrong, and who manages it. That is what `build_message` renders
+and what every alert path feeds.
+
+Messages only. Alerts used to open a ClickUp task per issue; they no longer do.
+`report_issue` (`apps/integrations/tasks.py`) still exists for callers that want
+a task, but nothing in the alert path calls it.
 
 Nothing here raises. By the time an alert path calls us, email and the
 per-website channels have already delivered; a ClickUp outage must not undo that.
@@ -14,8 +18,7 @@ import logging
 
 from apps.integrations.clickup import ClickUpClient, parse_clickup_chat
 from apps.integrations.members import clickup_id_for
-from apps.integrations.models import ClickUpMemberLink, ClickUpTaskLink
-from apps.integrations.tasks import report_issue
+from apps.integrations.models import ClickUpMemberLink
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,39 @@ def resolve_owner(website):
     """
     client = getattr(website, "client", None)
     return getattr(client, "assigned_to", None) if client else None
+
+
+def resolve_managers(website) -> list:
+    """Everyone who manages this website, most accountable first.
+
+    The client's assignee owns the account; the site's `WebsiteAssignment` rows
+    are the people actually working on it. Both get named and pinged — the
+    account owner alone was not enough to reach whoever is on the site today.
+    Deduped, because the same person is frequently both.
+    """
+    from apps.websites.models import WebsiteAssignment
+
+    managers = []
+    seen = set()
+
+    for user in [resolve_owner(website)]:
+        if user is not None and user.pk not in seen:
+            seen.add(user.pk)
+            managers.append(user)
+
+    if getattr(website, "pk", None):
+        assignments = (
+            WebsiteAssignment.objects.filter(website=website)
+            .select_related("user")
+            .order_by("user__email")
+        )
+        for assignment in assignments:
+            user = assignment.user
+            if user is not None and user.pk not in seen:
+                seen.add(user.pk)
+                managers.append(user)
+
+    return managers
 
 
 def mention_for(team, user) -> tuple[str, str | None]:
@@ -53,22 +89,95 @@ def mention_for(team, user) -> tuple[str, str | None]:
     return label, None
 
 
-def _chat_target(team) -> tuple[str | None, str | None]:
+def mentions_for(team, users) -> tuple[str, list]:
+    """(display_text, clickup_user_ids) for a group of managers.
+
+    The text names everyone so a human reading the feed knows who to chase; the
+    ids are what ClickUp actually notifies (as message followers). An unmapped
+    manager still appears in the text — being unlinked in ClickUp should not
+    erase them from the message.
+    """
+    if not users:
+        return "unassigned", []
+
+    labels, ids = [], []
+    for user in users:
+        label, clickup_id = mention_for(team, user)
+        labels.append(label)
+        if clickup_id:
+            ids.append(clickup_id)
+    return ", ".join(labels), ids
+
+
+def chat_target(team) -> tuple[str | None, str | None]:
     return parse_clickup_chat(getattr(team, "clickup_chat_url", "") or "")
 
 
-def _build_message(
-    website, *, emoji: str, title: str, detail: str, mention: str, task_url: str
+def _site_label(website) -> str:
+    return website.name or website.domain
+
+
+def _client_name(website) -> str:
+    client = getattr(website, "client", None)
+    return (getattr(client, "name", "") or "").strip() if client else ""
+
+
+def _context_fields(website) -> list[tuple[str, str]]:
+    """The who/where lines every message opens with, client first."""
+    fields = []
+    client_name = _client_name(website)
+    if client_name:
+        fields.append(("Client", client_name))
+    label = _site_label(website)
+    domain = website.domain or ""
+    site = f"{label} ({domain})" if domain and domain != label else label
+    fields.append(("Website", site))
+    return fields
+
+
+def build_message(
+    website,
+    *,
+    emoji: str,
+    title: str,
+    detail: str = "",
+    fields: list | None = None,
+    mention: str = "",
 ) -> str:
-    label = website.name or website.domain
-    lines = [
-        f"{emoji} **{label}** — {title}",
-        f"{website.domain} · owner: {mention}",
-    ]
+    """Render one channel message.
+
+    Public because the per-website ClickUp channels render the same message —
+    a site routed to its own channel should not get a poorer alert than the
+    shared feed.
+
+    Shape is fixed so the shared feed scans consistently: a headline naming the
+    client and the site, a block of labelled facts, then who is on the hook.
+    Empty values are dropped rather than rendered as "Error: " with nothing
+    after it.
+    """
+    client_name = _client_name(website)
+    label = _site_label(website)
+    headline = (
+        f"{emoji} **{client_name}** — {label} {title}"
+        if client_name
+        else f"{emoji} **{label}** {title}"
+    )
+
+    lines = [headline, ""]
+
+    for name, value in _context_fields(website) + list(fields or []):
+        text = "" if value is None else str(value).strip()
+        if text:
+            lines.append(f"{name}: {text}")
+
     if detail:
+        lines.append("")
         lines.append(detail)
-    if task_url:
-        lines.append(f"→ {task_url}")
+
+    if mention:
+        lines.append("")
+        lines.append(f"Managed by: {mention}")
+
     return "\n".join(lines)
 
 
@@ -78,50 +187,54 @@ def _post(team, workspace_id, channel_id, text, followers, client) -> bool:
     return True
 
 
+def _announce(
+    website,
+    *,
+    emoji: str,
+    title: str,
+    detail: str,
+    fields: list | None,
+    client: ClickUpClient | None,
+    log_context: str,
+) -> bool:
+    team = website.team
+    workspace_id, channel_id = chat_target(team)
+    if not (workspace_id and channel_id):
+        return False
+
+    try:
+        mention, follower_ids = mentions_for(team, resolve_managers(website))
+        text = build_message(
+            website, emoji=emoji, title=title, detail=detail,
+            fields=fields, mention=mention,
+        )
+        return _post(team, workspace_id, channel_id, text, follower_ids, client)
+    except Exception:
+        logger.exception("ClickUp chat notify failed for %s (%s)", website.domain, log_context)
+        return False
+
+
 def notify_problem(
     website,
     *,
     subject: str,
     title: str,
     detail: str = "",
-    tags: list | None = None,
+    fields: list | None = None,
     emoji: str = PROBLEM_EMOJI,
     client: ClickUpClient | None = None,
 ) -> bool:
-    """Announce a website problem in the team channel and open its ClickUp task.
+    """Announce a website problem in the shared channel.
 
-    `subject` is the stable issue key (e.g. "monitor:<id>:down") that dedupes
-    repeat reports onto one task. Returns whether a message was posted.
+    `fields` is an ordered list of `(label, value)` pairs rendered under the
+    headline — the error text, HTTP status, timing and anything else the caller
+    knows. `subject` is the issue key; it survives only as log context now that
+    nothing opens a ClickUp task. Returns whether a message was posted.
     """
-    team = website.team
-    workspace_id, channel_id = _chat_target(team)
-    if not (workspace_id and channel_id):
-        return False
-
-    try:
-        owner = resolve_owner(website)
-        mention, clickup_id = mention_for(team, owner)
-
-        link = report_issue(
-            team,
-            subject,
-            title=f"{website.name or website.domain}: {title}",
-            body=detail or title,
-            assignees=[clickup_id] if clickup_id else None,
-            tags=tags,
-            client=client,
-        )
-
-        text = _build_message(
-            website, emoji=emoji, title=title, detail=detail,
-            mention=mention, task_url=link.task_url if link else "",
-        )
-        return _post(
-            team, workspace_id, channel_id, text, [clickup_id] if clickup_id else None, client
-        )
-    except Exception:
-        logger.exception("ClickUp chat notify failed for %s (%s)", website.domain, subject)
-        return False
+    return _announce(
+        website, emoji=emoji, title=title, detail=detail, fields=fields,
+        client=client, log_context=subject,
+    )
 
 
 def notify_recovery(
@@ -130,33 +243,15 @@ def notify_recovery(
     subject: str,
     title: str,
     detail: str = "",
+    fields: list | None = None,
     client: ClickUpClient | None = None,
 ) -> bool:
-    """Announce that a problem cleared, and close its open ClickUp task link.
+    """Announce that a problem cleared.
 
-    Closing matters: while a link is open, repeat reports comment on the old
-    task. The next genuine occurrence should get a fresh one.
+    Rendered identically to the problem message it clears — a recovery that does
+    not name the same client, site and facts is unmatchable in a shared feed.
     """
-    team = website.team
-    workspace_id, channel_id = _chat_target(team)
-    if not (workspace_id and channel_id):
-        return False
-
-    try:
-        for link in ClickUpTaskLink.objects.filter(
-            team=team, subject=subject, closed_at__isnull=True
-        ):
-            link.close()
-
-        owner = resolve_owner(website)
-        mention, clickup_id = mention_for(team, owner)
-        text = _build_message(
-            website, emoji=RECOVERY_EMOJI, title=title, detail=detail,
-            mention=mention, task_url="",
-        )
-        return _post(
-            team, workspace_id, channel_id, text, [clickup_id] if clickup_id else None, client
-        )
-    except Exception:
-        logger.exception("ClickUp recovery notify failed for %s (%s)", website.domain, subject)
-        return False
+    return _announce(
+        website, emoji=RECOVERY_EMOJI, title=title, detail=detail, fields=fields,
+        client=client, log_context=subject,
+    )

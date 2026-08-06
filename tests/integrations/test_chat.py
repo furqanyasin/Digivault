@@ -1,10 +1,11 @@
 """notify_problem() — announce a website problem in the team's ClickUp channel.
 
-Two invariants matter most. First, the owning developer is notified through the
-message's `followers` field, not through inline mention text, because ClickUp
-documents no request-side @-mention syntax for v3 chat. Second, nothing here may
-raise into an alert path: a ClickUp outage must not take down the email that
-already went out.
+Three invariants matter most. First, one channel carries every client, so a
+message has to name the client, the site and the failure on its own. Second,
+managers are notified through the message's `followers` field, not through
+inline mention text, because ClickUp documents no request-side @-mention syntax
+for v3 chat. Third, nothing here may raise into an alert path: a ClickUp outage
+must not take down the email that already went out.
 """
 import pytest
 
@@ -13,14 +14,16 @@ from apps.accounts.services import TeamService
 from apps.clients.models import Client
 from apps.integrations.chat import (
     mention_for,
+    mentions_for,
     notify_problem,
     notify_recovery,
+    resolve_managers,
     resolve_owner,
 )
 from apps.integrations.clickup import ClickUpClient
 from apps.integrations.members import set_member_link
 from apps.integrations.models import ClickUpTaskLink
-from apps.websites.models import Website
+from apps.websites.models import Website, WebsiteAssignment
 
 CHAT_URL = "https://app.clickup.com/9001/chat/r/chan-77"
 
@@ -130,6 +133,43 @@ def test_mention_for_none_is_unassigned(setup):
     assert mention_for(team, None) == ("unassigned", None)
 
 
+# -- resolve_managers / mentions_for --------------------------------------
+
+def test_managers_are_the_client_owner_plus_the_sites_assignees(setup):
+    """Whoever is on the site today is reachable, not only the account owner."""
+    team, dev, website = setup
+    helper = User.objects.create_user(email="helper@x.io", password="Pass123!")
+    TeamMembership.objects.create(user=helper, team=team, role=TeamMembership.Role.DEVELOPER)
+    WebsiteAssignment.objects.create(website=website, user=helper)
+
+    assert resolve_managers(website) == [dev, helper]
+
+
+def test_a_manager_assigned_twice_is_named_once(setup):
+    _, dev, website = setup
+    WebsiteAssignment.objects.create(website=website, user=dev)
+
+    assert resolve_managers(website) == [dev]
+
+
+def test_mentions_name_everyone_and_ping_the_mapped_ones(setup):
+    team, dev, website = setup
+    stranger = User.objects.create_user(email="nolink@x.io", password="Pass123!")
+    TeamMembership.objects.create(user=stranger, team=team, role=TeamMembership.Role.DEVELOPER)
+    WebsiteAssignment.objects.create(website=website, user=stranger)
+
+    text, ids = mentions_for(team, resolve_managers(website))
+
+    assert "@jane" in text
+    assert "nolink@x.io" in text
+    assert ids == ["11"]
+
+
+def test_mentions_for_nobody_is_unassigned(setup):
+    team, _, _ = setup
+    assert mentions_for(team, []) == ("unassigned", [])
+
+
 # -- notify_problem -------------------------------------------------------
 
 def test_notify_problem_posts_to_the_parsed_workspace_and_channel(setup):
@@ -148,54 +188,80 @@ def test_notify_problem_posts_to_the_parsed_workspace_and_channel(setup):
     )
 
 
-def test_the_owner_is_notified_via_followers(setup):
+def test_every_manager_is_notified_via_followers(setup):
+    team, _, website = setup
+    helper = User.objects.create_user(email="helper2@x.io", password="Pass123!")
+    TeamMembership.objects.create(user=helper, team=team, role=TeamMembership.Role.DEVELOPER)
+    set_member_link(team, helper, "22", "helper")
+    WebsiteAssignment.objects.create(website=website, user=helper)
+
+    session = RecordingSession()
+    notify_problem(website, subject="monitor:1:down", title="down", client=_api(session))
+
+    assert session.chat_body()["followers"] == ["11", "22"]
+
+
+def test_the_message_names_the_client_the_site_and_the_managers(setup):
+    """One channel holds every client, so the message must identify itself."""
     _, _, website = setup
+    website.client.name = "Acme Ltd"
+    website.client.save()
+    website.refresh_from_db()
     session = RecordingSession()
 
-    notify_problem(website, subject="monitor:1:down", title="down", detail="x", client=_api(session))
+    notify_problem(
+        website, subject="monitor:1:down", title="is DOWN",
+        fields=[("Error", "HTTP 503: Service Unavailable"), ("HTTP status", 503)],
+        client=_api(session),
+    )
 
-    assert session.chat_body()["followers"] == ["11"]
+    content = session.chat_body()["content"]
+    assert "🔴 **Acme Ltd** — Example Co is DOWN" in content
+    assert "Client: Acme Ltd" in content
+    assert "Website: Example Co (example.com)" in content
+    assert "Error: HTTP 503: Service Unavailable" in content
+    assert "HTTP status: 503" in content
+    assert "Managed by: @jane" in content
 
 
-def test_the_message_names_the_site_the_owner_and_the_task(setup):
+def test_a_site_with_no_client_leads_with_the_site(setup):
+    team, _, _ = setup
+    orphan = Website.objects.create(team=team, name="Orphan", domain="orphan.io")
+    session = RecordingSession()
+
+    notify_problem(orphan, subject="monitor:2:down", title="is DOWN", client=_api(session))
+
+    content = session.chat_body()["content"]
+    assert content.startswith("🔴 **Orphan** is DOWN")
+    assert "Client:" not in content
+
+
+def test_empty_fields_are_dropped(setup):
+    """A blank error must not render as a dangling 'Error:' line."""
     _, _, website = setup
     session = RecordingSession()
 
     notify_problem(
-        website, subject="monitor:1:down", title="site is DOWN",
-        detail="HTTP 503 from https://example.com/", client=_api(session),
+        website, subject="monitor:1:down", title="is DOWN",
+        fields=[("Error", ""), ("HTTP status", None), ("Response time", "120 ms")],
+        client=_api(session),
     )
 
     content = session.chat_body()["content"]
-    assert "**Example Co**" in content
-    assert "site is DOWN" in content
-    assert "example.com" in content
-    assert "@jane" in content
-    assert "HTTP 503 from https://example.com/" in content
-    assert "https://app.clickup.com/t/86a1" in content
+    assert "Error:" not in content
+    assert "HTTP status:" not in content
+    assert "Response time: 120 ms" in content
 
 
-def test_a_task_is_opened_for_the_problem(setup):
+def test_no_clickup_task_is_created(setup):
+    """Alerts post a message and nothing else — no task, no task list traffic."""
     team, _, website = setup
     session = RecordingSession()
 
     notify_problem(website, subject="monitor:1:down", title="down", detail="x", client=_api(session))
 
-    assert ClickUpTaskLink.objects.filter(team=team, subject="monitor:1:down").count() == 1
-
-
-def test_the_task_link_line_is_omitted_when_no_list_is_configured(setup):
-    team, _, website = setup
-    team.clickup_list_id = ""
-    team.save()
-    website.refresh_from_db()
-    session = RecordingSession()
-
-    notify_problem(website, subject="monitor:1:down", title="down", detail="x", client=_api(session))
-
-    content = session.chat_body()["content"]
-    assert "→" not in content
-    assert ClickUpTaskLink.objects.count() == 0
+    assert ClickUpTaskLink.objects.filter(team=team).count() == 0
+    assert not any(url.endswith("/task") for url in session.urls())
 
 
 def test_an_unset_chat_url_sends_nothing(setup):
@@ -243,22 +309,18 @@ def test_an_unassigned_site_still_posts(setup):
 
 # -- notify_recovery ------------------------------------------------------
 
-def test_recovery_closes_the_open_task_link(setup):
-    team, _, website = setup
-    session = RecordingSession()
-    notify_problem(website, subject="monitor:1:down", title="down", detail="x", client=_api(session))
-
-    notify_recovery(website, subject="monitor:1:down", title="back UP", client=_api(session))
-
-    link = ClickUpTaskLink.objects.get(team=team, subject="monitor:1:down")
-    assert link.closed_at is not None
-
-
-def test_recovery_posts_a_recovery_line(setup):
+def test_recovery_is_rendered_like_the_problem_it_clears(setup):
+    """An unmatchable recovery is worse than none — same client, site and shape."""
     _, _, website = setup
     session = RecordingSession()
 
-    notify_recovery(website, subject="monitor:1:down", title="back UP", client=_api(session))
+    notify_recovery(
+        website, subject="monitor:1:down", title="is back UP",
+        fields=[("Response time", "3490 ms")], client=_api(session),
+    )
 
-    assert "back UP" in session.chat_body()["content"]
-    assert "✅" in session.chat_body()["content"]
+    content = session.chat_body()["content"]
+    assert "✅ **Example Co** — Example Co is back UP" in content
+    assert "Website: Example Co (example.com)" in content
+    assert "Response time: 3490 ms" in content
+    assert "Managed by: @jane" in content
