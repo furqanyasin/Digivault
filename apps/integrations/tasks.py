@@ -1,8 +1,13 @@
-"""Reporting Digivault issues into ClickUp.
+"""Reporting Digivault issues into ClickUp as tasks.
 
-`report_issue` is the entry point the alert paths will call: give it a stable
-subject and it either opens a task or adds a comment to the one already open
-for that subject.
+Give `report_issue` a stable subject and it either opens a task or adds a
+comment to the one already open for that subject.
+
+**Not wired into alert delivery.** Alerts post a message to the shared chat
+channel and stop there (`apps/integrations/chat.py`) — the agency triages from
+the channel and does not want a task per blip. This stays because a team's
+`clickup_list_id` is still configurable in Settings and task filing is the
+feature that setting exists for.
 """
 from __future__ import annotations
 

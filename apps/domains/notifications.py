@@ -68,6 +68,28 @@ def _expiry_title(alert) -> str:
     return f"{kind} expires in {alert.days_until_expiry} days"
 
 
+def _expiry_fields(alert) -> list:
+    """Labelled facts for the channel message — what expires, when, and where."""
+    info = alert.domain_info
+    expires_at = {
+        "ssl": info.ssl_expires_at,
+        "hosting": info.hosting_expires_at,
+    }.get(alert.alert_type, info.expires_at)
+
+    fields = [
+        ("Alert", _expiry_title(alert)),
+        ("Expires in", f"{alert.days_until_expiry} days"),
+        ("Expiry date", expires_at.strftime("%d %b %Y") if expires_at else ""),
+    ]
+    if alert.alert_type == "ssl":
+        fields.append(("SSL issuer", info.ssl_issuer))
+    elif alert.alert_type == "hosting":
+        fields.append(("Host", info.hosting_provider))
+    else:
+        fields.append(("Registrar", info.registrar))
+    return fields
+
+
 def _announce_in_team_channel(alert, website, body: str) -> None:
     """Post an expiry alert into the team's ClickUp channel, best-effort.
 
@@ -81,8 +103,8 @@ def _announce_in_team_channel(alert, website, body: str) -> None:
             website,
             subject=f"domain:{alert.domain_info_id}:{alert.alert_type}",
             title=_expiry_title(alert),
+            fields=_expiry_fields(alert),
             detail=body,
-            tags=["expiry"],
         )
     except Exception:
         logger.exception("Team channel announce failed for domain alert %s", alert.id)

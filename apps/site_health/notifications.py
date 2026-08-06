@@ -47,7 +47,6 @@ def notify_team(website, subject: str, body: str, *, subject_key: str = "") -> N
             # knows who is talking.
             title=subject.replace("[Digivault] ", ""),
             detail=body,
-            tags=["seo"],
         )
     except Exception:
         logger.exception("Team channel announce failed for %s", website.domain)

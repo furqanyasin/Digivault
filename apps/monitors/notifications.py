@@ -10,6 +10,8 @@ import logging
 import urllib.request
 from typing import TYPE_CHECKING
 
+from django.utils import timezone
+
 # parse_clickup_chat is re-exported: it used to live here, and tests plus other
 # callers still import it from this module.
 from apps.integrations.clickup import ClickUpClient, parse_clickup_chat  # noqa: F401
@@ -34,6 +36,59 @@ def _summary(monitor, old_status: str, new_status: str) -> str:
 
 
 # ------------------------------------------------------------------
+# What actually happened
+# ------------------------------------------------------------------
+
+def latest_check(monitor):
+    """The check that caused this status change.
+
+    Every caller of `notify_status_change` writes its MonitorCheck immediately
+    before notifying, so the newest row is the one being reported. Read here
+    rather than threaded through the signature so both call sites — the Celery
+    task and the manual "Run check" view — get the detail for free.
+    """
+    from apps.monitors.models import MonitorCheck
+
+    return MonitorCheck.objects.filter(monitor=monitor).order_by("-checked_at").first()
+
+
+def _format_time(value) -> str:
+    if not value:
+        return ""
+    return timezone.localtime(value).strftime("%d %b %Y, %H:%M %Z").strip()
+
+
+def status_fields(monitor, old_status: str, new_status: str, check=None) -> list:
+    """Labelled facts describing a status change, for the channel message.
+
+    "Down" with no reason is the complaint this answers — the error text, the
+    HTTP code and the timing all come off the check row and get named, so
+    whoever reads the alert knows what to look at before opening the dashboard.
+    """
+    fields = [
+        ("URL", monitor.url),
+        ("Status", f"{old_status.upper()} → {new_status.upper()}"),
+    ]
+
+    if check is not None:
+        if check.error_message:
+            fields.append(("Error", check.error_message))
+        if check.status_code:
+            fields.append(("HTTP status", check.status_code))
+        if check.response_time_ms is not None:
+            fields.append(("Response time", f"{check.response_time_ms} ms"))
+        fields.append(("Checked at", _format_time(check.checked_at)))
+    else:
+        fields.append(("Checked at", _format_time(monitor.last_checked_at)))
+
+    if new_status != "up" and monitor.consecutive_failures:
+        fields.append(("Failed checks", f"{monitor.consecutive_failures} in a row"))
+
+    fields.append(("Monitor", f"{monitor.name} ({monitor.get_monitor_type_display()})"))
+    return fields
+
+
+# ------------------------------------------------------------------
 # Channel-specific senders
 # ------------------------------------------------------------------
 
@@ -46,12 +101,12 @@ def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
         logger.warning("Email channel %s has no addresses", channel.id)
         return
     subject = f"[Digivault] {monitor.name} is {new_status.upper()}"
-    body = (
-        f"Monitor: {monitor.name}\n"
-        f"URL: {monitor.url}\n"
-        f"Status changed: {old_status} → {new_status}\n\n"
-        "Log in to Digivault to view details."
+    detail = "\n".join(
+        f"{label}: {value}"
+        for label, value in status_fields(monitor, old_status, new_status, latest_check(monitor))
+        if str(value or "").strip()
     )
+    body = f"{detail}\n\nLog in to Digivault to view details."
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
     try:
         send_mail(subject, body, from_email, addresses, fail_silently=False)
@@ -60,11 +115,14 @@ def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
         raise
 
 
-def post_clickup(config: dict, text: str) -> bool:
+def post_clickup(config: dict, text: str, followers: list | None = None) -> bool:
     """Post `text` to a ClickUp target. Prefers a Chat channel (v3 API) when the
     config has a `chat_url`; otherwise comments on a `task_id` (v2). Returns True
     if a request was sent, False if the config has no usable target. Raises
-    ClickUpError on a non-2xx response so callers can log/retry."""
+    ClickUpError on a non-2xx response so callers can log/retry.
+
+    `followers` only applies to chat: it is what actually pings a person, since
+    v3 has no request-side @-mention syntax. Task comments ignore it."""
     config = config or {}
     api_token = config.get("api_token", "")
     if not api_token:
@@ -76,7 +134,7 @@ def post_clickup(config: dict, text: str) -> bool:
     if chat_url:
         ws, ch = parse_clickup_chat(chat_url)
         if ws and ch:
-            api.post_chat(ws, ch, text)
+            api.post_chat(ws, ch, text, followers=followers or None)
             return True
 
     task_id = config.get("task_id", "")
@@ -88,13 +146,42 @@ def post_clickup(config: dict, text: str) -> bool:
 
 
 def _send_clickup(channel, monitor, old_status: str, new_status: str) -> None:
-    emoji = STATUS_EMOJI.get(new_status, "")
-    text = (
-        f"{emoji} **{monitor.name}** status changed: {old_status.upper()} → {new_status.upper()}\n"
-        f"URL: {monitor.url}"
-    )
-    if not post_clickup(channel.config, text):
+    """Post the status change to a website's own ClickUp channel.
+
+    Rendered by the same builder as the shared feed: a site with a dedicated
+    channel must not get a thinner message than one without.
+    """
+    from apps.integrations import chat
+
+    website = monitor.website
+    if website is None:
+        # No website means no client, no managers and no context to render —
+        # fall back to the flat monitor line.
+        text = (
+            f"{STATUS_EMOJI.get(new_status, '')} **{monitor.name}** status changed: "
+            f"{old_status.upper()} → {new_status.upper()}\nURL: {monitor.url}"
+        )
+        followers = None
+    else:
+        mention, followers = chat.mentions_for(
+            website.team, chat.resolve_managers(website)
+        )
+        text = chat.build_message(
+            website,
+            emoji=STATUS_EMOJI.get(new_status, ""),
+            title=_status_title(old_status, new_status),
+            fields=status_fields(monitor, old_status, new_status, latest_check(monitor)),
+            mention=mention,
+        )
+
+    if not post_clickup(channel.config, text, followers):
         logger.warning("ClickUp channel %s has no api_token or target", channel.id)
+
+
+def _status_title(old_status: str, new_status: str) -> str:
+    if new_status == "up":
+        return "is back UP"
+    return f"is {new_status.upper()}"
 
 
 def _send_slack(channel, monitor, old_status: str, new_status: str) -> None:
@@ -206,10 +293,33 @@ def notify_status_change(monitor: "Monitor", old_status: str, new_status: str) -
     # The shared team channel is announced separately from the per-website
     # channels above: a team gets it whether or not any website channel is set.
     if monitor.website_id:
-        _announce_in_team_channel(monitor, old_status, new_status, is_recovery)
+        _announce_in_team_channel(
+            monitor, old_status, new_status, is_recovery,
+            already_posted=_chat_targets(channels.values()),
+        )
 
 
-def _announce_in_team_channel(monitor, old_status: str, new_status: str, is_recovery: bool) -> None:
+def _chat_targets(channels) -> set:
+    """The ClickUp chat (workspace, channel) pairs these channels post to.
+
+    Everything routes to one shared ClickUp channel, so a website whose own
+    channel points at that same chat would otherwise get the identical alert
+    twice — once from `dispatch`, once from the team announce.
+    """
+    targets = set()
+    for channel in channels:
+        if channel.channel_type != "clickup":
+            continue
+        ws, ch = parse_clickup_chat((channel.config or {}).get("chat_url", ""))
+        if ws and ch:
+            targets.add((ws, ch))
+    return targets
+
+
+def _announce_in_team_channel(
+    monitor, old_status: str, new_status: str, is_recovery: bool,
+    already_posted: set | None = None,
+) -> None:
     """Post the status change into the team's ClickUp channel.
 
     Deliberately best-effort and separate from `dispatch` — this is one shared
@@ -217,24 +327,19 @@ def _announce_in_team_channel(monitor, old_status: str, new_status: str, is_reco
     """
     from apps.integrations import chat
 
-    subject = f"monitor:{monitor.id}:down"
     website = monitor.website
-    if is_recovery:
-        chat.notify_recovery(
-            website,
-            subject=subject,
-            title=f"back {new_status.upper()}",
-            detail=f"{monitor.name} recovered — {monitor.url}",
-        )
+    if already_posted and chat.chat_target(website.team) in already_posted:
         return
 
-    chat.notify_problem(
-        website,
-        subject=subject,
-        title=f"is {new_status.upper()}",
-        detail=f"{monitor.name} went {old_status.upper()} → {new_status.upper()}\n{monitor.url}",
-        tags=["uptime"],
-    )
+    subject = f"monitor:{monitor.id}:down"
+    fields = status_fields(monitor, old_status, new_status, latest_check(monitor))
+    title = _status_title(old_status, new_status)
+
+    if is_recovery:
+        chat.notify_recovery(website, subject=subject, title=title, fields=fields)
+        return
+
+    chat.notify_problem(website, subject=subject, title=title, fields=fields)
 
 
 # ------------------------------------------------------------------
