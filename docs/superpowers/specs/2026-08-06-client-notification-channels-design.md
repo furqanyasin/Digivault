@@ -24,6 +24,19 @@ sites must be configured one at a time.
 3. Have a website inherit its client's channel when it sets none of its own.
 4. Surface, everywhere a channel is shown, which channel will actually fire and
    where it came from.
+5. Make the shared ClickUp feed readable per client — every message and task
+   leads with the client name and assigns the responsible developer.
+
+## Delivery target
+
+All alerts go to **ClickUp for now**, through a **single shared channel** — not
+one channel per client. Separation is per *message*, not per channel: the feed
+stays one stream, but every entry states which client it belongs to and pings
+that client's developer.
+
+This rules out per-client ClickUp channel auto-creation. `create_chat_channel`
+(`apps/integrations/clickup.py:128`) stays used only by the existing team-channel
+endpoint.
 
 ## Non-goals
 
@@ -33,11 +46,20 @@ sites must be configured one at a time.
 - Per-client alert-rule granularity (`notify_on_down` and friends). Those govern
   *which events* fire; this work governs *where they go*. Keeping them separate
   keeps the inheritance chain single-axis.
-- Changes to `_announce_in_team_channel`, the shared ClickUp web-team feed. It
-  fires for every site regardless of channel config by design. A per-client
-  ClickUp channel is already achievable through the existing `clickup`
-  `NotificationChannel` type (its config holds a `chat_url`), so no new mechanism
-  is needed and the team feed keeps running alongside it.
+- Per-client ClickUp channels. One shared channel is the requirement; see
+  *Delivery target*. `_announce_in_team_channel` keeps firing for every site
+  regardless of channel config — only its message content changes (§5).
+- Threaded ClickUp messages. "Separate message per client" means each entry is
+  labelled by client, not that replies nest into per-client threads. Each problem
+  already posts its own message; threading would need a different v3 endpoint and
+  buys nothing while the labelling gap is the actual problem.
+- Wiring `Client.notify_desktop` / `notify_email` into delivery. With everything
+  on ClickUp there is no email or in-app traffic for them to suppress, so the
+  logic would be unobservable. The false "honored by alert delivery" docstring
+  (`apps/clients/models.py:85`) still gets corrected, and the fields stay in the
+  CSV round-trip untouched. Revisit when email channels are introduced.
+- Per-client ClickUp *task lists*. `report_issue` files into the team's single
+  `clickup_list_id`; chat labelling does not require tasks to follow.
 - Relocating `NotificationChannel` out of `apps/monitors`. It would churn every
   FK and import for no behavioral gain.
 
@@ -45,21 +67,28 @@ sites must be configured one at a time.
 
 ### 1. Data model
 
-Two nullable FKs on `Client` (`apps/clients/models.py`), mirroring `Website`
-exactly so the fallback is a plain field-by-field walk:
+One nullable FK on `Client` (`apps/clients/models.py`):
 
 ```python
 notification_channel = models.ForeignKey(
     "monitors.NotificationChannel", null=True, blank=True,
     on_delete=models.SET_NULL, related_name="+",
 )
-uptime_notification_channel = models.ForeignKey(
-    "monitors.NotificationChannel", null=True, blank=True,
-    on_delete=models.SET_NULL, related_name="+",
-)
 ```
 
+**One FK, not two.** `Website` has a second `uptime_notification_channel` so a
+site can split noisy downtime off from content alerts. At the client tier that
+second field would sit empty forever: everything routes to one ClickUp channel.
+Adding it later is one field plus one line in the resolver, so the symmetry is
+not worth carrying now.
+
 One migration in `apps/clients/migrations/`. Requires `pytest --create-db`.
+
+**Known limitation.** While every client points at the same shared ClickUp
+channel, setting this field has no observable effect — it is the affordance that
+makes "route Acme somewhere else" a config change rather than a rewrite, and it
+is what the client page needs in order to show a channel at all. Readability of
+the shared feed is delivered by §5, not by this field.
 
 ### 2. Resolution
 
@@ -72,10 +101,11 @@ Tier-first ordering — **first non-empty tier wins**:
 | purpose | order |
 |---|---|
 | `general` (scripts, domain/SSL, SEO) | website → client → team active channels |
-| `uptime` | website.uptime → website → client.uptime → client → *stop* |
+| `uptime` | website.uptime → website → client → *stop* |
 
 Within a tier, the uptime-specific channel beats the general one. Across tiers,
-the more specific tier always wins.
+the more specific tier always wins. The client tier has a single channel, so
+`uptime` reaches it only after both website fields are exhausted.
 
 Uptime keeps its existing no-team-fallback behavior. That was a deliberate noise
 decision — a team-wide default should not receive every downtime blip — and
@@ -87,7 +117,7 @@ site. Deactivating a channel must never silently stop alerts.
 ```python
 class ChannelResolution(NamedTuple):
     channels: list      # NotificationChannel
-    source: str         # website | website_uptime | client | client_uptime | team_default | none
+    source: str         # website | website_uptime | client | team_default | none
     source_label: str   # "Acme Ltd (client)" — for the UI
 
 def resolve_channel_source(website, *, purpose="general") -> ChannelResolution
@@ -102,46 +132,24 @@ need no edits and inherit the client tier for free.
 `resolve_channels(website, purpose="uptime")`. Per-monitor
 `MonitorNotificationRule` extras still union on top, deduped by channel id.
 
-### 3. Client notification toggles
+### 3. Dead client toggles — docstring only
 
 `Client.notify_desktop` / `notify_email` (`apps/clients/models.py:85-87`) are
 documented as "honored by alert delivery" and are not. They are written by the
 CSV import (`apps/clients/views.py:451`), read by the CSV export
 (`apps/clients/views.py:549`), and editable in the client UI — but read by zero
-delivery paths. They are decorative today.
+delivery paths.
 
-They are in scope because the new channel card lands directly beside them, and
-two dead toggles next to a live one reads as "channels are broken too."
-
-**Wire them, do not remove them** — they are part of a CSV round-trip the agency
-already uses, so deleting them breaks a spreadsheet contract. Both map onto real
-delivery paths: `AlertRule.Channel` already has `in_app` and `email`
-(`apps/alerts/models.py:14-15`).
-
-The two toggles act on **two different systems**, and the split matters:
-
-| toggle | `NotificationChannel` resolver | `AlertService` rules |
-|---|---|---|
-| `notify_email = False` | drop `email`-type channels | drop `email` rules |
-| `notify_desktop = False` | *no effect* — there is no in-app channel type | drop `in_app` rules |
-
-`NotificationChannel.ChannelType` is only `email` / `clickup` / `slack`
-(`apps/monitors/models.py:205-208`), so in-app delivery exists solely in the
-alerts app. `notify_desktop` therefore filters `applicable_rules` in
-`AlertService.dispatch_for_change` and never touches the resolver.
-
-Both are applied as **suppression filters after selection**, never as another
-tier — the tier decides *where*, the toggle decides *whether*. In the alerts app
-the natural home is beside the existing `_is_suppressed` gate
-(`apps/alerts/services.py:33`), filtering `applicable_rules` by
-`rule.channel` against the website's client.
-
-Correct the model docstring at the same time.
+Wiring them is deliberately **out of scope** (see Non-goals): with all traffic on
+ClickUp there is no email or in-app delivery for them to suppress, so the logic
+would be untestable against real behavior. Correct the misleading docstring to
+say the fields are stored for CSV round-trip and not yet consumed. Leave the
+fields, the import/export, and the UI toggles alone.
 
 ### 4. API
 
-- `ClientSerializer` — the two FK fields plus `*_name`, with same-team
-  validation. The `_validate_team_channel` helper at
+- `ClientSerializer` — `notification_channel` plus `notification_channel_name`,
+  with same-team validation. The `_validate_team_channel` helper at
   `apps/websites/serializers.py:96` moves to a shared mixin in
   `apps/common/serializers.py` rather than being copy-pasted.
 - `ClientSerializer`, **detail only** — `websites: [{id, name, domain,
@@ -168,12 +176,45 @@ Correct the model docstring at the same time.
   feature key avoids adding a `FEATURE_KEYS` entry and backfilling every member's
   `feature_access` — channels are where alerts go.
 - **Client detail** (`frontend/src/components/client-detail-client.tsx`) — new
-  "Alerts & Channels" card: both selectors, inline help describing the chain, and
+  "Alerts & Channels" card: one selector, inline help describing the chain, and
   the client's websites listed as *inherits* vs *overrides*.
 - **Website detail** (`frontend/src/components/website-alerts-status.tsx`) — add
   the uptime selector it currently lacks, and replace the misleading
   "Team default channels" placeholder with the real resolved source, e.g.
   "Inherited from client: Acme Ltd".
+
+### 6. ClickUp feed readability
+
+One shared channel carries every client's problems, and today a message names
+only the site: `_build_message` (`apps/integrations/chat.py:60`) uses
+`website.name or website.domain` and `website.domain`. Nothing states which
+client account the site belongs to, which is what makes the shared feed hard to
+scan.
+
+Already working and left alone: each problem posts its own message; the
+responsible developer is resolved from `Client.assigned_to`
+(`apps/integrations/chat.py:26`), rendered as `@username`, passed as a ClickUp
+`follower` (the thing that actually pings them), and set as the task assignee.
+
+Changes:
+
+- `_build_message` leads with the client name, falling back to the site label
+  when a website has no client:
+
+  ```
+  🔴 **Acme Ltd** — acme.com is DOWN
+  client: Acme Ltd · site: acme.com · owner: @dev
+  → <task url>
+  ```
+
+- `report_issue`'s task title is prefixed with the client name so the ClickUp
+  list is scannable by account too, and the client name is added to `tags`
+  alongside the existing tags.
+- `notify_recovery` gets the identical treatment — the recovery message must
+  match the problem message it clears, or the pair is unscannable.
+
+`subject` (the dedupe key) is unchanged. It is keyed on monitor/website ids, and
+changing it would orphan every open `ClickUpTaskLink`.
 
 ## Testing
 
@@ -181,13 +222,13 @@ Correct the model docstring at the same time.
   website-only, client-only, both, inactive channel at each tier, no client,
   nothing set anywhere; each run for both `general` and `uptime`. Asserts the
   chosen channel *and* the reported source.
-- Suppression: a client with `notify_email=False` drops email channels but keeps
-  ClickUp/Slack, and drops `email` alert rules; `notify_desktop=False` drops
-  `in_app` rules while leaving resolved channels untouched. A website with no
-  client is unaffected by either.
 - `tests/clients/` — serializer accepts a same-team channel, rejects another
   team's, and exposes the website list only on retrieve.
 - `tests/websites/` — retrieve exposes the effective channel and source.
+- `tests/integrations/` — the problem message, the recovery message and the task
+  title all carry the client name; a website with no client falls back to the
+  site label instead of rendering an empty segment; `subject` is unchanged so an
+  existing open `ClickUpTaskLink` still dedupes onto the same task.
 - Model change: run `pytest --create-db`.
 
 ## Risks
@@ -196,7 +237,11 @@ Correct the model docstring at the same time.
   client gains one silently starts routing to the client channel instead of the
   team defaults. This is the intended outcome, but it is a routing change on
   live alerting — the source badge in the UI is what makes it legible.
-- **Suppression filter can empty a tier.** A client with `notify_email=False`
-  whose only channel is email resolves to zero channels. The resolver reports
-  `source="none"` and the UI must say so explicitly rather than render a blank
-  dropdown.
+- **The client FK is inert on day one.** Every client points at the same shared
+  ClickUp channel, so the new selector changes nothing observable until a second
+  destination exists. Documented in §1; the readability win comes from §6. If the
+  plan needs trimming, §1–§4 are the deferrable half and §6 is not.
+- **Message format is load-bearing for humans, not machines.** Nothing parses
+  these strings, so the risk is only that a badly-shaped line reads worse than
+  today's. The recovery message must be changed in lockstep with the problem
+  message.
