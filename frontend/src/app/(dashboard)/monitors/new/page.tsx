@@ -16,11 +16,13 @@ const MONITOR_TYPES = [
   { value: "ssl", label: "SSL Certificate" },
 ];
 
+// Checks all leave from one platform IP, so frequent polling across the client
+// fleet gets that IP challenged or blocked by the sites' WAFs. 15 minutes is the
+// default; the sub-5-minute options are deliberately not offered.
 const INTERVALS = [
-  { value: "30", label: "30 seconds" },
-  { value: "60", label: "1 minute" },
   { value: "300", label: "5 minutes" },
   { value: "600", label: "10 minutes" },
+  { value: "900", label: "15 minutes (recommended)" },
   { value: "1800", label: "30 minutes" },
   { value: "3600", label: "1 hour" },
 ];
@@ -35,7 +37,7 @@ export default function NewMonitorPage() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [monitorType, setMonitorType] = useState("http");
-  const [checkInterval, setCheckInterval] = useState("60");
+  const [checkInterval, setCheckInterval] = useState("900");
   const [timeout, setTimeout_] = useState("30");
   const [retryCount, setRetryCount] = useState("3");
   const [expectedStatus, setExpectedStatus] = useState("200");

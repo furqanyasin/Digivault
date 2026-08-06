@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import timedelta
 from urllib.parse import urlparse
 
 from celery import shared_task
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.scripts.classifier import ScriptClassifier
@@ -129,6 +131,54 @@ def _should_track_script(src: str, website_domain: str) -> bool:
 
     return True
 
+
+# ---------------------------------------------------------------------------
+# Comparison windows
+# ---------------------------------------------------------------------------
+
+# How many snapshots make up "what this page carries now", and the same number
+# again for the baseline it is compared against.
+#
+# A single snapshot is NOT an inventory of a page — it is one observation of it.
+# The snippet posts at DOMContentLoaded, again at 2.5s, and again after each DOM
+# mutation burst for 30s, so the first post of every page load predates the tags
+# GTM injects (GA4, Meta Pixel, Clarity, Hotjar, HubSpot). Diffing consecutive
+# snapshots made that partial capture indistinguishable from an uninstall: every
+# page load reported the whole marketing stack as removed and then added again,
+# forever, on every page of every site.
+#
+# Comparing the union of the last N observations against the union of the N
+# before them fixes it at the source — an absence has to hold across a run of
+# observations before it counts as a removal. 5 spans at least two page loads at
+# the snippet's post rate, and the window slides with traffic, so it behaves the
+# same on a site with one visit a week and one with a visit a second.
+_DIFF_WINDOW = 5
+
+# How long a reported change stays suppressed after it is acknowledged. Without
+# this, dedupe only skipped changes that were still open, so acknowledging one
+# re-armed it for the next page load — the opposite of what acknowledging means.
+# A tag that goes missing again months later is genuinely news; one that does so
+# the same afternoon is the same event.
+_CHANGE_COOLDOWN = timedelta(days=7)
+
+
+def _window_scripts(rows: list[list[dict]], keep=None) -> list[dict]:
+    """Collapse newest-first snapshot rows into one script dict per identity.
+
+    `rows` are `scripts_data` lists ordered newest first; the newest observation
+    of a given normalized URL wins, so attribute comparisons (location, inline
+    hash) still see current values rather than stale ones.
+    """
+    merged: dict[str, dict] = {}
+    for scripts in rows:
+        for script in scripts:
+            src = (script.get("src") or "").strip()
+            if not src or (keep and not keep(script)):
+                continue
+            merged.setdefault(normalize_script_url(src), script)
+    return list(merged.values())
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -179,34 +229,52 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                 snippet_version=payload.get("snippet_version", ""),
             )
 
-            # --- 2. Get previous snapshot for same page ---
-            previous_snapshot = (
-                ScriptSnapshot.objects.filter(
-                    website=website, page_url=page_url
-                )
-                .exclude(pk=snapshot.pk)
+            # --- 2. Build the two comparison windows for this page ---
+            # Newest first, this snapshot included. One query serves both
+            # windows; see _DIFF_WINDOW for why a single snapshot can't be one.
+            recent_rows = list(
+                ScriptSnapshot.objects.filter(website=website, page_url=page_url)
                 .order_by("-captured_at")
-                .first()
+                .values_list("scripts_data", flat=True)[: _DIFF_WINDOW * 2]
             )
-            raw_previous = previous_snapshot.scripts_data if previous_snapshot else []
+            current_rows = recent_rows[:_DIFF_WINDOW]
+            previous_rows = recent_rows[_DIFF_WINDOW:]
+            if not previous_rows:
+                # Bootstrap: this page has less than one full window of history.
+                # Compare against everything except this snapshot. Because the
+                # current window is the *union* of that same history, it is a
+                # superset of the baseline, so nothing can look removed while the
+                # window fills — only genuinely new identities surface.
+                previous_rows = current_rows[1:]
 
-            # Filter both lists to only third-party analytics/marketing scripts
+            # Filter both windows to only third-party analytics/marketing scripts
             # before diffing — self-hosted and utility library changes are noise.
-            trackable_current = [s for s in scripts_data if _is_trackable(s)]
-            trackable_previous = [s for s in raw_previous if _is_trackable(s)]
+            trackable_current = _window_scripts(current_rows, _is_trackable)
+            trackable_previous = _window_scripts(previous_rows, _is_trackable)
 
-            # --- 3. Run diff engine on filtered lists ---
+            # --- 3. Run diff engine on the filtered windows ---
             changes = DiffEngine.diff(trackable_previous, trackable_current)
 
             # --- 3b. WordPress plugin / theme / core changes ---
             # Fed the UNFILTERED lists on purpose: /wp-includes/ is dropped from
             # script tracking as noise, and it is the only place the core version
             # appears.
-            _record_wp_asset_events(website, raw_previous, scripts_data)
+            #
+            # Deliberately NOT windowed like the script diff above. Plugin and
+            # theme assets are enqueued into the served HTML, so they are present
+            # in the very first post of a page load rather than injected later —
+            # the partial-capture problem barely touches them, and windowing
+            # would delay "plugin removed", the signal worth having promptly.
+            # recent_rows[0] is this snapshot, so [1] is the one before it.
+            _record_wp_asset_events(
+                website,
+                recent_rows[1] if len(recent_rows) > 1 else [],
+                scripts_data,
+            )
 
             # A page nobody had loaded before. Skipped on the very first ingest
             # for a site, when every page is new by definition.
-            if previous_snapshot is None and (
+            if len(recent_rows) == 1 and (
                 ScriptSnapshot.objects.filter(website=website)
                 .exclude(pk=snapshot.pk)
                 .exists()
@@ -264,13 +332,17 @@ def process_ingest_payload(self, site_id: str, payload: dict) -> None:
                 dup_q = ScriptChange.objects.filter(
                     website=website,
                     change_type=change.change_type,
-                    acknowledged_at__isnull=True,
                 )
                 if script_obj:
                     dup_q = dup_q.filter(script=script_obj)
                 else:
                     dup_q = dup_q.filter(description=change.description)
-                if dup_q.exists():
+                # Still open, or closed recently — either way the user has
+                # already been told about this one. See _CHANGE_COOLDOWN.
+                if dup_q.filter(
+                    Q(acknowledged_at__isnull=True)
+                    | Q(created_at__gte=timezone.now() - _CHANGE_COOLDOWN)
+                ).exists():
                     continue
                 ScriptChange.objects.create(
                     website=website,
@@ -383,6 +455,10 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
             seen.append(page_url)
         Script.objects.filter(pk=script.pk).update(
             is_active=True,
+            # Set explicitly: .update() bypasses the field's auto_now, so
+            # without this a script confirmed present by every page load still
+            # reported the moment its row was created as when we last saw it.
+            last_seen_at=timezone.now(),
             src_url=src,
             src_domain=domain,
             is_suspicious=suspicion.is_suspicious,
@@ -409,7 +485,11 @@ def _upsert_form(website, page_url: str, form_data: dict) -> None:
         defaults={
             "form_id": form_data.get("form_id", ""),
             "form_name": form_data.get("form_name", ""),
-            "form_action": form_data.get("form_action", ""),
+            # Normalized for the same reason the fingerprint is (see
+            # DetectedForm.compute_fingerprint): an action-less form reports the
+            # document URL, so storing it raw made the row's action flip between
+            # campaign URLs and displayed a UTM-laden action in the UI.
+            "form_action": normalize_page_url(form_data.get("form_action", "") or ""),
             "form_method": (form_data.get("form_method") or "post").lower(),
             "detection_type": form_data.get(
                 "detection_type", DetectedForm.DetectionType.NATIVE

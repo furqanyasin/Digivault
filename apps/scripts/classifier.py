@@ -42,6 +42,7 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"ssl\.google-analytics\.com", "Google Universal Analytics", _C.ANALYTICS),
     _e(r"google-analytics\.com/ga\.js", "Google Universal Analytics", _C.ANALYTICS),
     _e(r"google-analytics\.com/urchin\.js", "Google Universal Analytics", _C.ANALYTICS),
+    _e(r"js\.hs-analytics\.net", "HubSpot Analytics", _C.ANALYTICS),
     _e(r"cdn\.heapanalytics\.com", "Heap Analytics", _C.ANALYTICS),
     _e(r"cdn\.amplitude\.com", "Amplitude", _C.ANALYTICS),
     _e(r"cdn\.mixpanel\.com", "Mixpanel", _C.ANALYTICS),
@@ -112,6 +113,7 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"firebaseapp\.com/__/firebase", "Firebase", _C.ANALYTICS),
 
     # ---- Advertising & Conversion -------------------------------------------
+    _e(r"js\.hsadspixel\.net", "HubSpot Ads Pixel", _C.ADVERTISING),
     _e(r"connect\.facebook\.net", "Meta Pixel", _C.ADVERTISING),
     _e(r"fbevents\.js", "Meta Pixel", _C.ADVERTISING),
     _e(r"bat\.bing\.com/bat\.js", "Microsoft Bing UET", _C.ADVERTISING),
@@ -155,7 +157,9 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     # ---- Session Recording / Heatmaps ---------------------------------------
     _e(r"static\.hotjar\.com", "Hotjar", _C.SESSION_RECORDING),
     _e(r"script\.hotjar\.com", "Hotjar", _C.SESSION_RECORDING),
-    _e(r"clarity\.ms/tag", "Microsoft Clarity", _C.SESSION_RECORDING),
+    # www.clarity.ms/tag/<id> is the per-account tag; scripts.clarity.ms serves
+    # the recorder library the tag then loads. Both halves are Clarity.
+    _e(r"clarity\.ms/tag|scripts\.clarity\.ms", "Microsoft Clarity", _C.SESSION_RECORDING),
     _e(r"edge\.fullstory\.com", "FullStory", _C.SESSION_RECORDING),
     _e(r"rs\.fullstory\.com", "FullStory", _C.SESSION_RECORDING),
     _e(r"luckyorange\.com|luckyorange\.net", "Lucky Orange", _C.SESSION_RECORDING),

@@ -128,11 +128,21 @@ function GroupReviewActions({
 export function ScriptsTab({ scripts, websiteId }: Props) {
   const [filter, setFilter] = useState<ReviewFilter>("all");
 
-  // Group scripts by src_domain — each unique domain = one row
+  // One row per provider, falling back to the domain when we cannot name the
+  // provider. Keying on the domain alone listed Hotjar twice, because it serves
+  // from both static.hotjar.com and script.hotjar.com and the row was labelled
+  // by provider — two rows, same heading, no way to tell them apart. Unknown
+  // scripts stay split by domain: with no provider to group under, merging them
+  // would pile unrelated third parties into one row.
   const groups = useMemo(() => {
     const map = new Map<string, Script[]>();
     for (const s of scripts) {
-      const key = shortDomain(s.src_url);
+      // Prefixed so a provider literally named after a host cannot collide
+      // with the domain fallback of some other script.
+      const key =
+        s.provider && s.provider !== "unknown"
+          ? `provider:${s.provider}`
+          : `domain:${shortDomain(s.src_url)}`;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(s);
     }
@@ -208,8 +218,13 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {visibleGroups.map(([domain, group]) => {
+          {visibleGroups.map(([key, group]) => {
             const rep = group[0];
+            // A provider can legitimately span hosts (Hotjar), so name every
+            // one rather than picking one and hiding the rest.
+            const domains = Array.from(new Set(group.map((s) => shortDomain(s.src_url))));
+            const domainLabel =
+              domains.length === 1 ? domains[0] : `${domains[0]} +${domains.length - 1}`;
             const anyActive = group.some((s) => s.is_active);
             const lastSeen = group
               .map((s) => s.last_seen_at)
@@ -217,9 +232,12 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
               .sort()
               .at(-1);
             return (
-              <TableRow key={domain}>
-                <TableCell className="font-mono text-xs max-w-[200px] truncate" title={domain}>
-                  {domain}
+              <TableRow key={key}>
+                <TableCell
+                  className="font-mono text-xs max-w-[200px] truncate"
+                  title={domains.join(", ")}
+                >
+                  {domainLabel}
                   <div className="text-muted-foreground font-sans">
                     {group.length} {group.length === 1 ? "file" : "files"}
                   </div>
@@ -259,7 +277,7 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
                   <ScriptDetailDialog
                     scripts={group}
                     websiteId={websiteId}
-                    label={`${rep.provider !== "unknown" ? rep.provider : domain} — ${group.length} file${group.length > 1 ? "s" : ""}`}
+                    label={`${rep.provider !== "unknown" ? rep.provider : domainLabel} — ${group.length} file${group.length > 1 ? "s" : ""}`}
                   />
                 </TableCell>
               </TableRow>

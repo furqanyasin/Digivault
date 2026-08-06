@@ -279,9 +279,21 @@ class DetectedForm(BaseModel):
         Volatile fields — nonces, honeypots, captcha tokens, hex-named
         anti-spam fields — rotate per page load and are excluded, otherwise
         every visit would mint a "new" form and counts inflate.
+
+        The action is normalized for the same reason. `form.action` in the
+        browser resolves to the *document* URL when the attribute is absent, so
+        an action-less form (Elementor, and most page-builder forms) reports a
+        different action for every campaign, ad and referral URL the page is
+        reached by. Hashing that raw minted one row per URL variant: the same
+        form listed several times in the Forms tab with its submissions split
+        across the copies. Two forms that genuinely post to different query
+        strings on one path now share an identity — a deliberate trade, since
+        their ids and field sets still tell them apart.
         """
         import hashlib
         import re
+
+        from apps.scripts.normalize import normalize_page_url
 
         volatile = re.compile(
             r"(nonce|honeypot|^hp-|^_wpcf7|^g-recaptcha|^h-captcha|^ct_|^ak_)",
@@ -299,7 +311,9 @@ class DetectedForm(BaseModel):
             form_data.get("detection_type", DetectedForm.DetectionType.NATIVE),
             form_data.get("form_id", "") or "",
             form_data.get("form_name", "") or "",
-            form_data.get("form_action", "") or "",
+            # Relative actions ("/submit") have no netloc and pass through
+            # unchanged — they are already free of the document URL.
+            normalize_page_url(form_data.get("form_action", "") or ""),
             ",".join(field_names),
         ])
         return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:32]

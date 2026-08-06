@@ -25,7 +25,10 @@ def website(team):
 def _make_script(website, provider="google-analytics", category="analytics", is_active=True):
     return Script.objects.create(
         website=website,
-        src_url=f"https://www.google-analytics.com/analytics.js?v={provider}",
+        # Distinct per provider via the path, not a `?v=` param: `v` is a
+        # volatile cache-buster, so two providers would normalize to one
+        # identity and collide on (website, normalized_url).
+        src_url=f"https://www.google-analytics.com/{provider}/analytics.js",
         src_domain="www.google-analytics.com",
         provider=provider,
         category=category,

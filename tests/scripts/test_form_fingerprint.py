@@ -47,3 +47,49 @@ class TestFingerprintStability:
         a = _fp([{"name": "message"}])
         b = _fp([])
         assert a != b
+
+
+def _fp_action(action):
+    return DetectedForm.compute_fingerprint({
+        "detection_type": "native",
+        "form_id": "multiStepForm",
+        "form_name": "",
+        "form_action": action,
+        "fields": [{"name": "email"}],
+    })
+
+
+class TestFingerprintActionStability:
+    """A form with no `action` attribute reports the document URL.
+
+    `form.action` in the browser resolves to the current page URL when the
+    attribute is absent — so the same form arrives with a different action for
+    every campaign, ad and referral URL. Left in the hash, one form minted a
+    fresh row per URL variant: the Forms tab showed the same form several times
+    and split its submission count across the copies.
+    """
+
+    def test_utm_params_do_not_change_identity(self):
+        assert _fp_action("https://digilatics.com/") == _fp_action(
+            "https://digilatics.com/?utm_source=newsletter&gclid=abc"
+        )
+
+    def test_fragment_and_trailing_slash_do_not_change_identity(self):
+        assert _fp_action("https://digilatics.com/") == _fp_action(
+            "https://digilatics.com#quote-form"
+        )
+
+    def test_www_prefix_does_not_change_identity(self):
+        assert _fp_action("https://digilatics.com/contact-us") == _fp_action(
+            "https://www.digilatics.com/contact-us/"
+        )
+
+    def test_genuinely_different_actions_still_differ(self):
+        assert _fp_action("https://digilatics.com/a") != _fp_action(
+            "https://digilatics.com/b"
+        )
+
+    def test_relative_action_is_left_alone(self):
+        # Not a URL we can normalize — must survive as its own identity.
+        assert _fp_action("/submit") != _fp_action("/other")
+        assert _fp_action("/submit") == _fp_action("/submit")

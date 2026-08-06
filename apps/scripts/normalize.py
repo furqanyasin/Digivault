@@ -24,6 +24,10 @@ _VOLATILE_PARAMS = frozenset({
     # what tell two containers apart.
     "gtm", "cx", "tag_exp", "gcs", "gcd", "dma", "dma_cps", "npa",
     "_p", "_z", "gtm_preview", "gtm_cookies_win", "gbraid", "wbraid",
+    # Meta pixel runtime state. `v` is the library version (moves every Meta
+    # release, same sense as `ver`) and `ex_m` is a rotating list of experiment
+    # ids. The pixel id lives in the path, so neither is part of the identity.
+    "v", "ex_m",
 })
 
 # Values that are clearly content hashes / cache tokens regardless of key.
@@ -48,6 +52,56 @@ def _strip_filename_hash(path: str) -> str:
     head, _, filename = path.rpartition("/")
     cleaned = _FILENAME_HASH.sub("", filename)
     return f"{head}/{cleaned}" if head or path.startswith("/") else cleaned
+
+
+# Epoch cache-busters, as seconds or milliseconds, bounded to a plausible date
+# range (2001-09-09 → 2100-01-01). The bound is what makes this safe: account
+# ids are the other thing that shows up as an all-digit path segment, and the
+# ones long enough to reach 10 digits — Meta's 16-digit pixel id, for instance —
+# land far outside any sane date. Digit count alone would merge them.
+_EPOCH_RANGE = {10: (1_000_000_000, 4_102_444_800), 13: (10**12, 4_102_444_800_000)}
+
+
+def _is_epoch_segment(segment: str) -> bool:
+    """True when a path segment is a bare timestamp rather than an identifier."""
+    bounds = _EPOCH_RANGE.get(len(segment))
+    if bounds is None or not segment.isdigit():
+        return False
+    low, high = bounds
+    return low <= int(segment) <= high
+
+
+# A dotted library version occupying a whole path segment — `/0.8.69/`,
+# `/3.6.0/`, `/v0.8.67-beta/`. Microsoft Clarity ships from /<version>/clarity.js
+# every few days and jsDelivr-style paths do the same, so the raw path minted a
+# new identity on every vendor release.
+#
+# At least one dot is required, which is what keeps identity out of it: account
+# ids (`/46377927/`, `/i9x3wxzn9k/`) and API-version directories (`/v3/`,
+# `/v2/`) have none. An API version is deliberately left in — unlike a release
+# number it doesn't rotate, so a site moving from /v2/ to /v3/ is real news.
+_VERSION_SEGMENT = re.compile(r"^v?\d+(\.\d+)+([.-][0-9a-z]+)*$", re.IGNORECASE)
+
+
+def _strip_version_segments(path: str) -> str:
+    """Drop whole path segments that are only a library version."""
+    if "/" not in path:
+        return path
+    kept = [seg for seg in path.split("/") if not _VERSION_SEGMENT.match(seg)]
+    return "/".join(kept)
+
+
+def _strip_timestamp_segments(path: str) -> str:
+    """Drop whole path segments that are only a cache-busting timestamp.
+
+    HubSpot serves `/analytics/<epoch_ms>/<portal_id>.js` and rotates the
+    timestamp every ~30 minutes. Left in the identity, one portal mints a new
+    Script row on every visit.
+    """
+    if "/" not in path:
+        return path
+    kept = [seg for seg in path.split("/") if not _is_epoch_segment(seg)]
+    return "/".join(kept)
 
 
 def normalize_script_url(url: str) -> str:
@@ -77,7 +131,9 @@ def normalize_script_url(url: str) -> str:
     return urlunsplit((
         parts.scheme.lower() or "https",
         parts.netloc.lower(),
-        _strip_filename_hash(parts.path),
+        _strip_timestamp_segments(
+            _strip_version_segments(_strip_filename_hash(parts.path))
+        ),
         urlencode(kept),
         "",
     ))

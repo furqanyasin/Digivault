@@ -33,6 +33,15 @@ class TestScriptClassifier:
         assert result.provider == "Hotjar"
         assert result.category == Script.Category.SESSION_RECORDING
 
+    def test_hubspot_analytics(self):
+        """The rotating timestamp in the path must not defeat the match."""
+        result = ScriptClassifier.classify(
+            "https://js.hs-analytics.net/analytics/1785996600000/46377927.js"
+        )
+        assert result.provider == "HubSpot Analytics"
+        assert result.category == Script.Category.ANALYTICS
+        assert result.is_known is True
+
     def test_stripe(self):
         result = ScriptClassifier.classify("https://js.stripe.com/v3/")
         assert result.provider == "Stripe"
@@ -83,3 +92,16 @@ class TestScriptClassifier:
         )
         assert result.provider == "jQuery CDN"
         assert result.category == Script.Category.PERFORMANCE
+
+    def test_clarity_library_host(self):
+        # scripts.clarity.ms serves the library; www.clarity.ms/tag serves the
+        # per-account tag. Only the latter was recognised, so the library half
+        # of every Clarity install was reported as an unknown script.
+        result = ScriptClassifier.classify("https://scripts.clarity.ms/0.8.69/clarity.js")
+        assert result.provider == "Microsoft Clarity"
+        assert result.category == Script.Category.SESSION_RECORDING
+
+    def test_hubspot_ads_pixel(self):
+        result = ScriptClassifier.classify("https://js.hsadspixel.net/pixels.js")
+        assert result.provider == "HubSpot Ads Pixel"
+        assert result.category == Script.Category.ADVERTISING

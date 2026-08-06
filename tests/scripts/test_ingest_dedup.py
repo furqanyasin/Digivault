@@ -4,7 +4,10 @@ Celery runs eagerly in tests, so calling the task directly exercises the full
 diff → upsert → change persistence path.
 """
 
+import datetime
+
 import pytest
+from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
@@ -97,3 +100,21 @@ class TestFormPageDedupe:
         form = DetectedForm.objects.get(website=website)
         assert form.provider == "Elementor Forms"
         assert form.detection_type == "dom"
+
+
+class TestScriptLastSeen:
+    """`last_seen_at` answers "is this script still on the site?".
+
+    The re-observation path updates via queryset .update(), which bypasses
+    `auto_now`, so the field silently kept reporting the moment the row was
+    first created no matter how much traffic confirmed the script since.
+    """
+
+    def test_reobservation_advances_last_seen_at(self, website):
+        _ingest(website, "https://ingdedup.io/a", [_script(GTM)])
+        stale = timezone.now() - datetime.timedelta(days=3)
+        Script.objects.filter(website=website).update(last_seen_at=stale)
+
+        _ingest(website, "https://ingdedup.io/a", [_script(GTM)])
+
+        assert Script.objects.get(website=website).last_seen_at > stale

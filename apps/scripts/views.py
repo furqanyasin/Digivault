@@ -34,7 +34,7 @@ from apps.scripts.serializers import (
     ScriptChangeSerializer,
     ScriptSerializer,
 )
-from apps.scripts.tasks import process_ingest_payload
+from apps.scripts.tasks import _upsert_form, process_ingest_payload
 from apps.websites.models import Website
 
 
@@ -305,8 +305,6 @@ class FormSubmissionIngestView(APIView):
         # and a trailing slash. Matching those raw against each other silently
         # matched zero rows, so live sites sat at 0 submissions forever.
         page_url = normalize_page_url(data["page_url"])
-        # Increment only if the form was already detected on this page — avoids
-        # counting phantom submissions for forms we've never catalogued.
         updated = DetectedForm.objects.filter(
             website=website,
             page_url=page_url,
@@ -315,9 +313,39 @@ class FormSubmissionIngestView(APIView):
             submission_count=F("submission_count") + 1,
             last_submission_at=timezone.now(),
         )
-        return Response(
-            {"counted": bool(updated)}, status=status.HTTP_202_ACCEPTED
-        )
+        if not updated:
+            # A form can first appear after the page's last collectForms() —
+            # a popup opened past the snippet's 30s observer window is the
+            # common case — so its descriptor was never ingested. This used to
+            # drop the submit, losing a real conversion and leaving the form
+            # itself invisible. Recording it is not "phantom" data: the
+            # descriptor arrives through the same serializer, from the same
+            # collector, behind the same site_id + origin gate as
+            # POST /api/ingest/, which could already create the row.
+            _record_late_form_submission(website, page_url, data["form"], fingerprint)
+        return Response({"counted": True}, status=status.HTTP_202_ACCEPTED)
+
+
+def _record_late_form_submission(
+    website, page_url: str, form_data: dict, fingerprint: str
+) -> None:
+    """Store a form first seen at submit time, with that submit counted.
+
+    Goes through the ingest upsert so the row is byte-identical to the one a
+    later ingest of the same page would write — otherwise the next pageview
+    would create a second row and strand the count on the first. Upsert then
+    increment (rather than create with count=1) also keeps a concurrent ingest
+    of the same descriptor from losing the submit.
+    """
+    from django.db.models import F
+
+    _upsert_form(website, page_url, form_data)
+    DetectedForm.objects.filter(
+        website=website, page_url=page_url, fingerprint=fingerprint
+    ).update(
+        submission_count=F("submission_count") + 1,
+        last_submission_at=timezone.now(),
+    )
 
 
 class WebsiteScriptListView(generics.ListAPIView):
