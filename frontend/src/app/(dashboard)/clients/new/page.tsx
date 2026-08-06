@@ -153,7 +153,7 @@ export default function NewClientPage() {
                 <Input type="date" value={form.domain_renewal_date} onChange={(e) => set("domain_renewal_date", e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label>Website built by Digi</Label>
+                <Label>Website built by Digilatics</Label>
                 <Select value={form.website_built_by_digi} onValueChange={(v) => set("website_built_by_digi", v)}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>
@@ -165,7 +165,7 @@ export default function NewClientPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Website maintained by Digi</Label>
+                <Label>Website maintained by Digilatics</Label>
                 <Select value={form.website_maintained_by_digi} onValueChange={(v) => set("website_maintained_by_digi", v)}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>

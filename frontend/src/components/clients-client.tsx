@@ -30,7 +30,7 @@ const ACCESS_LEVEL_TABLE_LABELS: Record<string, string> = {
 
 /** Keep in step with the header/body cell counts below — it drives the colSpan
  *  on the loading and empty rows, which otherwise stop spanning the table. */
-const COLUMN_COUNT = 14;
+const COLUMN_COUNT = 11;
 
 // The pinned column needs an opaque background of its own: without it the
 // scrolling columns slide visibly underneath. `bg-card` matches the Card.
@@ -358,7 +358,7 @@ export function ClientsClient({ initialClients }: Props) {
                 is a scroll container as tall as every row, so it would own the
                 horizontal scrollbar and park it below the last row. Opting out
                 hands both scroll axes to the pane above. */}
-            <Table wrapperClassName="overflow-visible" className="min-w-[1500px]">
+            <Table wrapperClassName="overflow-visible" className="min-w-[1100px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className={STICKY_HEAD}>
@@ -395,7 +395,6 @@ export function ClientsClient({ initialClients }: Props) {
                   </TableHead>
                   <TableHead className={`${STICKY_HEAD_ROW} min-w-[130px]`}>Hosting renewal</TableHead>
                   <TableHead className={`${STICKY_HEAD_ROW} min-w-[180px]`}>Domain Access</TableHead>
-                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[130px]`}>Domain renewal</TableHead>
                   <TableHead className={`${STICKY_HEAD_ROW} min-w-[150px]`}>
                     Website Access
                     <FilterSelect
@@ -403,10 +402,8 @@ export function ClientsClient({ initialClients }: Props) {
                       onChange={(v) => setColFilter("access", v)} options={ACCESS_LEVEL_OPTIONS}
                     />
                   </TableHead>
-                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[200px]`}>Website URL</TableHead>
                   <TableHead className={`${STICKY_HEAD_ROW} min-w-[150px]`}>Built By Digilatics</TableHead>
                   <TableHead className={`${STICKY_HEAD_ROW} min-w-[170px]`}>Maintained By Digilatics</TableHead>
-                  <TableHead className={`${STICKY_HEAD_ROW} min-w-[90px]`}>PPC ads</TableHead>
                   <TableHead className={`${STICKY_HEAD_ROW} min-w-[110px]`}>Status</TableHead>
                   <TableHead className={`${STICKY_HEAD_ROW} w-16`} />
                 </TableRow>
@@ -477,9 +474,6 @@ export function ClientsClient({ initialClients }: Props) {
                       title={c.domain_access_location || undefined}>
                       {c.domain_access_location || "—"}
                     </TableCell>
-                    <TableCell className="text-sm whitespace-nowrap">
-                      <RenewalDate value={c.domain_renewal_date} />
-                    </TableCell>
 
                     <TableCell>
                       {c.website_access_level ? (
@@ -497,29 +491,8 @@ export function ClientsClient({ initialClients }: Props) {
                       )}
                     </TableCell>
 
-                    <TableCell className="max-w-[220px]">
-                      {c.website_url ? (
-                        <a
-                          href={c.website_url.startsWith("http") ? c.website_url : `https://${c.website_url}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 truncate text-xs text-muted-foreground hover:underline"
-                          title={c.website_url}
-                        >
-                          <span className="truncate">{c.website_url}</span>
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                        </a>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-
                     <TableCell className="text-sm">{c.website_built_by_digi || "—"}</TableCell>
                     <TableCell className="text-sm">{c.website_maintained_by_digi || "—"}</TableCell>
-
-                    <TableCell className="text-sm capitalize">
-                      {c.running_ppc_ads || <span className="text-muted-foreground">—</span>}
-                    </TableCell>
 
                     <TableCell>
                       <Badge

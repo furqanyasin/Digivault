@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, AlertTriangle, CheckCircle, Code, ExternalLink, Globe, Shield, Settings, Bell } from "lucide-react";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Website, Script, ScriptChange, DomainInfo, Monitor, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport, SiteScanState, SecurityHeaderReport } from "@/lib/api";
+import type { Website, Script, ScriptChange, DomainInfo, Monitor, PerformanceReport, CruxReport, DetectedForm, FormSubmissionError, PhpError, SiteEvent, VulnerabilityReport } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,8 +17,6 @@ import { countScriptDomains } from "@/lib/script-domains";
 import { PluginsTab } from "@/components/plugins-tab";
 import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
-import { SecurityTab } from "@/components/security-tab";
-import { SecurityHeadersPanel } from "@/components/security-headers-panel";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
 import { UptimeTab } from "@/components/uptime-tab";
@@ -44,7 +42,7 @@ async function getData(token: string, id: string) {
   // All tab data is fetched up front so the tabs can switch instantly on the
   // client (no per-tab server navigation). Runs in parallel; the instant
   // loading skeleton (loading.tsx) covers the initial wait.
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, seoReport, monitors, siteActivity] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -57,10 +55,10 @@ async function getData(token: string, id: string) {
     api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
     api.get<JsErrorRow[]>(`/api/v1/websites/${id}/js-errors/`, token),
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
+    // Still fetched with the Security tab gone: the health-score explainer on
+    // Overview breaks the score down by open vulnerability.
     api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
-    api.get<SiteScanState>(`/api/v1/websites/${id}/scan/`, token),
     api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
-    api.get<SecurityHeaderReport>(`/api/v1/websites/${id}/security-headers/`, token),
     api.get<Monitor[]>(`/api/v1/monitors/?website=${id}`, token),
     api.get<SiteActivityEntry[] | { results: SiteActivityEntry[] }>(`/api/v1/logs/?website_id=${id}`, token),
   ]);
@@ -91,9 +89,7 @@ async function getData(token: string, id: string) {
     jsErrors: jsErrors.status === "fulfilled" ? jsErrors.value : [],
     siteEvents: siteEvents.status === "fulfilled" ? siteEvents.value : [],
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
-    scanState: scanState.status === "fulfilled" ? scanState.value : null,
     seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
-    headerReport: headerReport.status === "fulfilled" ? headerReport.value : null,
     monitors: monitors.status === "fulfilled" ? monitors.value : [],
     siteActivity:
       siteActivity.status === "fulfilled"
@@ -203,10 +199,14 @@ export default async function WebsiteDetailPage({
 }) {
   const { id } = await params;
   const { tab: rawTab = "overview" } = await searchParams;
-  // The Tracking tab merged into Scripts — keep old deep links working.
-  const tab = rawTab === "tracking" ? "scripts" : rawTab;
+  // The Tracking tab merged into Scripts and Security was withdrawn — keep old
+  // deep links landing somewhere rather than on an empty tab panel.
+  const tab =
+    rawTab === "tracking" ? "scripts"
+    : rawTab === "security" ? "overview"
+    : rawTab;
   const token = await getAccessToken();
-  const { brokenForms7d, website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, scanState, seoReport, headerReport, monitors, siteActivity } = await getData(token ?? "", id);
+  const { brokenForms7d, website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, seoReport, monitors, siteActivity } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -324,13 +324,6 @@ export default async function WebsiteDetailPage({
       medium: sevCount("medium"),
       low: sevCount("low"),
     },
-    security: {
-      critical: vulns.filter((v) => v.severity === "critical").length,
-      high: vulns.filter((v) => v.severity === "high").length,
-      other: vulns.filter((v) => v.severity === "medium" || v.severity === "low").length,
-      grade: headerReport?.grade ?? "",
-      phpErrors: phpErrors.filter((e) => e.level === "fatal" || e.level === "error").length,
-    },
     seo: {
       checked: seoReport?.check_status === "done",
       indexable: seoReport?.homepage_indexable ?? null,
@@ -397,7 +390,9 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="changelog">Change Log ({changeLog.length})</TabsTrigger>
           {showPhpErrors && <TabsTrigger value="php-errors">PHP Errors ({phpErrors.length})</TabsTrigger>}
-          <TabsTrigger value="security">Security {vulns.length > 0 ? `(${vulns.length})` : ""}</TabsTrigger>
+          {jsErrors.length > 0 && (
+            <TabsTrigger value="js-errors">JS Errors ({jsErrors.length})</TabsTrigger>
+          )}
           <TabsTrigger value="seo">SEO</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="setup">
@@ -753,33 +748,27 @@ export default async function WebsiteDetailPage({
         {/* Site events are folded into the Change Log above rather than living
             in their own tab — see the changeLog timeline. */}
 
-        {/* ── Security ── */}
-        <TabsContent value="security">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Security &amp; Vulnerability Scan</CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-6">
-              <SecurityHeadersPanel websiteId={id} report={headerReport} />
-              <SecurityTab websiteId={id} vulns={vulns} scanState={scanState} scripts={allActiveScripts} />
-
-              {/* Lives here rather than as its own tab: a script throwing is a
-                  security signal (broken third-party code, a blocked or tampered
-                  request), and it belongs beside the header grade and the
-                  vulnerability scan instead of widening an 11-tab strip. */}
-              <div className="space-y-2">
-                <div>
-                  <h3 className="font-medium text-sm">JavaScript Errors</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Uncaught errors collected from real page loads
-                    {jsErrors.length > 0 && ` · ${jsErrors.length} distinct`}
-                  </p>
-                </div>
+        {/* ── JS Errors ──
+            Previously a panel inside the Security tab. That tab is withdrawn for
+            now, and uncaught script errors are worth keeping visible on their
+            own, so they get a tab of their own alongside PHP Errors. */}
+        {jsErrors.length > 0 && (
+          <TabsContent value="js-errors">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  JavaScript Errors ({jsErrors.length} distinct)
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Uncaught errors collected from real page loads
+                </p>
+              </CardHeader>
+              <CardContent className="px-4 pb-4">
                 <JsErrorsTab errors={jsErrors} />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* ── Uptime ── */}
         <TabsContent value="uptime">

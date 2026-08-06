@@ -51,7 +51,9 @@ export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInf
   const sslDays = domainInfo?.ssl_days_until_expiry ?? null;
   const vulnCount = vulns.filter((v) => v.severity === "critical" || v.severity === "high").length;
 
-  const fixes: { icon: typeof AlertTriangle; tone: string; text: string; href: string }[] = [];
+  // `href` is optional: not every fix has a tab to open — the Security tab is
+  // withdrawn, so the vulnerability line states the problem without linking.
+  const fixes: { icon: typeof AlertTriangle; tone: string; text: string; href?: string }[] = [];
   if (highRisk > 0) {
     fixes.push({
       icon: AlertTriangle,
@@ -89,7 +91,6 @@ export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInf
       icon: ShieldAlert,
       tone: "text-red-500",
       text: `Patch ${vulnCount} open vulnerabilit${vulnCount > 1 ? "ies" : "y"}`,
-      href: `/websites/${websiteId}?tab=security`,
     });
   }
 
@@ -169,10 +170,17 @@ export function HealthScoreInfo({ healthScore, status, pendingChanges, domainInf
             <ul className="space-y-3">
               {fixes.map((f, i) => (
                 <li key={i}>
-                  <Link href={f.href} className="flex gap-2 text-sm group">
-                    <f.icon className={`h-4 w-4 shrink-0 mt-0.5 ${f.tone}`} />
-                    <span className="group-hover:underline">{f.text}</span>
-                  </Link>
+                  {f.href ? (
+                    <Link href={f.href} className="flex gap-2 text-sm group">
+                      <f.icon className={`h-4 w-4 shrink-0 mt-0.5 ${f.tone}`} />
+                      <span className="group-hover:underline">{f.text}</span>
+                    </Link>
+                  ) : (
+                    <span className="flex gap-2 text-sm">
+                      <f.icon className={`h-4 w-4 shrink-0 mt-0.5 ${f.tone}`} />
+                      <span>{f.text}</span>
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
