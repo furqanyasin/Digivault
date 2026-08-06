@@ -272,13 +272,26 @@ class DetectedForm(BaseModel):
     def compute_fingerprint(form_data: dict) -> str:
         """Stable 32-char hash identifying a form within a page.
 
-        Derived from detection type, identifiers, action, and the set of field
-        names so that re-sends of the same form update in place while distinct
-        forms on one page (including action-less div forms) stay separate.
+        Derived from detection type, identifiers and action, plus the set of
+        field names **only when the form has neither an id nor a name**, so that
+        re-sends of the same form update in place while distinct forms on one
+        page (including action-less div forms) stay separate.
+
+        The field set is deliberately excluded once an identifier exists,
+        because it is not stable across observations of one form. The snippet
+        posts several times per page load and again at submit time, and a
+        multi-step form mounts only the step it is showing — so the fields seen
+        at DOMContentLoaded are not the fields seen at submit. Hashing them
+        listed `multiStepForm` twice on the same path: the page-load steps
+        stuck at 0 submits, and a second row created by the submit report
+        (which stores a form whose fingerprint matches nothing) holding every
+        conversion. An id or a name is what genuinely identifies a form within
+        a page; which of its fields happen to be mounted is not.
 
         Volatile fields — nonces, honeypots, captcha tokens, hex-named
         anti-spam fields — rotate per page load and are excluded, otherwise
-        every visit would mint a "new" form and counts inflate.
+        an anonymous form would mint a "new" row on every visit and counts
+        inflate.
 
         The action is normalized for the same reason. `form.action` in the
         browser resolves to the *document* URL when the attribute is absent, so
@@ -307,14 +320,19 @@ class DetectedForm(BaseModel):
             )
             if not (volatile.search(name) or hexname.match(name))
         )
+        form_id = form_data.get("form_id", "") or ""
+        form_name = form_data.get("form_name", "") or ""
         basis = "|".join([
             form_data.get("detection_type", DetectedForm.DetectionType.NATIVE),
-            form_data.get("form_id", "") or "",
-            form_data.get("form_name", "") or "",
+            form_id,
+            form_name,
             # Relative actions ("/submit") have no netloc and pass through
             # unchanged — they are already free of the document URL.
             normalize_page_url(form_data.get("form_action", "") or ""),
-            ",".join(field_names),
+            # Emptied rather than dropped for an identified form, so the segment
+            # count stays fixed and an id can never hash the same as an
+            # anonymous form whose field name sits in that position.
+            "" if (form_id or form_name) else ",".join(field_names),
         ])
         return hashlib.sha256(basis.encode("utf-8")).hexdigest()[:32]
 

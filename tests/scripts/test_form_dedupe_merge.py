@@ -107,6 +107,38 @@ class TestMergeDuplicateForms:
 
         assert DetectedForm.objects.filter(website=site).count() == 2
 
+    def test_multi_step_copies_collapse_and_keep_their_submissions(self, site):
+        """One form, two field sets: the page-load step and the submit step.
+
+        The submit-time row is the one holding the conversions, and it is the
+        younger of the two — the merge must carry its count onto the older
+        keeper rather than delete it with the row.
+        """
+        page_load = _form(site, PAGE + "/", days_ago=20)
+        DetectedForm.objects.filter(pk=page_load.pk).update(
+            fields=[{"name": "name"}, {"name": "email"}]
+        )
+        DetectedForm.objects.create(
+            website=site,
+            page_url=PAGE,
+            form_id="multiStepForm",
+            form_name="",
+            form_action=PAGE + "/",
+            detection_type="native",
+            # The final step: different fields, so a different old fingerprint.
+            fields=[{"name": "company"}, {"name": "budget"}],
+            fingerprint="fingerprint-of-the-final-step",
+            submission_count=7,
+            last_submission_at=timezone.now(),
+        )
+
+        deleted = merge_duplicate_forms(DetectedForm)
+
+        assert deleted == 1
+        keeper = DetectedForm.objects.get(website=site)
+        assert keeper.pk == page_load.pk
+        assert keeper.submission_count == 7
+
     def test_rerunning_the_merge_is_a_no_op(self, site):
         _form(site, PAGE + "/", submissions=2, days_ago=9)
         _form(site, PAGE + "/?utm_source=x", submissions=1, days_ago=5)

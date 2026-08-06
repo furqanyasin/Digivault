@@ -134,5 +134,28 @@ class TestFormSubmissionCount:
         assert DetectedForm.objects.filter(website=website).count() == 1
         assert DetectedForm.objects.get(website=website).submission_count == 1
 
+    def test_multi_step_submit_counts_on_the_row_the_page_load_created(self, website):
+        # The reported bug, end to end. A multi-step form mounts one step at a
+        # time, so the fields catalogued at page load are not the fields present
+        # at submit. That used to hash to a different fingerprint, and the submit
+        # — matching nothing — created a second row: the Forms tab showed
+        # `multiStepForm` twice on the same path, one at 0 submits and one
+        # holding every conversion.
+        step_one = {
+            "form_id": "multiStepForm", "form_name": "", "form_action": PAGE,
+            "form_method": "post", "detection_type": "native", "provider": "",
+            "fields": [{"name": "name"}, {"name": "email"}],
+        }
+        _upsert_form(website, PAGE, step_one)
+
+        resp = self._post(
+            website.site_id,
+            form={**step_one, "fields": [{"name": "company"}, {"name": "budget"}]},
+        )
+
+        assert resp.data["counted"] is True
+        assert DetectedForm.objects.filter(website=website).count() == 1
+        assert DetectedForm.objects.get(website=website).submission_count == 1
+
     def test_unknown_site_returns_404(self):
         assert self._post("does-not-exist").status_code == 404
