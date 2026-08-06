@@ -1,6 +1,6 @@
 import Link from "next/link";
 import {
-  Activity, Code2, FileInput, Gauge, History, ShieldCheck, Search,
+  Activity, Code2, FileInput, Gauge, History, Search,
   ArrowRight, AlertTriangle, CheckCircle2, MinusCircle,
 } from "lucide-react";
 
@@ -171,7 +171,6 @@ export interface OverviewMetrics {
   uptime: { pct: number | null; up: number; down: number; degraded: number; monitors: number; recent: string[] };
   performance: { mobile: number | null; desktop: number | null };
   changelog: { pending: number; critical: number; high: number; medium: number; low: number };
-  security: { critical: number; high: number; other: number; grade: string; phpErrors: number };
   seo: { checked: boolean; indexable: boolean | null; noindex: number; sitemapPages: number; robotsBlocked: boolean };
 }
 
@@ -218,12 +217,6 @@ export function SiteOverviewGrid({ m, websiteId }: { m: OverviewMetrics; website
     m.changelog.critical + m.changelog.high > 0 ? "critical"
     : m.changelog.medium > 0 ? "warning"
     : m.changelog.pending > 0 ? "warning"
-    : "good";
-
-  const securityState: ChunkState =
-    m.security.critical > 0 ? "critical"
-    : m.security.high > 0 || m.security.phpErrors > 0 ? "warning"
-    : m.security.grade && !["A", "A+", "B"].includes(m.security.grade) ? "warning"
     : "good";
 
   const seoState: ChunkState =
@@ -343,29 +336,6 @@ export function SiteOverviewGrid({ m, websiteId }: { m: OverviewMetrics; website
           { value: m.changelog.medium, className: "bg-amber-500", label: "Medium" },
           { value: m.changelog.low, className: "bg-blue-400", label: "Low" },
         ]} />
-      </Chunk>
-
-      <Chunk
-        websiteId={websiteId} tab="security" label="Security" icon={ShieldCheck}
-        value={m.security.critical + m.security.high + m.security.other}
-        unit="vulnerabilities"
-        state={securityState}
-        verdict={
-          m.security.critical > 0 ? `${m.security.critical} critical`
-          : m.security.high > 0 ? `${m.security.high} high severity`
-          : m.security.phpErrors > 0 ? `${m.security.phpErrors} PHP errors`
-          : "No known issues"
-        }
-      >
-        <SplitBar parts={[
-          { value: m.security.critical, className: "bg-red-600", label: "Critical" },
-          { value: m.security.high, className: "bg-red-400", label: "High" },
-          { value: m.security.other, className: "bg-amber-500", label: "Medium/Low" },
-        ]} />
-        <span className="flex items-center justify-between text-xs text-muted-foreground">
-          Security headers
-          <span className="font-semibold text-foreground">{m.security.grade || "—"}</span>
-        </span>
       </Chunk>
 
       <Chunk

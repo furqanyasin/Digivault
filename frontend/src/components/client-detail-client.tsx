@@ -120,7 +120,7 @@ export function ClientDetailClient({ client: initial }: Props) {
   }
 
   return (
-    <div className="p-8 space-y-6 max-w-3xl">
+    <div className="p-8 space-y-6">
       <div className="flex items-center gap-3">
         <Link href="/clients" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-5 w-5" />
@@ -141,7 +141,10 @@ export function ClientDetailClient({ client: initial }: Props) {
             <CardTitle className="text-base">Client details</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
-            <div className="grid sm:grid-cols-2 gap-4">
+            {/* The form spans the full page width, so the field grid gains
+                columns as the viewport does — two-up across a wide screen would
+                leave every input stretched to twice a usable length. */}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               <Field label="Client name *">
                 <Input value={form.name} onChange={(e) => set("name", e.target.value)} required />
               </Field>
@@ -182,10 +185,10 @@ export function ClientDetailClient({ client: initial }: Props) {
                   placeholder="e.g. Khurram GoDaddy Account"
                 />
               </Field>
-              <Field label="Website built by Digi">
+              <Field label="Website built by Digilatics">
                 <SelectField value={form.website_built_by_digi} onChange={(v) => set("website_built_by_digi", v)} options={DIGI_OPTIONS} />
               </Field>
-              <Field label="Website maintained by Digi">
+              <Field label="Website maintained by Digilatics">
                 <SelectField value={form.website_maintained_by_digi} onChange={(v) => set("website_maintained_by_digi", v)} options={DIGI_OPTIONS} />
               </Field>
             </div>

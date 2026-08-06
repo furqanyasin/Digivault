@@ -25,11 +25,26 @@ function pagePath(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, "") || "/";
 }
 
+// A form merged across every page it was found on.
+type FormRow = DetectedForm & { pages: string[] };
+
 // A structural signature for a form, ignoring which page it appeared on, so the
 // same form across pages collapses into a single row (with summed submissions).
+//
+// An id or a name is the whole signature when the form has one. The two other
+// candidates both vary between pages for one and the same form, which is what
+// left a site-wide form listed once per path it appears on: `form_action`
+// resolves to the *document* URL when the form has no action attribute, and
+// `fields` covers only the fields currently mounted — a multi-step form shows
+// one step at a time. Anonymous forms still need them to be told apart, so they
+// keep both, minus the action when it is just the page it was found on.
 function formSignature(f: DetectedForm): string {
+  if (f.form_id || f.form_name) {
+    return ["id", f.detection_type, f.form_id, f.form_name].join("|");
+  }
   const fields = f.fields.map((x) => `${x.name}:${x.type}`).join(",");
-  return [f.detection_type, f.form_id, f.form_name, f.form_action, f.provider, fields].join("|");
+  const action = f.form_action === f.page_url ? "" : f.form_action;
+  return ["anon", f.detection_type, action, f.provider, fields].join("|");
 }
 
 // Errors that belong to a form. The snippet identifies an error's form as
@@ -118,14 +133,17 @@ export function FormsTab({ forms, formErrors = [] }: Props) {
 
   // Deduplicate identical forms across pages: keep the most recently seen row,
   // but sum submission counts so the total reflects every page it appears on.
-  const bySignature = new Map<string, DetectedForm>();
+  // Every page it was found on is kept so the row can say so — a collapsed row
+  // showing one path would otherwise read as "this form is only on that page".
+  const bySignature = new Map<string, FormRow>();
   for (const f of forms) {
     const sig = formSignature(f);
     const existing = bySignature.get(sig);
     if (!existing) {
-      bySignature.set(sig, { ...f });
+      bySignature.set(sig, { ...f, pages: [f.page_url] });
     } else {
       existing.submission_count += f.submission_count;
+      if (!existing.pages.includes(f.page_url)) existing.pages.push(f.page_url);
       if (f.last_submission_at && (!existing.last_submission_at || f.last_submission_at > existing.last_submission_at)) {
         existing.last_submission_at = f.last_submission_at;
       }
@@ -210,7 +228,7 @@ function FormsTable({
   formErrors,
   embedded = false,
 }: {
-  forms: DetectedForm[];
+  forms: FormRow[];
   formErrors: FormSubmissionError[];
   embedded?: boolean;
 }) {
@@ -237,8 +255,16 @@ function FormsTable({
                 <TableCell className="font-medium text-sm max-w-[220px] truncate" title={formLabel(form)}>
                   {formLabel(form)}
                 </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground max-w-[200px] truncate" title={form.page_url}>
+                <TableCell
+                  className="font-mono text-xs text-muted-foreground max-w-[200px] truncate"
+                  title={form.pages.join("\n")}
+                >
                   {pagePath(form.page_url)}
+                  {form.pages.length > 1 && (
+                    <span className="ml-1 whitespace-nowrap font-sans">
+                      +{form.pages.length - 1} more
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
                   {embedded ? <span className="text-muted-foreground">n/a</span> : form.submission_count}

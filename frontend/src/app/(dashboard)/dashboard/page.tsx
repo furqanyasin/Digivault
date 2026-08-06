@@ -12,7 +12,6 @@ import { SummaryChunk } from "@/components/charts/summary-chunk";
 import { FleetHealthDonut } from "@/components/charts/fleet-health-donut";
 import { RenewalUrgencyBars } from "@/components/charts/renewal-urgency-bars";
 import { UptimeCard } from "@/components/charts/uptime-card";
-import { FleetChecksRow, type FleetSummary } from "@/components/charts/fleet-checks-row";
 import { SetupChecklist, type SetupStep } from "@/components/charts/setup-checklist";
 import { AlertsCard } from "@/components/charts/alerts-card";
 import { DashboardFilters } from "@/components/dashboard-filters";
@@ -75,7 +74,7 @@ async function getData(token: string) {
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
     changesResult, uptimeResult,
-    clientsResult, credentialsResult, teamsResult, fleetResult,
+    clientsResult, credentialsResult, teamsResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
     // getAll, not get: the list pages at 25, so a plain get silently dropped
@@ -98,9 +97,6 @@ async function getData(token: string) {
     // that team's members — two round trips in series after the parallel batch,
     // on every page load and every filter change.
     api.get<TeamRow[]>("/api/v1/auth/teams/", token),
-    // One aggregate call for fleet-wide SEO / performance / security. Asking per
-    // site would be three requests times the site count.
-    api.get<FleetSummary>("/api/v1/websites/fleet-summary/", token),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
@@ -131,7 +127,6 @@ async function getData(token: string) {
     // The active team is the one the sidebar is showing; fall back to the
     // first so the chunk still reads sensibly if `my_role` is absent.
     memberCount: (teams.find((t) => t.my_role) ?? teams[0])?.member_count ?? 0,
-    fleet: val(fleetResult, null as FleetSummary | null),
   };
 }
 
@@ -162,7 +157,7 @@ export default async function DashboardPage() {
     websites, monitors, activity,
     expiringSsl, expiringDomains, expiringHosting,
     allChanges, uptimePoints, clients, credentialCount, memberCount,
-    reportingCount, fleet,
+    reportingCount,
   } = await getData(token ?? "");
 
   // Digivault's own infra is hidden from the Change Log and can never be
@@ -278,7 +273,7 @@ export default async function DashboardPage() {
           product instead of restating the same four website metrics. */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SummaryChunk
-          label="Clients"
+          label="Active clients"
           value={activeClients}
           caption={
             inactiveClients > 0 ? `${inactiveClients} paused or offboarded` : "All active"
@@ -383,11 +378,6 @@ export default async function DashboardPage() {
           second, so the three rows alternate instead of the last two reading
           as one repeated block. */}
       <SetupChecklist steps={setupSteps} />
-
-      {/* Fleet-wide SEO / performance / security. These are scanned per site
-          already; nothing summarised them, so a site nobody had ever scanned
-          looked identical to a healthy one. */}
-      {fleet && fleet.total_sites > 0 && <FleetChecksRow s={fleet} />}
 
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-2">

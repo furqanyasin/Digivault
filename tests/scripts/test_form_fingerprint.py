@@ -4,10 +4,13 @@ change a form's identity between page loads."""
 from apps.scripts.models import DetectedForm
 
 
+# No id and no name: an anonymous form, where the field set is all that tells
+# one form on a page from another (see TestFingerprintFieldChurn for why an
+# identified form deliberately ignores its fields).
 BASE = {
     "detection_type": "native",
-    "form_id": "wpcf7-f12",
-    "form_name": "contact",
+    "form_id": "",
+    "form_name": "",
     "form_action": "/submit",
 }
 
@@ -47,6 +50,57 @@ class TestFingerprintStability:
         a = _fp([{"name": "message"}])
         b = _fp([])
         assert a != b
+
+
+class TestFingerprintFieldChurn:
+    """A form that carries an id or a name keeps it across every observation;
+    the fields it happens to have rendered do not.
+
+    The snippet posts several times per page load and once more at submit time,
+    and a multi-step form mounts only the fields of the step it is showing. With
+    the field set in the hash, every step minted its own row: the Forms tab
+    listed `multiStepForm` twice on one path — the page-load steps at 0 submits
+    and the final step holding all the conversions, because a submit whose
+    fingerprint matches nothing stored creates a row of its own.
+    """
+
+    def _fp(self, **over):
+        return DetectedForm.compute_fingerprint({
+            "detection_type": "native",
+            "form_id": "multiStepForm",
+            "form_name": "",
+            "form_action": "https://digilatics.com/",
+            "fields": [{"name": "name"}, {"name": "email"}],
+            **over,
+        })
+
+    def test_step_two_fields_do_not_mint_a_second_form(self):
+        assert self._fp() == self._fp(fields=[{"name": "company"}, {"name": "budget"}])
+
+    def test_late_rendered_field_does_not_mint_a_second_form(self):
+        assert self._fp() == self._fp(
+            fields=[{"name": "name"}, {"name": "email"}, {"name": "phone"}]
+        )
+
+    def test_form_with_only_a_name_is_also_identified(self):
+        named = {"form_id": "", "form_name": "quoteForm"}
+        assert self._fp(**named) == self._fp(**named, fields=[{"name": "later"}])
+
+    def test_different_identifiers_still_differ(self):
+        assert self._fp() != self._fp(form_id="newsletterForm")
+
+    def test_anonymous_forms_are_still_told_apart_by_their_fields(self):
+        anon = {"form_id": "", "form_name": ""}
+        assert self._fp(**anon, fields=[{"name": "email"}]) != self._fp(
+            **anon, fields=[{"name": "email"}, {"name": "cv"}]
+        )
+
+    def test_identified_form_never_collides_with_an_anonymous_one(self):
+        # The fields segment is emptied, not dropped, so an identifier can't be
+        # confused with a field name shifted into its place.
+        assert self._fp(form_id="email", fields=[]) != self._fp(
+            form_id="", form_name="", fields=[{"name": "email"}]
+        )
 
 
 def _fp_action(action):
