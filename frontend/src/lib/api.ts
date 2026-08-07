@@ -123,7 +123,8 @@ export interface Team {
   slug: string;
   plan: string;
   my_role?: string | null;
-  // Allowed feature keys when my_role === "custom" (drives nav gating).
+  // Effective feature keys for the requesting user — every role except owner is
+  // gated by these, not just "custom". Drives nav and dashboard gating.
   my_features?: string[];
 }
 

@@ -65,6 +65,7 @@ const FEATURES: { key: string; label: string }[] = [
   { key: "alerts", label: "Alerts" },
   { key: "credentials", label: "Credentials" },
   { key: "activity_log", label: "Activity Log" },
+  { key: "heatmap", label: "Heatmap" },
 ];
 
 // Filter-tab wording. Not every role name pluralises by adding an "s" —

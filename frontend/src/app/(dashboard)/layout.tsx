@@ -33,7 +33,7 @@ const navItems = [
   // activity tab keep working for them. Settings is open to everyone — see below.
   { href: "/team", label: "Team", icon: "team", managerOnly: true },
   { href: "/logs", label: "Activity Log", icon: "logs", managerOnly: true, feature: "activity_log" },
-  { href: "/heatmap", label: "Heatmap", icon: "heatmap", always: true },
+  { href: "/heatmap", label: "Heatmap", icon: "heatmap", feature: "heatmap" },
   // My Account merged into Settings. Everyone gets the page — it holds their
   // profile and 2FA — and the team half inside it renders only for managers.
   { href: "/settings", label: "Settings", icon: "settings", always: true },

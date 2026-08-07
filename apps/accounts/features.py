@@ -12,6 +12,7 @@ from __future__ import annotations
 # are not gatable features anymore.
 FEATURE_KEYS = frozenset({
     "websites", "clients", "alerts", "renewals", "credentials", "activity_log",
+    "heatmap",
 })
 
 # Renewal Center is manager-only, so it's excluded from non-manager presets.

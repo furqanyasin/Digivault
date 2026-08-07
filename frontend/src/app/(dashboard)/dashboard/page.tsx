@@ -12,13 +12,13 @@ import { SummaryChunk } from "@/components/charts/summary-chunk";
 import { FleetHealthDonut } from "@/components/charts/fleet-health-donut";
 import { RenewalUrgencyBars } from "@/components/charts/renewal-urgency-bars";
 import { UptimeCard } from "@/components/charts/uptime-card";
-import { SetupChecklist, type SetupStep } from "@/components/charts/setup-checklist";
 import { AlertsCard } from "@/components/charts/alerts-card";
+import { ClientPortfolio, type ClientPortfolioRow } from "@/components/charts/client-portfolio";
 import { DashboardFilters } from "@/components/dashboard-filters";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
 import { healthBand } from "@/lib/chart-theme";
-import type { Website, ScriptChange, Monitor } from "@/lib/api";
+import type { Website, ScriptChange, Monitor, User } from "@/lib/api";
 import { fmtDateTime, fmtRelative } from "@/lib/utils";
 
 interface LogEntry {
@@ -48,6 +48,7 @@ interface TeamRow {
   id: string;
   member_count: number;
   my_role?: string | null;
+  my_features?: string[];
 }
 
 interface ClientRow {
@@ -74,7 +75,7 @@ async function getData(token: string) {
     websitesResult, monitorsResult, logsResult,
     sslResult, domainResult, hostingResult,
     changesResult, uptimeResult,
-    clientsResult, credentialsResult, teamsResult,
+    clientsResult, credentialsResult, teamsResult, meResult,
   ] = await Promise.allSettled([
     api.getAll<Website>("/api/v1/websites/", token),
     // getAll, not get: the list pages at 25, so a plain get silently dropped
@@ -97,12 +98,18 @@ async function getData(token: string) {
     // that team's members — two round trips in series after the parallel batch,
     // on every page load and every filter change.
     api.get<TeamRow[]>("/api/v1/auth/teams/", token),
+    // Which of those teams is the active one — the role and feature grants that
+    // decide what this page may show hang off it. In the same parallel batch,
+    // so it costs no extra round trip.
+    api.get<User>("/api/v1/auth/me/", token),
   ]);
 
   const val = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
     r.status === "fulfilled" ? r.value : fallback;
 
   const teams = val(teamsResult, [] as TeamRow[]);
+  const me = val(meResult, null as User | null);
+  const activeTeam = teams.find((t) => t.id === me?.active_team) ?? teams[0] ?? null;
   const allWebsites = val(websitesResult, [] as Website[]);
   // A site is "reporting" if its snippet has phoned home in the last week.
   // Computed here, not during render: Date.now() in a component body is not
@@ -124,9 +131,12 @@ async function getData(token: string) {
     uptimePoints: val(uptimeResult, { days: 0, points: [] } as UptimeTrend).points,
     clients: val(clientsResult, [] as ClientRow[]),
     credentialCount: val(credentialsResult, [] as { id: string }[]).length,
-    // The active team is the one the sidebar is showing; fall back to the
-    // first so the chunk still reads sensibly if `my_role` is absent.
-    memberCount: (teams.find((t) => t.my_role) ?? teams[0])?.member_count ?? 0,
+    memberCount: activeTeam?.member_count ?? 0,
+    // Lowest privilege wins when the role can't be read — a dashboard that
+    // shows a member less than they're entitled to is recoverable; one that
+    // shows them a section they'll be bounced out of is not.
+    role: activeTeam?.my_role ?? "viewer",
+    features: activeTeam?.my_features ?? [],
   };
 }
 
@@ -157,8 +167,16 @@ export default async function DashboardPage() {
     websites, monitors, activity,
     expiringSsl, expiringDomains, expiringHosting,
     allChanges, uptimePoints, clients, credentialCount, memberCount,
-    reportingCount,
+    reportingCount, role, features,
   } = await getData(token ?? "");
+
+  // Same rules the sidebar nav applies (see (dashboard)/layout.tsx): owner sees
+  // everything, manager-only sections stay role-gated, everything else follows
+  // the member's feature grants. Without this a viewer got cards linking into
+  // pages the FeatureGuard immediately bounced them back out of.
+  const isOwner = role === "owner";
+  const isManager = isOwner || role === "manager";
+  const can = (feature: string) => isOwner || features.includes(feature);
 
   // Digivault's own infra is hidden from the Change Log and can never be
   // acknowledged, so it must not be counted as an alert either.
@@ -240,14 +258,112 @@ export default async function DashboardPage() {
   const activeClients = clients.filter((c) => c.status === "active").length;
   const inactiveClients = clients.length - activeClients;
 
-  const setupSteps: SetupStep[] = [
-    { label: "Add a client", hint: "Who the sites belong to", done: clients.length > 0, href: "/clients/new" },
-    { label: "Track a website", hint: "Start monitoring a site", done: websites.length > 0, href: "/websites/new" },
-    { label: "Install the snippet", hint: "So a site reports its scripts", done: reportingCount > 0, href: "/websites" },
-    { label: "Add an uptime monitor", hint: "Know when a site goes down", done: monitors.length > 0, href: "/monitors/new" },
-    { label: "Store a credential", hint: "Encrypted logins in the vault", done: credentialCount > 0, href: "/credentials" },
-    { label: "Invite a teammate", hint: "Share the workload", done: memberCount > 1, href: "/team" },
-  ];
+  // Clients a non-manager actually has sites for. Derived from `websites`, not
+  // from the client list: the websites endpoint narrows to a member's
+  // assignments, the clients endpoint does not — so counting off the client
+  // list would tell an assigned viewer about accounts they can't see a site of.
+  const clientRows: ClientPortfolioRow[] = Object.values(
+    websites.reduce<Record<string, ClientPortfolioRow>>((acc, w) => {
+      const key = w.client ?? "unassigned";
+      const row = (acc[key] ??= {
+        id: w.client,
+        name: w.client_name || "No client",
+        siteCount: 0,
+        needsWork: 0,
+      });
+      row.siteCount += 1;
+      if (w.status !== "inactive" && (w.status === "critical" || w.status === "warning" || (w.health_score ?? 100) < 85)) {
+        row.needsWork += 1;
+      }
+      return acc;
+    }, {})
+  ).sort((a, b) => b.needsWork - a.needsWork || b.siteCount - a.siteCount);
+
+  // The tiles a member is allowed to open. Rendered from an array so a hidden
+  // one closes the gap instead of leaving a blank column.
+  const chunks = [
+    can("clients") && (
+      <SummaryChunk
+        key="clients"
+        label="Active clients"
+        value={activeClients}
+        caption={
+          inactiveClients > 0 ? `${inactiveClients} paused or offboarded` : "All active"
+        }
+        href="/clients"
+        icon={<Users className="h-4 w-4" />}
+      />
+    ),
+    can("credentials") && (
+      <SummaryChunk
+        key="credentials"
+        label="Credentials"
+        value={credentialCount}
+        caption="Encrypted in the vault"
+        href="/credentials"
+        icon={<KeyRound className="h-4 w-4" />}
+      />
+    ),
+    // Team management is manager-only, so the headcount is too.
+    isManager && (
+      <SummaryChunk
+        key="team"
+        label="Team"
+        value={memberCount}
+        caption={memberCount === 1 ? "Just you" : "With vault access"}
+        href="/team"
+        icon={<UserCog className="h-4 w-4" />}
+      />
+    ),
+    can("websites") && (
+      <SummaryChunk
+        key="snippet"
+        label="Snippet reporting"
+        value={reportingCount}
+        caption={
+          websites.length - reportingCount > 0
+            ? `${websites.length - reportingCount} site${websites.length - reportingCount === 1 ? "" : "s"} sending nothing`
+            : `All ${websites.length} sites sending data`
+        }
+        captionTone={websites.length - reportingCount > 0 ? "critical" : "good"}
+        href="/websites"
+        icon={<Code2 className="h-4 w-4" />}
+      />
+    ),
+  ].filter(Boolean);
+
+  const CHUNK_GRID = ["", "grid-cols-1", "sm:grid-cols-2", "sm:grid-cols-2 lg:grid-cols-3", "sm:grid-cols-2 lg:grid-cols-4"];
+
+  // The Renewal Center is manager-only, so its forecast is too. The slot goes
+  // to the client breakdown rather than collapsing — that is the data a viewer
+  // came for.
+  const sideCard = (isManager && can("renewals")) ? (
+    <Card className="lg:col-span-2">
+      <CardContent>
+        <ChartCardHeader
+          title="Renewals due"
+          subtitle="Within 30 days · forecast to 90"
+          value={renewalIds.size}
+          caption={
+            nextRenewalDays != null
+              ? `Next in ${nextRenewalDays} days`
+              : "Nothing due soon"
+          }
+          captionTone={
+            nextRenewalDays != null && nextRenewalDays <= 7 ? "critical" : "muted"
+          }
+          href="/renewals"
+        />
+        <RenewalUrgencyBars rows={renewalUrgency} />
+      </CardContent>
+    </Card>
+  ) : can("websites") ? (
+    <ClientPortfolio
+      rows={clientRows}
+      siteCount={websites.length}
+      canOpenClients={can("clients")}
+    />
+  ) : null;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -256,7 +372,9 @@ export default async function DashboardPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight lg:text-3xl">Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every website your team is watching
+            {isManager
+              ? "Every website your team is watching"
+              : "The clients and websites you have access to"}
           </p>
         </div>
         {/* DashboardFilters calls useSearchParams, which Next requires to sit
@@ -271,60 +389,28 @@ export default async function DashboardPage() {
       {/* The sidebar sections that have no chart of their own. One line each —
           a number and the thing you'd act on — so the dashboard covers the whole
           product instead of restating the same four website metrics. */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryChunk
-          label="Active clients"
-          value={activeClients}
-          caption={
-            inactiveClients > 0 ? `${inactiveClients} paused or offboarded` : "All active"
-          }
-          href="/clients"
-          icon={<Users className="h-4 w-4" />}
-        />
-        <SummaryChunk
-          label="Credentials"
-          value={credentialCount}
-          caption="Encrypted in the vault"
-          href="/credentials"
-          icon={<KeyRound className="h-4 w-4" />}
-        />
-        <SummaryChunk
-          label="Team"
-          value={memberCount}
-          caption={memberCount === 1 ? "Just you" : "With vault access"}
-          href="/team"
-          icon={<UserCog className="h-4 w-4" />}
-        />
-        <SummaryChunk
-          label="Snippet reporting"
-          value={reportingCount}
-          caption={
-            websites.length - reportingCount > 0
-              ? `${websites.length - reportingCount} site${websites.length - reportingCount === 1 ? "" : "s"} sending nothing`
-              : `All ${websites.length} sites sending data`
-          }
-          captionTone={websites.length - reportingCount > 0 ? "critical" : "good"}
-          href="/websites"
-          icon={<Code2 className="h-4 w-4" />}
-        />
-      </div>
+      {chunks.length > 0 && (
+        <div className={`grid gap-3 ${CHUNK_GRID[chunks.length]}`}>{chunks}</div>
+      )}
 
 
       {/* Fleet composition beside alert volume. Each card owns its headline
           figure — the KPI tiles that used to sit above restated exactly these
           four numbers, which is what made the page feel padded. */}
-      <div className="grid gap-4 lg:grid-cols-5">
+      {/* Grid width follows what actually renders — a hidden neighbour would
+          otherwise leave the surviving card stranded in a 5-column track. */}
+      <div className={`grid gap-4 ${can("alerts") ? "lg:grid-cols-5" : "lg:grid-cols-2"}`}>
         {/* h-full + flex-col so the donut can claim the height this card gets
             from its taller neighbour, rather than leaving a gap beneath it. */}
         <Card className="lg:col-span-2">
           <CardContent className="flex h-full flex-col">
             <ChartCardHeader
               title="Website health"
-              subtitle="Every site by health band"
+              subtitle={isManager ? "Every site by health band" : "Your sites by health band"}
               value={websites.length}
               caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
               captionTone={bands.critical > 0 ? "critical" : "muted"}
-              href="/websites"
+              href={can("websites") ? "/websites" : undefined}
             />
             <div className="min-h-0 flex-1">
               <FleetHealthDonut counts={bands} />
@@ -333,52 +419,34 @@ export default async function DashboardPage() {
         </Card>
 
         {/* Client-side: re-buckets on a preset click without a navigation. */}
-        <AlertsCard
-          alerts={pending.map((c) => ({
-            id: c.id,
-            severity: c.severity,
-            created_at: c.created_at,
-          }))}
-          severityCounts={severityCounts}
-        />
+        {can("alerts") && (
+          <AlertsCard
+            alerts={pending.map((c) => ({
+              id: c.id,
+              severity: c.severity,
+              created_at: c.created_at,
+            }))}
+            severityCounts={severityCounts}
+          />
+        )}
       </div>
 
-      {/* Uptime beside the renewal forecast */}
-      <div className="grid gap-4 lg:grid-cols-5">
+      {/* Uptime beside the renewal forecast — or, for a member who has no
+          Renewal Center to open, the clients their sites belong to. */}
+      <div className={`grid gap-4 ${sideCard ? "lg:grid-cols-5" : "lg:grid-cols-3"}`}>
         {/* Client-side: re-slices the 90-day series on a preset click. */}
         <UptimeCard
           points={uptimePoints}
           avgUptime={avgUptime}
           monitorsDown={monitorsDown}
         />
-
-        <Card className="lg:col-span-2">
-          <CardContent>
-            <ChartCardHeader
-              title="Renewals due"
-              subtitle="Within 30 days · forecast to 90"
-              value={renewalIds.size}
-              caption={
-                nextRenewalDays != null
-                  ? `Next in ${nextRenewalDays} days`
-                  : "Nothing due soon"
-              }
-              captionTone={
-                nextRenewalDays != null && nextRenewalDays <= 7 ? "critical" : "muted"
-              }
-              href="/renewals"
-            />
-            <RenewalUrgencyBars rows={renewalUrgency} />
-          </CardContent>
-        </Card>
+        {sideCard}
       </div>
 
       {/* The two lists close the page, on the same 5-column grid the chart
           rows use. The 2/3 split mirrors the first chart row rather than the
           second, so the three rows alternate instead of the last two reading
           as one repeated block. */}
-      <SetupChecklist steps={setupSteps} />
-
       <div className="grid gap-4 lg:grid-cols-5">
         <Card className="lg:col-span-2">
           <CardContent>
@@ -392,11 +460,13 @@ export default async function DashboardPage() {
                   </span>
                 )}
               </h2>
-              <Link href="/websites">
-                <Button variant="outline" size="sm">
-                  All {websites.length} sites
-                </Button>
-              </Link>
+              {can("websites") && (
+                <Link href="/websites">
+                  <Button variant="outline" size="sm">
+                    All {websites.length} sites
+                  </Button>
+                </Link>
+              )}
             </div>
 
             {needsAttention.length === 0 ? (
@@ -446,11 +516,13 @@ export default async function DashboardPage() {
                         </span>
                       )}
 
-                      <Link href={`/websites/${site.id}`} aria-label={`Open ${site.name || site.domain}`}>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0">
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
+                      {can("websites") && (
+                        <Link href={`/websites/${site.id}`} aria-label={`Open ${site.name || site.domain}`}>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                      )}
                     </li>
                   );
                 })}
@@ -462,11 +534,15 @@ export default async function DashboardPage() {
           <CardContent>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-semibold">Recent activity</h2>
-              <Link href="/logs">
-                <Button variant="outline" size="sm">
-                  Activity log
-                </Button>
-              </Link>
+              {/* The Activity Log page is manager-only; the card itself stays,
+                  since the backend already scopes the entries per user. */}
+              {isManager && can("activity_log") && (
+                <Link href="/logs">
+                  <Button variant="outline" size="sm">
+                    Activity log
+                  </Button>
+                </Link>
+              )}
             </div>
             {activity.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
