@@ -14,6 +14,7 @@ import { PerformanceTab } from "@/components/performance-tab";
 import { VerifySnippetButton } from "@/components/verify-snippet-button";
 import { ScriptsTab } from "@/components/scripts-tab";
 import { countScriptDomains } from "@/lib/script-domains";
+import { countManagedForms } from "@/lib/detected-forms";
 import { PluginsTab } from "@/components/plugins-tab";
 import { FormsTab } from "@/components/forms-tab";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
@@ -287,7 +288,9 @@ export default async function WebsiteDetailPage({
   const uptimeSamples = liveMonitors
     .map((mo) => mo.uptime_30d)
     .filter((v): v is number => v != null);
-  const managedForms = forms.filter((f) => f.is_managed !== false);
+  // Deduplicated the same way the forms table groups its rows, so the overview
+  // tile and the tab badge both match the "Detected forms" count on that tab.
+  const managedFormCount = countManagedForms(forms);
   const overviewMetrics: OverviewMetrics = {
     health: { score: website.health_score ?? 100, status: website.status },
     scripts: {
@@ -296,7 +299,7 @@ export default async function WebsiteDetailPage({
       categories: new Set(displayScripts.map((sc) => sc.category).filter(Boolean)).size,
     },
     forms: {
-      total: managedForms.length,
+      total: managedFormCount,
       broken: brokenForms7d,
     },
     uptime: {
@@ -381,7 +384,7 @@ export default async function WebsiteDetailPage({
               the badge read 9 next to a 7-row table. */}
           <TabsTrigger value="scripts">Scripts ({countScriptDomains(scriptsForTab)})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
-          <TabsTrigger value="forms">Forms ({forms.filter((f) => f.is_managed !== false).length})</TabsTrigger>
+          <TabsTrigger value="forms">Forms ({managedFormCount})</TabsTrigger>
           <TabsTrigger value="uptime">Uptime &amp; Downtime {monitors.length > 0 ? `(${monitors.length})` : ""}</TabsTrigger>
           <TabsTrigger value="access">Access & Domain</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>

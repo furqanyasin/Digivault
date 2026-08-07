@@ -4,6 +4,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { fmtRelative } from "@/lib/utils";
+import { dedupeForms, type FormRow } from "@/lib/detected-forms";
 import type { DetectedForm, FormSubmissionError } from "@/lib/api";
 
 interface Props {
@@ -23,28 +24,6 @@ function formLabel(f: DetectedForm): string {
 
 function pagePath(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, "") || "/";
-}
-
-// A form merged across every page it was found on.
-type FormRow = DetectedForm & { pages: string[] };
-
-// A structural signature for a form, ignoring which page it appeared on, so the
-// same form across pages collapses into a single row (with summed submissions).
-//
-// An id or a name is the whole signature when the form has one. The two other
-// candidates both vary between pages for one and the same form, which is what
-// left a site-wide form listed once per path it appears on: `form_action`
-// resolves to the *document* URL when the form has no action attribute, and
-// `fields` covers only the fields currently mounted — a multi-step form shows
-// one step at a time. Anonymous forms still need them to be told apart, so they
-// keep both, minus the action when it is just the page it was found on.
-function formSignature(f: DetectedForm): string {
-  if (f.form_id || f.form_name) {
-    return ["id", f.detection_type, f.form_id, f.form_name].join("|");
-  }
-  const fields = f.fields.map((x) => `${x.name}:${x.type}`).join(",");
-  const action = f.form_action === f.page_url ? "" : f.form_action;
-  return ["anon", f.detection_type, action, f.provider, fields].join("|");
 }
 
 // Errors that belong to a form. The snippet identifies an error's form as
@@ -131,29 +110,8 @@ export function FormsTab({ forms, formErrors = [] }: Props) {
     );
   }
 
-  // Deduplicate identical forms across pages: keep the most recently seen row,
-  // but sum submission counts so the total reflects every page it appears on.
-  // Every page it was found on is kept so the row can say so — a collapsed row
-  // showing one path would otherwise read as "this form is only on that page".
-  const bySignature = new Map<string, FormRow>();
-  for (const f of forms) {
-    const sig = formSignature(f);
-    const existing = bySignature.get(sig);
-    if (!existing) {
-      bySignature.set(sig, { ...f, pages: [f.page_url] });
-    } else {
-      existing.submission_count += f.submission_count;
-      if (!existing.pages.includes(f.page_url)) existing.pages.push(f.page_url);
-      if (f.last_submission_at && (!existing.last_submission_at || f.last_submission_at > existing.last_submission_at)) {
-        existing.last_submission_at = f.last_submission_at;
-      }
-      if (f.last_seen_at > existing.last_seen_at) {
-        existing.page_url = f.page_url;
-        existing.last_seen_at = f.last_seen_at;
-      }
-    }
-  }
-  const uniqueForms = Array.from(bySignature.values());
+  // Shared with the page's tab badge and overview tile so all three agree.
+  const uniqueForms = dedupeForms(forms);
   const managedForms = uniqueForms.filter((f) => f.is_managed !== false);
   const embeddedForms = uniqueForms.filter((f) => f.is_managed === false);
 
