@@ -14,6 +14,7 @@ const ROUTE_FEATURE: Record<string, string> = {
   alerts: "alerts",
   credentials: "credentials",
   logs: "activity_log",
+  heatmap: "heatmap",
 };
 
 // Management-only areas a custom member can never reach. `logs` is here rather
