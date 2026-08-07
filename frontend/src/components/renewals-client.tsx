@@ -170,7 +170,10 @@ function RenewalSection({
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="p-0 flex-1">
+      {/* The three lists are wildly uneven — hosting can run to 25 rows while SSL
+          has 7. Capping the body keeps the cards side by side instead of one
+          column dragging the page down, and scrolls the overflow in place. */}
+      <CardContent className="p-0 flex-1 max-h-[26rem] overflow-y-auto overscroll-contain">
         {rows.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm">Nothing upcoming.</div>
         ) : (
