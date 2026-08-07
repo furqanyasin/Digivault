@@ -365,6 +365,23 @@ export default async function DashboardPage() {
     />
   ) : null;
 
+  // Every card row below pairs a 2-column card with a 3-column one. When a
+  // member's grants hide one of the pair, the row has to narrow to the survivor's
+  // own span — left in a 5-column track it would sit in a 2/5 or 3/5 sliver with
+  // the rest of the row blank.
+  const rowCols = (wide2: boolean, wide3: boolean) =>
+    wide2 && wide3 ? "lg:grid-cols-5" : wide2 ? "lg:grid-cols-2" : "lg:grid-cols-3";
+
+  const healthRowCols = rowCols(can("websites"), can("alerts"));
+  const uptimeRowCols = rowCols(Boolean(sideCard), can("websites"));
+  const listRowCols = rowCols(can("websites"), can("activity_log"));
+
+  // Nothing on this page survived their grants. Say so, rather than serving a
+  // header over an empty page that reads as a broken dashboard.
+  const hasAnyCard =
+    chunks.length > 0 || can("websites") || can("alerts") || can("activity_log")
+    || Boolean(sideCard);
+
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Header + the single filter row that scopes everything below it */}
@@ -399,55 +416,67 @@ export default async function DashboardPage() {
           four numbers, which is what made the page feel padded. */}
       {/* Grid width follows what actually renders — a hidden neighbour would
           otherwise leave the surviving card stranded in a 5-column track. */}
-      <div className={`grid gap-4 ${can("alerts") ? "lg:grid-cols-5" : "lg:grid-cols-2"}`}>
-        {/* h-full + flex-col so the donut can claim the height this card gets
-            from its taller neighbour, rather than leaving a gap beneath it. */}
-        <Card className="lg:col-span-2">
-          <CardContent className="flex h-full flex-col">
-            <ChartCardHeader
-              title="Website health"
-              subtitle={isManager ? "Every site by health band" : "Your sites by health band"}
-              value={websites.length}
-              caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
-              captionTone={bands.critical > 0 ? "critical" : "muted"}
-              href={can("websites") ? "/websites" : undefined}
-            />
-            <div className="min-h-0 flex-1">
-              <FleetHealthDonut counts={bands} />
-            </div>
-          </CardContent>
-        </Card>
+      {(can("websites") || can("alerts")) && (
+        <div className={`grid gap-4 ${healthRowCols}`}>
+          {/* h-full + flex-col so the donut can claim the height this card gets
+              from its taller neighbour, rather than leaving a gap beneath it. */}
+          {can("websites") && (
+            <Card className="lg:col-span-2">
+              <CardContent className="flex h-full flex-col">
+                <ChartCardHeader
+                  title="Website health"
+                  subtitle={isManager ? "Every site by health band" : "Your sites by health band"}
+                  value={websites.length}
+                  caption={`${bands.healthy} healthy · ${bands.warning + bands.critical} need work`}
+                  captionTone={bands.critical > 0 ? "critical" : "muted"}
+                  href="/websites"
+                />
+                <div className="min-h-0 flex-1">
+                  <FleetHealthDonut counts={bands} />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        {/* Client-side: re-buckets on a preset click without a navigation. */}
-        {can("alerts") && (
-          <AlertsCard
-            alerts={pending.map((c) => ({
-              id: c.id,
-              severity: c.severity,
-              created_at: c.created_at,
-            }))}
-            severityCounts={severityCounts}
-          />
-        )}
-      </div>
+          {/* Client-side: re-buckets on a preset click without a navigation. */}
+          {can("alerts") && (
+            <AlertsCard
+              alerts={pending.map((c) => ({
+                id: c.id,
+                severity: c.severity,
+                created_at: c.created_at,
+              }))}
+              severityCounts={severityCounts}
+            />
+          )}
+        </div>
+      )}
 
       {/* Uptime beside the renewal forecast — or, for a member who has no
-          Renewal Center to open, the clients their sites belong to. */}
-      <div className={`grid gap-4 ${sideCard ? "lg:grid-cols-5" : "lg:grid-cols-3"}`}>
-        {/* Client-side: re-slices the 90-day series on a preset click. */}
-        <UptimeCard
-          points={uptimePoints}
-          avgUptime={avgUptime}
-          monitorsDown={monitorsDown}
-        />
-        {sideCard}
-      </div>
+          Renewal Center to open, the clients their sites belong to. Uptime is
+          website data (monitors live in each site's Uptime tab), so it follows
+          the websites grant. */}
+      {(can("websites") || sideCard) && (
+        <div className={`grid gap-4 ${uptimeRowCols}`}>
+          {/* Client-side: re-slices the 90-day series on a preset click. */}
+          {can("websites") && (
+            <UptimeCard
+              points={uptimePoints}
+              avgUptime={avgUptime}
+              monitorsDown={monitorsDown}
+            />
+          )}
+          {sideCard}
+        </div>
+      )}
 
       {/* The two lists close the page, on the same 5-column grid the chart
           rows use. The 2/3 split mirrors the first chart row rather than the
           second, so the three rows alternate instead of the last two reading
           as one repeated block. */}
-      <div className="grid gap-4 lg:grid-cols-5">
+      {(can("websites") || can("activity_log")) && (
+      <div className={`grid gap-4 ${listRowCols}`}>
+        {can("websites") && (
         <Card className="lg:col-span-2">
           <CardContent>
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -530,19 +559,22 @@ export default async function DashboardPage() {
             )}
           </CardContent>
         </Card>
+        )}
+        {can("activity_log") && (
         <Card className="lg:col-span-3">
           <CardContent>
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold">Recent activity</h2>
-              {/* The Activity Log page is manager-only; the card itself stays,
-                  since the backend already scopes the entries per user. */}
-              {isManager && can("activity_log") && (
-                <Link href="/logs">
-                  <Button variant="outline" size="sm">
-                    Activity log
-                  </Button>
-                </Link>
-              )}
+              <h2 className="text-sm font-semibold">
+                {isManager ? "Recent activity" : "Your recent activity"}
+              </h2>
+              {/* Reachable by anyone granted the feature — the log endpoint
+                  scopes a non-manager to their own rows, so the button no
+                  longer leads somewhere they'd be bounced out of. */}
+              <Link href="/logs">
+                <Button variant="outline" size="sm">
+                  Activity log
+                </Button>
+              </Link>
             </div>
             {activity.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">No recent activity.</p>
@@ -577,7 +609,20 @@ export default async function DashboardPage() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
+      )}
+
+      {!hasAnyCard && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-sm font-medium">Nothing&apos;s been shared with you yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Ask your team manager to grant you access to the sections you need.
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

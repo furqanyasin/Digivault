@@ -183,6 +183,73 @@ class TestAuditResourceNames:
 
 
 @pytest.mark.django_db
+class TestAuditScoping:
+    """Managers see the whole team; everyone else sees only their own rows.
+
+    The frontend relies on this: the Activity Log page and the dashboard's
+    activity card are shown to any member granted the `activity_log` feature,
+    not just managers, on the strength of the API narrowing the queryset. A
+    regression here leaks one member's actions to another.
+    """
+
+    @pytest.fixture
+    def dev_client(self, developer_user, team):
+        from rest_framework.test import APIClient
+
+        developer_user.active_team = team
+        developer_user.save(update_fields=["active_team"])
+        client = APIClient()
+        resp = client.post(
+            "/api/v1/auth/token/",
+            {"email": developer_user.email, "password": "SecurePass1!"},
+            format="json",
+        )
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
+        return client
+
+    @pytest.fixture
+    def mixed_logs(self, team, user, developer_user):
+        ActivityLog.objects.create(
+            team=team, actor=user, action=ActivityLog.Action.AUTH_LOGIN,
+            description="Owner logged in", resource_type="session",
+        )
+        ActivityLog.objects.create(
+            team=team, actor=developer_user, action=ActivityLog.Action.AUTH_LOGIN,
+            description="Developer logged in", resource_type="session",
+        )
+
+    def test_developer_sees_only_their_own_rows(self, dev_client, mixed_logs):
+        resp = dev_client.get("/api/v1/logs/")
+        assert resp.status_code == 200
+        assert [r["description"] for r in resp.data] == ["Developer logged in"]
+
+    def test_developer_cannot_filter_to_another_member(
+        self, dev_client, mixed_logs, user
+    ):
+        """?user_id= is a manager-only filter. For anyone else it must be
+        ignored, not honoured — otherwise the scoping is one query param deep."""
+        resp = dev_client.get("/api/v1/logs/", {"user_id": str(user.pk)})
+        assert resp.status_code == 200
+        assert [r["description"] for r in resp.data] == ["Developer logged in"]
+
+    def test_developer_export_is_scoped_too(self, dev_client, mixed_logs):
+        """The CSV path shares _scoped_logs; a leak here would bypass the UI
+        entirely."""
+        resp = dev_client.get("/api/v1/logs/export/")
+        assert resp.status_code == 200
+        body = resp.content.decode()
+        assert "Developer logged in" in body
+        assert "Owner logged in" not in body
+
+    def test_manager_sees_the_whole_team(self, auth_client, mixed_logs):
+        resp = auth_client.get("/api/v1/logs/")
+        assert resp.status_code == 200
+        assert {r["description"] for r in resp.data} == {
+            "Owner logged in", "Developer logged in",
+        }
+
+
+@pytest.mark.django_db
 class TestAuditExport:
     def test_csv_export(self, auth_client, logs):
         resp = auth_client.get("/api/v1/logs/export/")
