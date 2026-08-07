@@ -27,12 +27,12 @@ const navItems = [
   { href: "/alerts", label: "Alerts", icon: "alerts", feature: "alerts" },
   // Reports moved into each website's Reports tab; the standalone page is gone.
   { href: "/credentials", label: "Credentials", icon: "credentials", feature: "credentials" },
-  // Team, Renewal Center and Activity Log are owner/manager-only. Developers no
-  // longer get the Activity Log page, but the per-user scoping in the backend
-  // still stands, so the dashboard "Recent activity" card and each website's
-  // activity tab keep working for them. Settings is open to everyone — see below.
+  // Team and Renewal Center are owner/manager-only. Activity Log is not: the
+  // backend scopes it per user (apps/audit/views.py::_scoped_logs), so a
+  // developer opening it sees their own actions and nobody else's. It is gated
+  // on the feature grant like any other section. Settings is open to everyone.
   { href: "/team", label: "Team", icon: "team", managerOnly: true },
-  { href: "/logs", label: "Activity Log", icon: "logs", managerOnly: true, feature: "activity_log" },
+  { href: "/logs", label: "Activity Log", icon: "logs", feature: "activity_log" },
   { href: "/heatmap", label: "Heatmap", icon: "heatmap", feature: "heatmap" },
   // My Account merged into Settings. Everyone gets the page — it holds their
   // profile and 2FA — and the team half inside it renders only for managers.

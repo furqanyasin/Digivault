@@ -17,10 +17,10 @@ const ROUTE_FEATURE: Record<string, string> = {
   heatmap: "heatmap",
 };
 
-// Management-only areas a custom member can never reach. `logs` is here rather
-// than in ROUTE_FEATURE because the Activity Log exposes other people's actions,
-// so it is a role decision, not a grantable feature.
-const MANAGER_ONLY = new Set(["team", "logs"]);
+// Management-only areas a custom member can never reach. `logs` is deliberately
+// NOT here: the log endpoint scopes non-managers to their own rows, so the page
+// is a normal grantable feature (see ROUTE_FEATURE) rather than a role decision.
+const MANAGER_ONLY = new Set(["team"]);
 // Always allowed regardless of granted features.
 // `settings` is always allowed: it holds every user's own profile and 2FA,
 // and gates the team-configuration half internally by role.

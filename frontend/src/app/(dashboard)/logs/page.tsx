@@ -170,6 +170,7 @@ export default function LogsPage() {
   // the access notice while it is still unknown.
   const [roleResolved, setRoleResolved] = useState(false);
   const [roleError, setRoleError] = useState("");
+  const [myFeatures, setMyFeatures] = useState<string[]>([]);
   const [clients, setClients] = useState<NamedRef[]>([]);
   const [websites, setWebsites] = useState<(NamedRef & { client: string | null })[]>([]);
   const [selectedClient, setSelectedClient] = useState("");
@@ -178,6 +179,11 @@ export default function LogsPage() {
   const [since, setSince] = useState("");
 
   const isManager = myRole === "manager" || myRole === "owner";
+  // Owner has every feature implicitly; everyone else carries an explicit list.
+  // Drives which filter columns render — a member with no Clients section has
+  // no use for a client filter, and the dropdown would only list accounts they
+  // cannot open.
+  const can = (feature: string) => myRole === "owner" || myFeatures.includes(feature);
 
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
@@ -231,7 +237,8 @@ export default function LogsPage() {
       const meEnv = await meRes.json();
       const teamsEnv = await teamsRes.json();
       const me = meEnv?.data ?? meEnv;
-      const teams: Array<{ id: string; my_role?: string }> = teamsEnv?.data ?? teamsEnv;
+      const teams: Array<{ id: string; my_role?: string; my_features?: string[] }> =
+        teamsEnv?.data ?? teamsEnv;
       const activeTeamId = me?.active_team;
       if (!activeTeamId) { setRoleResolved(true); return; }
 
@@ -239,20 +246,31 @@ export default function LogsPage() {
       const activeTeam = Array.isArray(teams)
         ? teams.find((t) => t.id === activeTeamId)
         : null;
-      setMyRole(activeTeam?.my_role ?? "viewer");
+      const role = activeTeam?.my_role ?? "viewer";
+      const features = activeTeam?.my_features ?? [];
+      setMyRole(role);
+      setMyFeatures(features);
+      // ?user_id= is a manager-only filter and the API ignores it for everyone
+      // else. Dropping it here stops a non-manager who followed such a link
+      // from seeing a "Filtered" chip they have no control to clear.
+      if (role !== "manager" && role !== "owner") setSelectedUser("");
+
+      const allowed = (feature: string) => role === "owner" || features.includes(feature);
 
       // Client and website lists power their filter dropdowns. Both are small
-      // and unpaginated, so one call each is enough.
+      // and unpaginated, so one call each is enough — and each is skipped
+      // outright when its filter column won't render, rather than fetching a
+      // list to populate a control nobody sees.
       const [clientsRes, sitesRes] = await Promise.all([
-        fetch("/api/clients?page_size=200"),
-        fetch("/api/websites?page_size=200"),
+        allowed("clients") ? fetch("/api/clients?page_size=200") : null,
+        allowed("websites") ? fetch("/api/websites?page_size=200") : null,
       ]);
-      if (clientsRes.ok) {
+      if (clientsRes?.ok) {
         const j = await clientsRes.json();
         const list = Array.isArray(j?.clients) ? j.clients : (j?.data ?? j);
         if (Array.isArray(list)) setClients(list.map((c) => ({ id: c.id, name: c.name })));
       }
-      if (sitesRes.ok) {
+      if (sitesRes?.ok) {
         const j = await sitesRes.json();
         const list = Array.isArray(j?.websites) ? j.websites : (j?.data ?? j);
         if (Array.isArray(list)) {
@@ -260,21 +278,25 @@ export default function LogsPage() {
         }
       }
 
-      // Members list powers the "Filter by member" dropdown for managers.
-      const membersRes = await fetch(`/api/teams/${activeTeamId}/members`);
-      if (membersRes.ok) {
-        const membersEnv = await membersRes.json();
-        const membersList: Member[] = membersEnv?.data ?? membersEnv;
-        if (Array.isArray(membersList)) setMembers(membersList);
+      // Members list powers the "Filter by member" dropdown, which only
+      // managers get — a non-manager's rows are all their own, so there is
+      // nobody to filter by and no reason to ask for the roster.
+      if (role === "manager" || role === "owner") {
+        const membersRes = await fetch(`/api/teams/${activeTeamId}/members`);
+        if (membersRes.ok) {
+          const membersEnv = await membersRes.json();
+          const membersList: Member[] = membersEnv?.data ?? membersEnv;
+          if (Array.isArray(membersList)) setMembers(membersList);
+        }
       }
       setRoleResolved(true);
     })();
   }, []);
 
   useEffect(() => {
-    if (!roleResolved || !isManager) return;
+    if (!roleResolved) return;
     fetchLogs(selectedUser, page, debouncedSearch, view, selectedClient, selectedWebsite, pageSize, since);
-  }, [fetchLogs, selectedUser, page, debouncedSearch, view, roleResolved, isManager,
+  }, [fetchLogs, selectedUser, page, debouncedSearch, view, roleResolved,
       selectedClient, selectedWebsite, pageSize, since]);
 
   function handleUserChange(uid: string) {
@@ -282,21 +304,19 @@ export default function LogsPage() {
     setPage(1);
   }
 
-  // The Activity Log shows other people's actions, so it is manager/owner only.
-  // The sidebar hides it and FeatureGuard redirects, but a direct navigation
-  // lands here before either runs — so the page refuses on its own too.
-  if (roleResolved && !isManager) {
+  // A failure to read the role is a bug, not a permission decision, so it still
+  // stops the page — rendering the log against an unknown role would be
+  // guessing. The "Managers only" refusal that used to live here is gone: the
+  // API scopes a non-manager to their own rows, so there is nothing to refuse.
+  if (roleResolved && roleError) {
     return (
       <div className="p-8">
         <div className="mx-auto max-w-md rounded-xl border p-8 text-center">
           <ShieldAlert className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden />
-          <h1 className="mt-4 text-xl font-semibold">
-            {roleError ? "Couldn't check your access" : "Managers only"}
-          </h1>
+          <h1 className="mt-4 text-xl font-semibold">Couldn&apos;t check your access</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {roleError
-              ? `${roleError} Reload the page — if it keeps happening, this is a bug rather than a permission problem.`
-              : "The Activity Log records what everyone on the team has done, so it is limited to managers and owners. Your own recent actions still appear on the dashboard."}
+            {roleError} Reload the page — if it keeps happening, this is a bug
+            rather than a permission problem.
           </p>
         </div>
       </div>
@@ -319,10 +339,14 @@ export default function LogsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
             <ClipboardList className="h-7 w-7" />
-            Activity Log
+            {isManager ? "Activity Log" : "My activity"}
           </h1>
+          {/* The title has to say whose actions these are. The API returns the
+              whole team for a manager and only your own for everyone else, and
+              a shared heading would misdescribe one of them. */}
           <p className="text-muted-foreground mt-1">
-            All team activity — {total} events
+            {isManager ? "All team activity" : "Your actions"} — {total} event
+            {total !== 1 ? "s" : ""}
           </p>
         </div>
         <button
@@ -380,22 +404,26 @@ export default function LogsPage() {
                       ))}
                     </select>
                   </th>
-                  <th className={TH}>
-                    Who
-                    <select
-                      aria-label="Filter by member"
-                      value={selectedUser}
-                      onChange={(e) => handleUserChange(e.target.value)}
-                      className={COL_FILTER}
-                    >
-                      <option value="">All members</option>
-                      {members.map((m) => (
-                        <option key={m.user.id} value={m.user.id}>
-                          {`${m.user.first_name} ${m.user.last_name}`.trim() || m.user.email}
-                        </option>
-                      ))}
-                    </select>
-                  </th>
+                  {/* Every row is the viewer's own for a non-manager, so a Who
+                      column would repeat one name down the whole table. */}
+                  {isManager && (
+                    <th className={TH}>
+                      Who
+                      <select
+                        aria-label="Filter by member"
+                        value={selectedUser}
+                        onChange={(e) => handleUserChange(e.target.value)}
+                        className={COL_FILTER}
+                      >
+                        <option value="">All members</option>
+                        {members.map((m) => (
+                          <option key={m.user.id} value={m.user.id}>
+                            {`${m.user.first_name} ${m.user.last_name}`.trim() || m.user.email}
+                          </option>
+                        ))}
+                      </select>
+                    </th>
+                  )}
                   <th className={TH}>
                     Action
                     <select
@@ -409,38 +437,42 @@ export default function LogsPage() {
                       ))}
                     </select>
                   </th>
-                  <th className={TH}>
-                    Client
-                    <select
-                      aria-label="Filter by client"
-                      value={selectedClient}
-                      onChange={(e) => {
-                        setSelectedClient(e.target.value);
-                        setSelectedWebsite("");  // may not belong to this client
-                        setPage(1);
-                      }}
-                      className={COL_FILTER}
-                    >
-                      <option value="">All clients</option>
-                      {clients.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </th>
-                  <th className={TH}>
-                    Website
-                    <select
-                      aria-label="Filter by website"
-                      value={selectedWebsite}
-                      onChange={(e) => { setSelectedWebsite(e.target.value); setPage(1); }}
-                      className={COL_FILTER}
-                    >
-                      <option value="">All websites</option>
-                      {websiteOptions.map((w) => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
-                      ))}
-                    </select>
-                  </th>
+                  {can("clients") && (
+                    <th className={TH}>
+                      Client
+                      <select
+                        aria-label="Filter by client"
+                        value={selectedClient}
+                        onChange={(e) => {
+                          setSelectedClient(e.target.value);
+                          setSelectedWebsite("");  // may not belong to this client
+                          setPage(1);
+                        }}
+                        className={COL_FILTER}
+                      >
+                        <option value="">All clients</option>
+                        {clients.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    </th>
+                  )}
+                  {can("websites") && (
+                    <th className={TH}>
+                      Website
+                      <select
+                        aria-label="Filter by website"
+                        value={selectedWebsite}
+                        onChange={(e) => { setSelectedWebsite(e.target.value); setPage(1); }}
+                        className={COL_FILTER}
+                      >
+                        <option value="">All websites</option>
+                        {websiteOptions.map((w) => (
+                          <option key={w.id} value={w.id}>{w.name}</option>
+                        ))}
+                      </select>
+                    </th>
+                  )}
                   <th className={TH}>
                     Description
                     <input
@@ -461,30 +493,36 @@ export default function LogsPage() {
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">
                       {formatDate(log.created_at)}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
-                          {initials(log.actor_name, log.actor_email)}
-                        </span>
-                        <span className="text-xs">
-                          <div className="font-medium">{log.actor_name || log.actor_email || "System"}</div>
-                          {log.actor_name && log.actor_email && (
-                            <div className="text-muted-foreground">{log.actor_email}</div>
-                          )}
-                        </span>
-                      </div>
-                    </td>
+                    {isManager && (
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-semibold shrink-0">
+                            {initials(log.actor_name, log.actor_email)}
+                          </span>
+                          <span className="text-xs">
+                            <div className="font-medium">{log.actor_name || log.actor_email || "System"}</div>
+                            {log.actor_name && log.actor_email && (
+                              <div className="text-muted-foreground">{log.actor_email}</div>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <Badge variant={actionVariant(log.action)} className="text-xs">
                         {log.action_label}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-sm max-w-[150px] truncate" title={log.client_name || undefined}>
-                      {log.client_name || <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm max-w-[150px] truncate" title={log.website_name || undefined}>
-                      {log.website_name || <span className="text-muted-foreground">—</span>}
-                    </td>
+                    {can("clients") && (
+                      <td className="px-4 py-3 text-sm max-w-[150px] truncate" title={log.client_name || undefined}>
+                        {log.client_name || <span className="text-muted-foreground">—</span>}
+                      </td>
+                    )}
+                    {can("websites") && (
+                      <td className="px-4 py-3 text-sm max-w-[150px] truncate" title={log.website_name || undefined}>
+                        {log.website_name || <span className="text-muted-foreground">—</span>}
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-muted-foreground">
                       <div>{log.description}</div>
                       {renderMetadata(log.action, log.metadata) && (

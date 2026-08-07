@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   Lock, ExternalLink, Pencil, Trash2, Plus,
-  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server, Share2, Upload, FileDown,
+  Eye, EyeOff, Copy, Search, X, KeyRound, Globe, Server, Share2, Upload, FileDown, Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -154,24 +154,50 @@ function hostFromUrl(url: string): string | null {
   }
 }
 
-/** Site favicon on the card header, falling back to the lock when unavailable. */
+/** Up to two initials for the card monogram: one per word, label first. Matches
+ *  the avatar initials on the Activity Log so the two read as the same idiom. */
+function monogram(cred: { label?: string; credential_type: string }): string {
+  const source = (cred.label || "").trim() || typeLabel(cred.credential_type);
+  const letters = source
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0]);
+  return letters.join("").toUpperCase() || "?";
+}
+
+/** Site favicon on the card header, over a monogram of the credential's name.
+ *
+ *  The monogram is the base layer rather than a `failed ? …` branch, so the
+ *  fallback is already painted when the image drops out — no flash. It has to
+ *  cover three separate failures that used to collapse onto one padlock: no
+ *  login_url to derive a host from, a host whose favicon Google 404s (it does
+ *  404 for icon-less domains — it does not serve a placeholder), and a request
+ *  that simply fails. A padlock meant all three, and on a vault every card is
+ *  a secret, so it distinguished nothing. */
 function CardArt({ cred }: { cred: Credential }) {
   const host = hostFromUrl(cred.login_url);
   const [failed, setFailed] = useState(false);
-  if (host && !failed) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={`https://www.google.com/s2/favicons?domain=${host}&sz=128`}
-        alt=""
-        width={40}
-        height={40}
-        className="h-10 w-10 rounded-md bg-white/95 p-1.5 shadow-sm object-contain"
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-  return <Lock className="h-8 w-8 text-white/75" />;
+  return (
+    <span className="relative flex h-10 w-10 items-center justify-center">
+      {/* aria-hidden: the card body already names the credential, so reading
+          the initials out would just repeat it. */}
+      <span aria-hidden className="text-base font-semibold tracking-wide text-white/85">
+        {monogram(cred)}
+      </span>
+      {host && !failed && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`https://www.google.com/s2/favicons?domain=${host}&sz=128`}
+          alt=""
+          width={40}
+          height={40}
+          className="absolute inset-0 h-10 w-10 rounded-md bg-white/95 p-1.5 shadow-sm object-contain"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </span>
+  );
 }
 
 function CredCard({ cred, subtitle, canWrite, onView, onDelete, onShare }: {
@@ -377,7 +403,9 @@ function CredentialModal({ cred, subtitle, canWrite, onClose, onDeleted, onUpdat
           className="relative flex h-24 items-center justify-center"
           style={{ backgroundColor: cardColor(cred) }}
         >
-          <Lock className="h-10 w-10 text-white/75" />
+          {/* Same art as the grid card, so opening one doesn't swap a
+              recognisable favicon for a generic padlock. */}
+          <CardArt cred={cred} />
         </div>
 
         <div className="p-5 space-y-4">
@@ -1018,6 +1046,7 @@ export function CredentialsVaultClient({
   const [addSection, setAddSection] = useState<Section | null>(null);
   const [shareTarget, setShareTarget] = useState<Credential | null>(null);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Built and downloaded in the browser — a static template needs no round trip.
   // The leading BOM is for Excel, which reads a BOM-less UTF-8 CSV as ANSI and
@@ -1043,11 +1072,19 @@ export function CredentialsVaultClient({
       const res = await fetch("/api/credentials/import", { method: "POST", body: form });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
+        // Report against the row count so a short import is obvious straight
+        // away rather than being discovered later as missing logins.
+        const parts = [
+          `${data.created ?? 0} added`,
+          `${data.updated ?? 0} updated`,
+          `${data.skipped ?? 0} skipped`,
+        ];
+        if (data.failed) parts.push(`${data.failed} failed`);
         toast({
-          title: "Import complete",
-          description: `${data.created ?? 0} added, ${data.updated ?? 0} updated, ${data.skipped ?? 0} skipped.`,
+          title: `Import complete — ${data.rows ?? 0} rows read`,
+          description: parts.join(", ") + ".",
         });
-        setTimeout(() => window.location.reload(), 900);
+        setTimeout(() => window.location.reload(), 1400);
       } else {
         toast({ variant: "destructive", title: "Import failed", description: data?.detail ?? "Check the CSV and try again." });
       }
@@ -1056,6 +1093,40 @@ export function CredentialsVaultClient({
     } finally {
       setImporting(false);
       e.target.value = "";
+    }
+  }
+
+  // Downloads every password in plaintext, so it goes through fetch rather than
+  // a plain <a download>: that way a 403 surfaces as a toast instead of the
+  // browser silently saving an error page as "vault-export.csv".
+  async function handleExportCsv() {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/credentials/export");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast({
+          variant: "destructive",
+          title: "Export failed",
+          description: data?.detail ?? "You may not have permission to export the vault.",
+        });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "digivault-vault-export.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Vault exported",
+        description: "The file holds every password in plaintext — store it somewhere safe or delete it once used.",
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -1124,6 +1195,14 @@ export function CredentialsVaultClient({
                 <span><Upload className="h-4 w-4 mr-1.5" />{importing ? "Importing…" : "Import CSV"}</span>
               </Button>
             </label>
+            <Button
+              variant="outline"
+              onClick={handleExportCsv}
+              disabled={exporting || totalCreds === 0}
+              title="Download the whole vault as a CSV — includes plaintext passwords"
+            >
+              <Download className="h-4 w-4 mr-1.5" />{exporting ? "Exporting…" : "Export CSV"}
+            </Button>
             <Button onClick={() => setAddSection("hosting")}>
               <Plus className="h-4 w-4 mr-1.5" />New item
             </Button>
