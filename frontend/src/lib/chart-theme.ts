@@ -14,9 +14,16 @@
  *    beside orange and fail. Three series is the cap here — fold to "Other".
  *  - Tailwind's 500/400 status steps pass every gate; the 600 steps FAIL the
  *    normal-vision floor (red-600 vs amber-600 ΔE 14.4). Keep the 500s.
- *  - Light aqua (#1baf7a, 2.82:1) and amber (#f59e0b, 2.15:1) sit below 3:1, so
+ *  - Light aqua (#1baf7a, 2.82:1) and amber (#ee9e19, 2.20:1) sit below 3:1, so
  *    the relief rule applies: any chart using them ships visible labels or a
  *    legend carrying the numbers. That is not dismissable.
+ *
+ * `status` and the surface/grid/ink values are now the 500/400 steps of the
+ * OKLCH ramps in globals.css, so a chart's "critical" is the same colour as the
+ * badge beside it. Pairwise OKLab separation of the four light status colours
+ * is 0.133–0.313 (floor ~0.10); every dark step clears 6.4:1 on the dark card.
+ * `series` is untouched — those are categorical identity slots, not state, and
+ * the brand indigo still fails the dark lightness band noted above.
  */
 
 export interface ChartTokens {
@@ -34,25 +41,29 @@ export interface ChartTokens {
 
 const LIGHT: ChartTokens = {
   series: ["#2a78d6", "#eb6834", "#1baf7a"],
-  status: { good: "#10b981", warning: "#f59e0b", critical: "#ef4444", neutral: "#94a3b8" },
+  status: { good: "#28a98a", warning: "#ee9e19", critical: "#eb4244", neutral: "#9c9dac" },
   surface: "#ffffff",
-  grid: "#e5e7eb",
-  muted: "#6b7280",
-  ink: "#111827",
+  grid: "#e5e5ee",
+  muted: "#6e6f7c",
+  ink: "#161620",
   tooltipBg: "#ffffff",
-  tooltipInk: "#111827",
+  tooltipInk: "#161620",
 };
 
 const DARK: ChartTokens = {
   // Same three hues, re-stepped for the dark surface — not an automatic flip.
   series: ["#3987e5", "#d95926", "#199e70"],
-  status: { good: "#10b981", warning: "#f59e0b", critical: "#ef4444", neutral: "#94a3b8" },
-  surface: "#121219",
-  grid: "#2a2a33",
-  muted: "#9ca3af",
-  ink: "#f3f4f6",
-  tooltipBg: "#1c1c24",
-  tooltipInk: "#f3f4f6",
+  // Status used to be one set of hexes shared by both modes, which broke the
+  // rule stated for `series` one line above. Stepped per mode now — which is
+  // why `useChartTheme` has to report light until hydration finishes, for the
+  // two charts that put a status colour into real SSR'd HTML.
+  status: { good: "#54c3a4", warning: "#faaf44", critical: "#ff706a", neutral: "#9c9dac" },
+  surface: "#181921",
+  grid: "#2c2c36",
+  muted: "#a7a8b6",
+  ink: "#f3f3f6",
+  tooltipBg: "#23242d",
+  tooltipInk: "#f3f3f6",
 };
 
 export function chartTokens(isDark: boolean): ChartTokens {

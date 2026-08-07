@@ -50,20 +50,34 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
 );
 TableRow.displayName = "TableRow";
 
+// The header label style the Clients table arrived at independently — small,
+// uppercase, tracked, on a filled cell — is now the default for every table, so
+// they speak with one voice. The fill sits on the cell rather than on <thead>
+// because a background on the section does not paint under a position:sticky
+// cell, which is exactly where a header needs it most.
 const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<HTMLTableCellElement>>(
   ({ className, ...props }, ref) => (
     <th
       ref={ref}
-      className={cn("h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0", className)}
+      className={cn(
+        "h-10 bg-muted px-4 text-left align-middle whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-muted-foreground [&:has([role=checkbox])]:pr-0",
+        className
+      )}
       {...props}
     />
   )
 );
 TableHead.displayName = "TableHead";
 
+// Figures get tabular digits so a column of response times or percentages lines
+// up on the decimal point and can be scanned down rather than read row by row.
 const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<HTMLTableCellElement>>(
   ({ className, ...props }, ref) => (
-    <td ref={ref} className={cn("p-4 align-middle [&:has([role=checkbox])]:pr-0", className)} {...props} />
+    <td
+      ref={ref}
+      className={cn("p-4 align-middle [font-variant-numeric:tabular-nums] [&:has([role=checkbox])]:pr-0", className)}
+      {...props}
+    />
   )
 );
 TableCell.displayName = "TableCell";

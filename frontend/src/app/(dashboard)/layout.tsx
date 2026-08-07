@@ -77,7 +77,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             priority
             className="h-7 w-auto"
           />
-          <span className="font-bold text-lg tracking-tight">Digivault</span>
+          <span className="font-display font-bold text-lg tracking-tight">Digivault</span>
         </div>
 
         {/* Team switcher */}

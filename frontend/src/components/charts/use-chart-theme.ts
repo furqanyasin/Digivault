@@ -38,6 +38,12 @@ function useHydrated(): boolean {
 export function useChartTheme(): { tokens: ChartTokens; isDark: boolean; mounted: boolean } {
   const { resolvedTheme } = useTheme();
   const hydrated = useHydrated();
-  const isDark = resolvedTheme === "dark";
+  // Light until hydration finishes, whatever next-themes has already resolved.
+  // The server could not know the theme, so any token that reaches real HTML —
+  // a legend swatch's inline `background-color` — has to match what the server
+  // sent or React throws #418 and abandons that subtree. Canvas consumers gate
+  // their whole chart on `mounted`, so they never observe this first value; the
+  // render right after hydration flips them to the dark steps.
+  const isDark = hydrated && resolvedTheme === "dark";
   return { tokens: chartTokens(isDark), isDark, mounted: hydrated };
 }
