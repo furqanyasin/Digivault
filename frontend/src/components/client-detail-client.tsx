@@ -14,6 +14,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import type { ClientRecord } from "@/app/(dashboard)/clients/page";
+import type { Website } from "@/lib/api";
+import { ClientWebsitesCard } from "@/components/client-websites-card";
 import { fmtDateTime } from "@/lib/utils";
 import {
   ACCESS_LEVEL_OPTIONS, ACCESS_LEVEL_TOOLTIP, DEPARTMENT_OPTIONS,
@@ -35,9 +37,11 @@ const STATUS_BADGE: Record<string, "success" | "warning" | "secondary"> = {
 
 interface Props {
   client: ClientRecord;
+  /** Monitored sites linked to this client, resolved server-side. */
+  websites: Website[];
 }
 
-export function ClientDetailClient({ client: initial }: Props) {
+export function ClientDetailClient({ client: initial, websites }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
 
@@ -251,6 +255,8 @@ export function ClientDetailClient({ client: initial }: Props) {
           </CardContent>
         </Card>
       </form>
+
+      <ClientWebsitesCard websites={websites} />
 
       {/* Metadata */}
       <Card>
