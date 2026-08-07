@@ -1325,7 +1325,7 @@ export function CredentialsVaultClient({
   return (
     <div className="p-8 space-y-8">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Vault</h1>
           <p className="text-muted-foreground mt-1">
@@ -1335,26 +1335,40 @@ export function CredentialsVaultClient({
           </p>
         </div>
         {canWrite && (
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" onClick={handleDownloadSample} title="Download a CSV template with the columns the importer expects">
-              <FileDown className="h-4 w-4 mr-1.5" />Sample CSV
-            </Button>
-            <label className="cursor-pointer">
-              <input type="file" accept=".csv" className="hidden" onChange={handleImportCsv} disabled={importing} />
-              <Button variant="outline" asChild>
-                <span><Upload className="h-4 w-4 mr-1.5" />{importing ? "Importing…" : "Import CSV"}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* The three CSV actions are one job, so they read as one control
+                instead of three loose buttons competing with "New item". */}
+            <div className="flex items-center rounded-lg border bg-card p-1 shadow-sm">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={handleDownloadSample}
+                title="Download a CSV template with the columns the importer expects"
+              >
+                <FileDown className="h-4 w-4" />Sample
               </Button>
-            </label>
-            <Button
-              variant="outline"
-              onClick={handleExportCsv}
-              disabled={exporting || totalCreds === 0}
-              title="Download the whole vault as a CSV — includes plaintext passwords"
-            >
-              <Download className="h-4 w-4 mr-1.5" />{exporting ? "Exporting…" : "Export CSV"}
-            </Button>
-            <Button onClick={() => setAddSection("hosting")}>
-              <Plus className="h-4 w-4 mr-1.5" />New item
+              <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+              <label className="cursor-pointer">
+                <input type="file" accept=".csv" className="hidden" onChange={handleImportCsv} disabled={importing} />
+                <Button variant="ghost" size="sm" className="h-8 px-2.5" asChild>
+                  <span><Upload className="h-4 w-4" />{importing ? "Importing…" : "Import"}</span>
+                </Button>
+              </label>
+              <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={handleExportCsv}
+                disabled={exporting || totalCreds === 0}
+                title="Download the whole vault as a CSV — includes plaintext passwords"
+              >
+                <Download className="h-4 w-4" />{exporting ? "Exporting…" : "Export"}
+              </Button>
+            </div>
+            <Button size="sm" className="h-10 px-4" onClick={() => setAddSection("hosting")}>
+              <Plus className="h-4 w-4" />New item
             </Button>
           </div>
         )}
