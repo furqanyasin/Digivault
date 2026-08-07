@@ -1,13 +1,17 @@
 """notify_problem() — announce a website problem in the team's ClickUp channel.
 
-Three invariants matter most. First, one channel carries every client, so a
+Four invariants matter most. First, one channel carries every client, so a
 message has to name the client, the site and the failure on its own. Second,
-managers are notified through the message's `followers` field, not through
-inline mention text, because ClickUp documents no request-side @-mention syntax
-for v3 chat. Third, nothing here may raise into an alert path: a ClickUp outage
-must not take down the email that already went out.
+managers are notified through the message's `assignee` and `followers` fields,
+not through inline mention text — ClickUp's Chat API supports no request-side
+@-mention syntax at all, so the "@name" in the body is for human readers and
+those two fields are the real ping. Third, a manager ClickUp has never been
+matched to is looked up at send time rather than silently dropped. Fourth,
+nothing here may raise into an alert path: a ClickUp outage must not take down
+the email that already went out.
 """
 import pytest
+from django.core.cache import cache
 
 from apps.accounts.models import TeamMembership, User
 from apps.accounts.services import TeamService
@@ -39,9 +43,12 @@ class FakeResponse:
 
 
 class RecordingSession:
-    def __init__(self, fail_on=None):
+    def __init__(self, fail_on=None, members=None):
         self.calls = []
         self.fail_on = fail_on or ""
+        # The workspace roster the send-time member lookup reads. Empty by
+        # default, so a test that does not care about mapping resolves nobody.
+        self.members = members or []
 
     def request(self, method, url, headers=None, json=None, timeout=None):
         self.calls.append({"method": method, "url": url, "json": json})
@@ -49,6 +56,8 @@ class RecordingSession:
             return FakeResponse(500, {})
         if url.endswith("/task"):
             return FakeResponse(200, {"id": "task-1", "url": "https://app.clickup.com/t/86a1"})
+        if url.endswith("/v2/team"):
+            return FakeResponse(200, {"teams": [{"id": "9001", "members": self.members}]})
         return FakeResponse(200, {"id": "x"})
 
     def urls(self):
@@ -63,6 +72,9 @@ class RecordingSession:
 
 @pytest.fixture
 def setup(db):
+    # The send-time member lookup caches the workspace roster per team; a stale
+    # entry from a previous test would decide this one's mapping.
+    cache.clear()
     owner = User.objects.create_user(email="chatowner@x.io", password="Pass123!")
     team = TeamService.create(name="Chat Co", owner=owner)
     team.clickup_api_token = "pk_test"
@@ -199,6 +211,74 @@ def test_every_manager_is_notified_via_followers(setup):
     notify_problem(website, subject="monitor:1:down", title="down", client=_api(session))
 
     assert session.chat_body()["followers"] == ["11", "22"]
+
+
+def test_the_primary_manager_is_assigned_the_message(setup):
+    """`followers` only makes someone follow. Assignment is the one documented
+    way an API-posted chat message actually reaches an individual."""
+    team, _, website = setup
+    helper = User.objects.create_user(email="helper3@x.io", password="Pass123!")
+    TeamMembership.objects.create(user=helper, team=team, role=TeamMembership.Role.DEVELOPER)
+    set_member_link(team, helper, "22", "helper")
+    WebsiteAssignment.objects.create(website=website, user=helper)
+
+    session = RecordingSession()
+    notify_problem(website, subject="monitor:1:down", title="down", client=_api(session))
+
+    # The client's assignee owns the account, so they carry it.
+    assert session.chat_body()["assignee"] == "11"
+
+
+def test_no_assignee_is_sent_when_nobody_is_mapped(setup):
+    """ClickUp rejects a null assignee; an unassigned site must still post."""
+    _, _, website = setup
+    website.client.assigned_to = None
+    website.client.save()
+    website.refresh_from_db()
+    session = RecordingSession()
+
+    notify_problem(website, subject="monitor:1:down", title="down", client=_api(session))
+
+    assert "assignee" not in session.chat_body()
+
+
+def test_a_manager_clickup_never_matched_is_resolved_at_send_time(setup):
+    """The "Managed by: Junaid" bug: no member link meant a bare name and,
+    worse, no ping at all. The roster is consulted when the alert fires."""
+    team, _, website = setup
+    junaid = User.objects.create_user(
+        email="junaid@x.io", password="Pass123!", first_name="Junaid", last_name="Naseem",
+    )
+    TeamMembership.objects.create(user=junaid, team=team, role=TeamMembership.Role.DEVELOPER)
+    website.client.assigned_to = junaid
+    website.client.save()
+    website.refresh_from_db()
+
+    session = RecordingSession(members=[{"user": {"id": 77, "email": "junaid@x.io", "username": "junaid"}}])
+    notify_problem(website, subject="monitor:1:down", title="down", client=_api(session))
+
+    body = session.chat_body()
+    assert "Managed by: @junaid" in body["content"]
+    assert body["followers"] == ["77"]
+    assert body["assignee"] == "77"
+
+
+def test_an_unresolvable_manager_still_gets_a_message_naming_them(setup):
+    """Being unknown to ClickUp must not erase someone from the message."""
+    team, _, website = setup
+    ghost = User.objects.create_user(
+        email="ghost@x.io", password="Pass123!", first_name="Ghost", last_name="User",
+    )
+    TeamMembership.objects.create(user=ghost, team=team, role=TeamMembership.Role.DEVELOPER)
+    website.client.assigned_to = ghost
+    website.client.save()
+    website.refresh_from_db()
+
+    session = RecordingSession(members=[])
+    sent = notify_problem(website, subject="monitor:1:down", title="down", client=_api(session))
+
+    assert sent is True
+    assert "Managed by: Ghost User" in session.chat_body()["content"]
 
 
 def test_the_message_names_the_client_the_site_and_the_managers(setup):

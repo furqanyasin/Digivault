@@ -26,7 +26,11 @@ from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.common.permissions import IsTeamMember
 from apps.integrations.clickup import ClickUpClient, ClickUpError
-from apps.integrations.members import set_member_link, sync_member_links
+from apps.integrations.members import (
+    set_member_link,
+    sync_member_links,
+    username_for_clickup_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1024,7 +1028,13 @@ class ClickUpMembersView(_ClickUpManagerView):
                 team=team, user_id=user_id
             ).select_related("user").first()
             if membership:
-                set_member_link(team, membership.user, clickup_user_id)
+                # Carry the handle across too. An override that stored only the
+                # id left alerts rendering "@Muhammad Furqan" — the Digivault
+                # full name behind an @, which ClickUp cannot resolve.
+                set_member_link(
+                    team, membership.user, clickup_user_id,
+                    username_for_clickup_id(team, clickup_user_id),
+                )
 
         if overrides:
             sync = sync_member_links(team)

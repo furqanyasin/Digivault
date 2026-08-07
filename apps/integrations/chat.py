@@ -9,6 +9,13 @@ Messages only. Alerts used to open a ClickUp task per issue; they no longer do.
 `report_issue` (`apps/integrations/tasks.py`) still exists for callers that want
 a task, but nothing in the alert path calls it.
 
+The "@name" in a message is plain text and always will be: ClickUp's Chat API
+exposes no request-side @-mention syntax, so nothing we put in `content` becomes
+a real mention chip. Reaching a person is done with the message's `assignee`
+(the account owner) and `followers` (everyone else who manages the site), which
+is why the mapping between a Digivault user and their ClickUp id is resolved
+here rather than left to whenever someone last opened Settings.
+
 Nothing here raises. By the time an alert path calls us, email and the
 per-website channels have already delivered; a ClickUp outage must not undo that.
 """
@@ -17,8 +24,7 @@ from __future__ import annotations
 import logging
 
 from apps.integrations.clickup import ClickUpClient, parse_clickup_chat
-from apps.integrations.members import clickup_id_for
-from apps.integrations.models import ClickUpMemberLink
+from apps.integrations.members import resolve_member_link
 
 logger = logging.getLogger(__name__)
 
@@ -69,40 +75,44 @@ def resolve_managers(website) -> list:
     return managers
 
 
-def mention_for(team, user) -> tuple[str, str | None]:
+def mention_for(team, user, *, client: ClickUpClient | None = None) -> tuple[str, str | None]:
     """(display_text, clickup_user_id) for a user.
 
-    An unmapped user gets a bare name rather than "@name", so the message never
-    renders an @-mention that resolves to nobody.
+    The mapping is resolved on demand: a manager the settings sync never matched
+    used to render as a bare name and drop out of the ping entirely, which is
+    exactly the case an alert cares about most.
+
+    A user ClickUp genuinely does not know still gets a bare name rather than
+    "@name", so the message never shows an @ that resolves to nobody.
     """
     if user is None:
         return "unassigned", None
 
-    clickup_id = clickup_id_for(team, user)
     label = (getattr(user, "get_full_name", lambda: "")() or "").strip() or user.email
+    link = resolve_member_link(team, user, client=client)
 
-    if clickup_id:
-        link = ClickUpMemberLink.objects.filter(team=team, user=user).first()
-        username = (link.clickup_username if link else "") or label
-        return f"@{username}", clickup_id
+    if link and link.clickup_user_id:
+        return f"@{link.clickup_username or label}", link.clickup_user_id
 
     return label, None
 
 
-def mentions_for(team, users) -> tuple[str, list]:
+def mentions_for(team, users, *, client: ClickUpClient | None = None) -> tuple[str, list]:
     """(display_text, clickup_user_ids) for a group of managers.
 
     The text names everyone so a human reading the feed knows who to chase; the
-    ids are what ClickUp actually notifies (as message followers). An unmapped
-    manager still appears in the text — being unlinked in ClickUp should not
-    erase them from the message.
+    ids are what ClickUp actually notifies. An unmapped manager still appears in
+    the text — being unlinked in ClickUp should not erase them from the message.
+
+    Order is significant: the first id is the account owner, and `_announce`
+    assigns the message to them.
     """
     if not users:
         return "unassigned", []
 
     labels, ids = [], []
     for user in users:
-        label, clickup_id = mention_for(team, user)
+        label, clickup_id = mention_for(team, user, client=client)
         labels.append(label)
         if clickup_id:
             ids.append(clickup_id)
@@ -181,12 +191,6 @@ def build_message(
     return "\n".join(lines)
 
 
-def _post(team, workspace_id, channel_id, text, followers, client) -> bool:
-    api = client or ClickUpClient(team.clickup_api_token)
-    api.post_chat(workspace_id, channel_id, text, followers=followers or None)
-    return True
-
-
 def _announce(
     website,
     *,
@@ -202,13 +206,26 @@ def _announce(
     if not (workspace_id and channel_id):
         return False
 
+    # One client for the whole announcement: the member lookup and the post
+    # share it, so a test's fake session sees both and production opens one
+    # connection rather than two.
+    api = client or ClickUpClient(team.clickup_api_token)
+
     try:
-        mention, follower_ids = mentions_for(team, resolve_managers(website))
+        mention, follower_ids = mentions_for(team, resolve_managers(website), client=api)
         text = build_message(
             website, emoji=emoji, title=title, detail=detail,
             fields=fields, mention=mention,
         )
-        return _post(team, workspace_id, channel_id, text, follower_ids, client)
+        # ClickUp's Chat API has no inline @-mention syntax, so the "@name" in
+        # the body is only readable text. Assignment is what actually reaches a
+        # person; followers is what puts the rest of the managers on the thread.
+        api.post_chat(
+            workspace_id, channel_id, text,
+            followers=follower_ids or None,
+            assignee=follower_ids[0] if follower_ids else None,
+        )
+        return True
     except Exception:
         logger.exception("ClickUp chat notify failed for %s (%s)", website.domain, log_context)
         return False

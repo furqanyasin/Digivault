@@ -155,17 +155,27 @@ class ClickUpClient:
         return channel
 
     def post_chat(
-        self, workspace_id: str, channel_id: str, text: str, *, followers: list | None = None
+        self,
+        workspace_id: str,
+        channel_id: str,
+        text: str,
+        *,
+        followers: list | None = None,
+        assignee: str | None = None,
     ) -> dict:
         """Post a markdown message to a Chat channel.
 
-        `followers` is what actually notifies someone: ClickUp documents no
-        request-side syntax for an inline @-mention in a v3 chat message, so the
-        body's "@name" is for human readers and this is the real ping.
+        ClickUp's Chat API supports no request-side syntax for an inline
+        @-mention, so the body's "@name" is for human readers only. `assignee`
+        and `followers` are the real ping: assignment lands the message in one
+        person's ClickUp inbox, followers put the other managers on the thread.
+        Both are omitted when empty — ClickUp rejects nulls here.
         """
         body: dict = {"type": "message", "content": text, "content_format": "text/md"}
         if followers:
             body["followers"] = followers
+        if assignee:
+            body["assignee"] = str(assignee)
         return self._request(
             "POST",
             f"workspaces/{workspace_id}/chat/channels/{channel_id}/messages",

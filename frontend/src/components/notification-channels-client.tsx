@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Bell, FlaskConical, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Trash2, Bell, FlaskConical, CheckCircle2, XCircle, Globe } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -187,7 +187,38 @@ export function NotificationChannelsClient({ initialChannels }: { initialChannel
   const router = useRouter();
   const [deleting, setDeleting] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
+  const [applying, setApplying] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<Record<string, { success: boolean; message: string } | null>>({});
+
+  async function applyToAllWebsites(id: string, name: string) {
+    if (
+      !confirm(
+        `Send every website's alerts to "${name}"?\n\nThis replaces the channel on all sites, ` +
+          `including any site-specific uptime channel. You can still change individual sites afterwards.`
+      )
+    )
+      return;
+    setApplying(id);
+    setTestResult((prev) => ({ ...prev, [id]: null }));
+    try {
+      const res = await fetch(`/api/notification-channels/${id}/apply-to-all-websites`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      setTestResult((prev) => ({
+        ...prev,
+        [id]: res.ok
+          ? { success: true, message: `Applied to ${data.updated} website${data.updated === 1 ? "" : "s"}` }
+          : { success: false, message: data?.detail ?? `Error ${res.status}` },
+      }));
+      // Website pages read the channel server-side, so refresh rather than
+      // leaving stale selects behind.
+      if (res.ok) router.refresh();
+      setTimeout(() => setTestResult((prev) => ({ ...prev, [id]: null })), 5000);
+    } finally {
+      setApplying(null);
+    }
+  }
 
   async function handleTest(id: string) {
     setTesting(id);
@@ -247,6 +278,17 @@ export function NotificationChannelsClient({ initialChannels }: { initialChannel
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    disabled={applying === ch.id}
+                    title="Route every website's alerts to this channel"
+                    onClick={() => applyToAllWebsites(ch.id, ch.name)}
+                  >
+                    <Globe className="h-3.5 w-3.5 mr-1" />
+                    {applying === ch.id ? "Applying…" : "Apply to all sites"}
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
