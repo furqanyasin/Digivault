@@ -26,7 +26,6 @@ import { HealthScoreInfo } from "@/components/health-score-info";
 import { VipToggleButton } from "@/components/vip-toggle-button";
 import { SiteOverviewGrid, type OverviewMetrics } from "@/components/site-overview-grid";
 import { SiteLoginButton } from "@/components/site-login-card";
-import { JsErrorsTab, type JsErrorRow } from "@/components/js-errors-tab";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 
 interface SiteActivityEntry {
@@ -42,7 +41,7 @@ async function getData(token: string, id: string) {
   // All tab data is fetched up front so the tabs can switch instantly on the
   // client (no per-tab server navigation). Runs in parallel; the instant
   // loading skeleton (loading.tsx) covers the initial wait.
-  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, seoReport, monitors, siteActivity] = await Promise.allSettled([
+  const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, seoReport, monitors, siteActivity] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
     api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
     api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
@@ -53,7 +52,6 @@ async function getData(token: string, id: string) {
     api.get<DetectedForm[]>(`/api/v1/websites/${id}/forms/`, token),
     api.get<FormSubmissionError[]>(`/api/v1/websites/${id}/form-errors/`, token),
     api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
-    api.get<JsErrorRow[]>(`/api/v1/websites/${id}/js-errors/`, token),
     api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
     // Still fetched with the Security tab gone: the health-score explainer on
     // Overview breaks the score down by open vulnerability.
@@ -86,7 +84,6 @@ async function getData(token: string, id: string) {
     forms: forms.status === "fulfilled" ? forms.value : [],
     formErrors: formErrors.status === "fulfilled" ? formErrors.value : [],
     phpErrors: phpErrors.status === "fulfilled" ? phpErrors.value : [],
-    jsErrors: jsErrors.status === "fulfilled" ? jsErrors.value : [],
     siteEvents: siteEvents.status === "fulfilled" ? siteEvents.value : [],
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
     seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
@@ -203,10 +200,10 @@ export default async function WebsiteDetailPage({
   // deep links landing somewhere rather than on an empty tab panel.
   const tab =
     rawTab === "tracking" ? "scripts"
-    : rawTab === "security" ? "overview"
+    : rawTab === "security" || rawTab === "js-errors" ? "overview"
     : rawTab;
   const token = await getAccessToken();
-  const { brokenForms7d, website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, jsErrors, siteEvents, vulns, seoReport, monitors, siteActivity } = await getData(token ?? "", id);
+  const { brokenForms7d, website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, seoReport, monitors, siteActivity } = await getData(token ?? "", id);
 
   if (!website) {
     return (
@@ -390,9 +387,6 @@ export default async function WebsiteDetailPage({
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="changelog">Change Log ({changeLog.length})</TabsTrigger>
           {showPhpErrors && <TabsTrigger value="php-errors">PHP Errors ({phpErrors.length})</TabsTrigger>}
-          {jsErrors.length > 0 && (
-            <TabsTrigger value="js-errors">JS Errors ({jsErrors.length})</TabsTrigger>
-          )}
           <TabsTrigger value="seo">SEO</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="setup">
@@ -748,27 +742,9 @@ export default async function WebsiteDetailPage({
         {/* Site events are folded into the Change Log above rather than living
             in their own tab — see the changeLog timeline. */}
 
-        {/* ── JS Errors ──
-            Previously a panel inside the Security tab. That tab is withdrawn for
-            now, and uncaught script errors are worth keeping visible on their
-            own, so they get a tab of their own alongside PHP Errors. */}
-        {jsErrors.length > 0 && (
-          <TabsContent value="js-errors">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  JavaScript Errors ({jsErrors.length} distinct)
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Uncaught errors collected from real page loads
-                </p>
-              </CardHeader>
-              <CardContent className="px-4 pb-4">
-                <JsErrorsTab errors={jsErrors} />
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
+        {/* JS Errors had a tab here. Withdrawn from the UI — collection, the
+            JsError model and /js-errors/ are untouched, so restoring it is just
+            re-adding the trigger and panel. */}
 
         {/* ── Uptime ── */}
         <TabsContent value="uptime">
