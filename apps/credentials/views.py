@@ -673,17 +673,55 @@ def _normalize_login_url(url: str) -> str:
     return u.rstrip("/")
 
 
-def _import_identity(website_id, username_hash: str, login_url: str, label: str) -> tuple:
-    """What makes an imported login unique.
+def _url_host(url_key: str) -> str:
+    """Host (with port) of a normalized login URL — `acme.io:2083/x` → `acme.io:2083`."""
+    return url_key.split("/", 1)[0].split("?", 1)[0]
+
+
+def _match_keys(
+    website_id, username_hash: str, login_url: str, label: str, credential_type: str
+) -> list[tuple]:
+    """Identity keys for an imported login, most specific first.
 
     A credential is "the same login" only when it is the same account (username)
     at the same *service*. Keying on username alone collapses every hosting panel
-    an agency signs into with one shared email down to a single row. The login URL
-    names the service; when a row has no URL, its label is the only thing left to
-    tell it apart.
+    an agency signs into with one shared email down to a single row, so every key
+    below carries the service as well:
+
+    1. ``url``   — the same account at the exact same login URL.
+    2. ``host``  — the same account and the same type on one linked website's
+                   host. Catches ``/wp-admin`` against ``/wp-login.php``. Limited
+                   to rows that resolved to a website, so the agency-wide panel
+                   logins (which are standalone) can never collapse together.
+    3. ``label`` — the same account under the same name. Catches a login whose
+                   URL changed, and is the only key a row without a URL has.
+
+    A stored credential registers all of its keys; an incoming row matches on the
+    first one that hits.
     """
     url_key = _normalize_login_url(login_url)
-    return (website_id, username_hash, url_key or f"label:{label.strip().lower()}")
+    host = _url_host(url_key)
+    keys: list[tuple] = []
+    if url_key:
+        keys.append(("url", website_id, username_hash, url_key))
+    if host and website_id is not None:
+        keys.append(("host", website_id, username_hash, host, credential_type))
+    keys.append(("label", website_id, username_hash, label.strip().lower()))
+    return keys
+
+
+def _mask_username(username: str) -> str:
+    """Enough of a username to recognise a row by, without echoing it in full."""
+    if not username:
+        return ""
+    local, sep, domain = username.partition("@")
+    return f"{local[:2]}{'*' * max(len(local) - 2, 1)}{sep}{domain}"
+
+
+# preview writes nothing and reports what a commit would do; the other three are
+# the answers to "this login already exists" — refresh it, leave it alone, or
+# keep both copies.
+_IMPORT_MODES = ("preview", "update", "skip", "duplicate")
 
 
 class CredentialImportView(APIView):
@@ -692,9 +730,20 @@ class CredentialImportView(APIView):
     Expected columns (LastPass default): url, username, password, totp, extra,
     name, grouping, fav. Each row becomes an encrypted Credential. When the URL's
     host matches a team website the credential links to it; otherwise it's a
-    standalone (Hosting & General) login. Re-importing the same login — same
-    account at the same service — refreshes the stored password instead of
-    duplicating.
+    standalone (Hosting & General) login.
+
+    Rows that match a login already in the vault are handled by ``mode``:
+
+    - ``preview`` — write nothing, return the matches so the UI can ask.
+    - ``update``  — refresh the existing entry (the default, and what a repeat
+                    import of the same export should do).
+    - ``skip``    — import only the rows that are genuinely new.
+    - ``duplicate`` — store the row as a second entry anyway.
+
+    ``preview`` runs the identical matching pass as the commit that follows it,
+    so the counts it reports are the counts the user gets. The file is uploaded
+    again for the commit rather than parked server-side — a CSV of plaintext
+    passwords should not sit in a cache between two requests.
 
     Owner/manager only: an import writes to the whole team's vault.
     """
@@ -707,6 +756,14 @@ class CredentialImportView(APIView):
         team = request.user.active_team
         if team is None:
             return Response({"detail": "No active team."}, status=status.HTTP_400_BAD_REQUEST)
+
+        mode = str(request.data.get("mode") or "update").strip().lower()
+        if mode not in _IMPORT_MODES:
+            return Response(
+                {"detail": f"Unknown import mode '{mode}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        preview = mode == "preview"
 
         file_obj = request.FILES.get("file")
         if not file_obj:
@@ -730,10 +787,11 @@ class CredentialImportView(APIView):
         # the reason distinct logins overwrote each other.
         index: dict[tuple, Credential] = {}
         for cred in Credential.objects.filter(team=team):
-            index.setdefault(
-                _import_identity(cred.website_id, cred.username_hash, cred.login_url, cred.label),
-                cred,
-            )
+            for key in _match_keys(
+                cred.website_id, cred.username_hash, cred.login_url,
+                cred.label, cred.credential_type,
+            ):
+                index.setdefault(key, cred)
 
         # Domains resolve to the same handful of websites over and over.
         website_cache: dict[str, object] = {}
@@ -751,7 +809,15 @@ class CredentialImportView(APIView):
             return site
 
         rows = created = updated = skipped = failed = 0
+        duplicates = repeats_in_file = skipped_duplicates = 0
         errors: list[str] = []
+        # What a preview reports back. Capped so a 5 MB re-import of an entire
+        # vault can't answer with a response the dialog has to render in full.
+        conflicts: list[dict] = []
+        _CONFLICT_SAMPLE = 200
+        # Rows this preview has already counted as new — a second copy inside the
+        # same file is a repeat of *that*, not of anything in the vault.
+        pending: dict[tuple, int] = {}
 
         for line_no, row in enumerate(reader, start=2):  # line 1 is the header
             rows += 1
@@ -792,54 +858,99 @@ class CredentialImportView(APIView):
                     notes = (notes + "\n" if notes else "") + f"Full login URL: {url}"
                     stored_url = ""
 
-                key = _import_identity(
+                keys = _match_keys(
                     website.id if website else None,
                     Credential.hash_username(username),
-                    stored_url or url,
+                    stored_url,
                     label,
+                    cred_type,
                 )
-                existing = index.get(key)
+                existing = next((index[k] for k in keys if k in index), None)
 
-                if existing:
-                    # The CSV is the source of truth on re-import: refresh the
-                    # label and type too, so a repeat import repairs rows left
-                    # mislabelled by an earlier one rather than freezing them.
-                    CredentialService.update(
-                        credential=existing,
-                        label=label,
-                        credential_type=cred_type,
-                        password=password or None,
-                        login_url=stored_url or None,
-                        updated_by=request.user,
-                    )
-                    updated += 1
-                else:
-                    cred = CredentialService.create(
-                        label=label, credential_type=cred_type, login_url=stored_url,
-                        username=username, password=password, notes=notes,
-                        created_by=request.user, team=team, website=website,
-                    )
-                    index[key] = cred
+                if existing is not None:
+                    duplicates += 1
+                    if preview:
+                        if len(conflicts) < _CONFLICT_SAMPLE:
+                            conflicts.append({
+                                "row": line_no,
+                                "label": label,
+                                "username": _mask_username(username),
+                                "credential_type": cred_type,
+                                "login_url": stored_url,
+                                "website_name": (
+                                    (website.name or website.domain) if website else None
+                                ),
+                                "existing_id": str(existing.id),
+                                "existing_label": existing.label,
+                                "existing_updated_at": existing.updated_at.isoformat(),
+                            })
+                        continue
+                    if mode == "skip":
+                        skipped_duplicates += 1
+                        continue
+                    if mode == "update":
+                        # The CSV is the source of truth on re-import: refresh the
+                        # label and type too, so a repeat import repairs rows left
+                        # mislabelled by an earlier one rather than freezing them.
+                        CredentialService.update(
+                            credential=existing,
+                            label=label,
+                            credential_type=cred_type,
+                            password=password or None,
+                            login_url=stored_url or None,
+                            updated_by=request.user,
+                        )
+                        updated += 1
+                        continue
+                    # mode == "duplicate": store the row as its own entry anyway.
+
+                elif preview and any(k in pending for k in keys):
+                    repeats_in_file += 1
+                    continue
+
+                if preview:
                     created += 1
+                    for k in keys:
+                        pending.setdefault(k, line_no)
+                    continue
+
+                cred = CredentialService.create(
+                    label=label, credential_type=cred_type, login_url=stored_url,
+                    username=username, password=password, notes=notes,
+                    created_by=request.user, team=team, website=website,
+                )
+                for k in keys:
+                    index.setdefault(k, cred)
+                created += 1
             except Exception as exc:  # noqa: BLE001 — one bad row must not sink the import
                 failed += 1
                 if len(errors) < 10:
                     errors.append(f"Row {line_no}: {exc.__class__.__name__}")
 
-        if created or updated:
+        if not preview and (created or updated):
             AuditService.log_request(
                 request, ActivityLog.Action.CREDENTIAL_IMPORTED,
                 description=f"Imported credentials from CSV — {created} created, {updated} updated",
                 resource_type="credential",
                 metadata={
                     "rows": rows, "created": created, "updated": updated,
-                    "skipped": skipped, "failed": failed, "source": "lastpass_csv",
+                    "skipped": skipped + skipped_duplicates, "failed": failed,
+                    "mode": mode, "source": "lastpass_csv",
                 },
             )
 
         return Response({
-            "rows": rows, "created": created, "updated": updated,
-            "skipped": skipped, "failed": failed, "errors": errors,
+            "mode": mode,
+            "rows": rows,
+            "created": created,
+            "updated": updated,
+            "skipped": skipped + skipped_duplicates,
+            "failed": failed,
+            "errors": errors,
+            # Preview-only: `created` above is the count of genuinely new rows.
+            "duplicates": duplicates,
+            "repeats_in_file": repeats_in_file,
+            "conflicts": conflicts,
         })
 
 

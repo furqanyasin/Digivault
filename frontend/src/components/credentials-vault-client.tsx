@@ -63,6 +63,33 @@ const ALL_TYPES = [...WEBSITE_TYPES, ...HOSTING_TYPES].filter(
   (t, i, arr) => arr.findIndex((x) => x.value === t.value) === i
 );
 
+// A CSV row that matches a login already in the vault, as the importer's
+// `preview` pass reports it. `username` arrives partly masked.
+type ImportConflict = {
+  row: number;
+  label: string;
+  username: string;
+  credential_type: string;
+  login_url: string;
+  website_name: string | null;
+  existing_id: string;
+  existing_label: string;
+  existing_updated_at: string;
+};
+
+type ImportPreview = {
+  rows: number;
+  created: number;          // rows that are genuinely new
+  duplicates: number;       // rows that match something already saved
+  repeats_in_file: number;  // rows the file itself repeats
+  skipped: number;
+  failed: number;
+  conflicts: ImportConflict[];
+};
+
+// What to do with the rows the vault already has.
+type ImportMode = "update" | "skip" | "duplicate";
+
 // Card header colours. One muted family — desaturated teals, slate blues,
 // navies and soft purples — rather than a saturated hue per brand: the vault is
 // a wall of cards, and full-strength oranges/pinks beside each other made it
@@ -1023,6 +1050,94 @@ function SectionEmpty({ label, canWrite, onAdd }: { label: string; canWrite: boo
   );
 }
 
+// ─── Import conflict dialog ───────────────────────────────────────────────────
+
+/** Asks what to do with the CSV rows that are already in the vault.
+ *
+ * Shown only when the preview pass found an overlap, and only about the overlap:
+ * the genuinely new rows are imported whichever button is pressed, so the choice
+ * here is exactly "refresh these, leave these, or keep both".
+ */
+function ImportConflictsDialog({
+  preview, busy, onCancel, onChoose,
+}: {
+  preview: ImportPreview;
+  busy: boolean;
+  onCancel: () => void;
+  onChoose: (mode: ImportMode) => void;
+}) {
+  const { conflicts, duplicates, created, rows, repeats_in_file: repeats } = preview;
+  const notShown = duplicates - conflicts.length;
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onCancel(); }}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {duplicates} of these logins {duplicates === 1 ? "is" : "are"} already in your vault
+          </DialogTitle>
+        </DialogHeader>
+
+        <p className="text-sm text-muted-foreground">
+          {rows} rows read — {created} new, {duplicates} already saved
+          {repeats > 0 && `, ${repeats} repeated inside the file`}. The new ones are
+          imported either way. Choose what happens to the {duplicates === 1 ? "match" : "matches"}:
+        </p>
+
+        <div className="max-h-72 overflow-y-auto rounded-md border divide-y">
+          {conflicts.map((c) => (
+            <div key={c.row} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{c.label}</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {[c.username, c.website_name, c.login_url].filter(Boolean).join(" · ")}
+                </p>
+              </div>
+              <span className="text-xs text-muted-foreground shrink-0 max-w-[40%] truncate">
+                matches “{c.existing_label}”
+              </span>
+            </div>
+          ))}
+          {notShown > 0 && (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              …and {notShown} more.
+            </p>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:justify-between">
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => onChoose("duplicate")}
+              disabled={busy}
+              title="Store these rows as separate entries — the vault will hold both copies"
+            >
+              Keep both
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onChoose("skip")}
+              disabled={busy}
+              title="Import only the new rows and leave the saved logins untouched"
+            >
+              Skip them
+            </Button>
+            <Button
+              onClick={() => onChoose("update")}
+              disabled={busy}
+              title="Refresh the saved logins with the password, name and URL from the CSV"
+            >
+              {busy ? "Importing…" : "Update existing"}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main vault client ─────────────────────────────────────────────────────────
 
 export function CredentialsVaultClient({
@@ -1047,6 +1162,9 @@ export function CredentialsVaultClient({
   const [shareTarget, setShareTarget] = useState<Credential | null>(null);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // A file whose preview found rows the vault already holds — held here, with
+  // nothing written, until the user says what to do with them.
+  const [pendingImport, setPendingImport] = useState<{ file: File; preview: ImportPreview } | null>(null);
 
   // Built and downloaded in the browser — a static template needs no round trip.
   // The leading BOM is for Excel, which reads a BOM-less UTF-8 CSV as ANSI and
@@ -1062,37 +1180,69 @@ export function CredentialsVaultClient({
     URL.revokeObjectURL(url);
   }
 
-  async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
+  async function postImport(file: File, mode: "preview" | ImportMode) {
     const form = new FormData();
     form.append("file", file);
+    form.append("mode", mode);
+    const res = await fetch("/api/credentials/import", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
+  }
+
+  // Two passes over the same file: the first only reports what it would do, and
+  // the second — carrying the answer to the overlap — is the one that writes.
+  // The file is re-sent rather than parked on the server between the two, so a
+  // sheet of plaintext passwords never waits around in a cache.
+  async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImporting(true);
     try {
-      const res = await fetch("/api/credentials/import", { method: "POST", body: form });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        // Report against the row count so a short import is obvious straight
-        // away rather than being discovered later as missing logins.
-        const parts = [
-          `${data.created ?? 0} added`,
-          `${data.updated ?? 0} updated`,
-          `${data.skipped ?? 0} skipped`,
-        ];
-        if (data.failed) parts.push(`${data.failed} failed`);
-        toast({
-          title: `Import complete — ${data.rows ?? 0} rows read`,
-          description: parts.join(", ") + ".",
-        });
-        setTimeout(() => window.location.reload(), 1400);
-      } else {
+      const { ok, data } = await postImport(file, "preview");
+      if (!ok) {
         toast({ variant: "destructive", title: "Import failed", description: data?.detail ?? "Check the CSV and try again." });
+        return;
       }
+      if (!data.duplicates) {
+        // Nothing already in the vault — there is nothing to ask about.
+        await commitImport(file, "update");
+        return;
+      }
+      setPendingImport({ file, preview: data as ImportPreview });
     } catch {
       toast({ variant: "destructive", title: "Network error" });
     } finally {
       setImporting(false);
-      e.target.value = "";
+    }
+  }
+
+  async function commitImport(file: File, mode: ImportMode) {
+    setImporting(true);
+    try {
+      const { ok, data } = await postImport(file, mode);
+      if (!ok) {
+        toast({ variant: "destructive", title: "Import failed", description: data?.detail ?? "Check the CSV and try again." });
+        return;
+      }
+      // Report against the row count so a short import is obvious straight
+      // away rather than being discovered later as missing logins.
+      const parts = [
+        `${data.created ?? 0} added`,
+        `${data.updated ?? 0} updated`,
+        `${data.skipped ?? 0} skipped`,
+      ];
+      if (data.failed) parts.push(`${data.failed} failed`);
+      toast({
+        title: `Import complete — ${data.rows ?? 0} rows read`,
+        description: parts.join(", ") + ".",
+      });
+      setPendingImport(null);
+      setTimeout(() => window.location.reload(), 1400);
+    } catch {
+      toast({ variant: "destructive", title: "Network error" });
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -1328,6 +1478,15 @@ export function CredentialsVaultClient({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      )}
+
+      {pendingImport && (
+        <ImportConflictsDialog
+          preview={pendingImport.preview}
+          busy={importing}
+          onCancel={() => setPendingImport(null)}
+          onChoose={(mode) => commitImport(pendingImport.file, mode)}
+        />
       )}
 
       {canWrite && addSection && (
