@@ -8,9 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { Monitor, MonitorCheck, MonitorNotificationRule, NotificationChannel } from "@/lib/api";
+import type { Monitor, MonitorCheck } from "@/lib/api";
 import { MonitorActions } from "@/components/monitor-actions";
-import { MonitorNotificationPanel } from "@/components/monitor-notification-panel";
 import { MonitorResponseChart } from "@/components/monitor-response-chart";
 import { MonitorEditForm } from "@/components/monitor-edit-form";
 import { fmtDateTime } from "@/lib/utils";
@@ -59,18 +58,14 @@ export default async function MonitorDetailPage({ params }: Props) {
   const { id } = await params;
   const token = await getAccessToken();
 
-  const [monitorResult, checksResult, rulesResult, channelsResult] = await Promise.allSettled([
+  const [monitorResult, checksResult] = await Promise.allSettled([
     api.get<Monitor>(`/api/v1/monitors/${id}/`, token ?? ""),
     api.get<MonitorCheck[]>(`/api/v1/monitors/${id}/checks/`, token ?? ""),
-    api.get<MonitorNotificationRule[]>(`/api/v1/monitors/${id}/notification-rules/`, token ?? ""),
-    api.get<NotificationChannel[]>("/api/v1/notification-channels/", token ?? ""),
   ]);
 
   if (monitorResult.status === "rejected") notFound();
   const monitor = monitorResult.value;
   const checks = checksResult.status === "fulfilled" ? checksResult.value : [];
-  const rules = rulesResult.status === "fulfilled" ? rulesResult.value : [];
-  const channels = channelsResult.status === "fulfilled" ? channelsResult.value : [];
 
   const upCount = checks.filter((c) => c.status === "up").length;
   const downCount = checks.filter((c) => c.status === "down").length;
@@ -175,7 +170,7 @@ export default async function MonitorDetailPage({ params }: Props) {
         </CardContent>
       </Card>
 
-      {/* Config edit + notification rules side by side */}
+      {/* Config edit + check summary side by side */}
       <div className="grid gap-6 md:grid-cols-2">
         <MonitorEditForm monitor={monitor} />
 
@@ -215,13 +210,6 @@ export default async function MonitorDetailPage({ params }: Props) {
           </CardContent>
         </Card>
       </div>
-
-      {/* Notification rules */}
-      <MonitorNotificationPanel
-        monitorId={monitor.id}
-        initialRules={rules}
-        channels={channels}
-      />
 
       {/* Check history table */}
       <Card>
