@@ -41,6 +41,18 @@ class AuditService:
         ip_address: str | None = None,
         metadata: dict | None = None,
     ) -> None:
+        # ActivityLog.team is non-nullable, so a teamless event (a failed login
+        # for an unknown email, a user with no active team) would raise an
+        # IntegrityError here. Catching it is not enough: on Postgres the failed
+        # INSERT aborts the surrounding transaction, so the caller's own writes
+        # start failing too. Skip the write instead.
+        if team is None:
+            logger.debug(
+                "AuditService.log skipped — no team: actor=%s action=%s",
+                getattr(actor, "email", actor), action,
+            )
+            return
+
         try:
             from apps.audit.models import ActivityLog
 

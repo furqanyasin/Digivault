@@ -317,10 +317,22 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # Store a short-lived pre-auth session key
+        session_key = secrets.token_hex(32)
+        cache.set(f"preauth:{session_key}", str(user.pk), timeout=_SESSION_TTL)
+
+        # Forced password change (admin-created temp password) takes priority
+        # over every other path — the user must own their password before any
+        # token is issued. This is checked ahead of the 2FA bypass below, which
+        # otherwise hands full tokens to an account still on its temp password.
+        if user.must_change_password:
+            return Response({"requires_password_change": True, "session_key": session_key})
+
         # Local-development bypass: skip the 2FA gate entirely and issue tokens.
         # Gated behind a setting that is ONLY true in config.settings.development
         # (DEBUG). Never enabled in production settings.
         if getattr(settings, "ALLOW_2FA_BYPASS", False):
+            cache.delete(f"preauth:{session_key}")
             AuditService.log(
                 actor=user, action=ActivityLog.Action.AUTH_LOGIN,
                 team=user.active_team,
@@ -328,15 +340,6 @@ class LoginView(APIView):
                 ip_address=_get_ip(request),
             )
             return Response(_issue_tokens(user))
-
-        # Store a short-lived pre-auth session key
-        session_key = secrets.token_hex(32)
-        cache.set(f"preauth:{session_key}", str(user.pk), timeout=_SESSION_TTL)
-
-        # Forced password change (admin-created temp password) takes priority
-        # over the 2FA gate — the user must own their password first.
-        if user.must_change_password:
-            return Response({"requires_password_change": True, "session_key": session_key})
 
         if user.totp_enabled:
             # Check for a trusted device cookie (set after prior successful 2FA)
