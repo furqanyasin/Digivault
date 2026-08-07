@@ -19,11 +19,16 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
 );
 CardHeader.displayName = "CardHeader";
 
+// 16px, not 24px. 37 of the 43 call sites in this app were already overriding
+// the old text-2xl down to text-base or text-sm — a default nearly everyone
+// opts out of is the wrong default. The eight KPI cards that genuinely want a
+// big figure still say so themselves. Renders an <h3>, so it picks up the
+// display face from the base layer.
 const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
     <h3
       ref={ref}
-      className={cn("text-2xl font-semibold leading-none tracking-tight", className)}
+      className={cn("text-base font-semibold leading-none tracking-tight", className)}
       {...props}
     />
   )

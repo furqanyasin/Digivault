@@ -43,10 +43,15 @@ export function NavLinks({ items }: { items: NavLinkItem[] }) {
           <Link
             key={href}
             href={href}
+            aria-current={active ? "page" : undefined}
+            /* Active is a solid fill, not a 10% tint. A tinted pill and a hover
+               pill are the same weight at a glance, so "where am I" and "what
+               is under the cursor" competed; only one of them should read as
+               a state. */
             className={
               active
-                ? "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium bg-primary/10 text-primary transition-colors"
-                : "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                ? "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold bg-primary text-primary-foreground shadow-sm transition-colors"
+                : "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
             }
           >
             <Icon className="h-4 w-4" />

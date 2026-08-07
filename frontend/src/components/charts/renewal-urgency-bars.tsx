@@ -25,9 +25,9 @@ const BANDS = [
 export function RenewalUrgencyBars({ rows }: { rows: UrgencyRow[] }) {
   // No `mounted` guard, unlike the canvas charts: this renders real HTML during
   // SSR, so a token that differed between modes would land as a hydration
-  // mismatch on the inline style. The status steps are deliberately identical in
-  // both modes (see chart-theme.ts), which is what makes that safe — re-step
-  // them per mode and this needs the same placeholder treatment as the others.
+  // mismatch on the inline style. The status steps ARE now re-stepped per mode,
+  // so what keeps this safe is `useChartTheme` reporting light until hydration
+  // finishes — the swatch matches the server, then recolours on the next render.
   const { tokens } = useChartTheme();
   const colour = {
     urgent: tokens.status.critical,

@@ -2,6 +2,106 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ===========================================================================
+   PALETTE
+
+   Five families, every step computed in OKLCH rather than picked by eye, so a
+   ramp steps evenly in perceived lightness and never clips out of sRGB (a
+   clipped step flattens the ramp and drags the hue off-target — that is what
+   made the old violet look muddy at 700+).
+
+   Anchors, and why:
+     brand  H 279.5 — brand-500 IS the logo mark, #7678ED, converted exactly.
+                      The UI used to run a different violet (H 288, C 0.23)
+                      than the logo it sits next to.
+     teal   H 172   — "clean / up / verified". Deliberately not stock emerald:
+                      teal reads as instrument panel rather than success toast,
+                      and it stays legible against the brand indigo at every
+                      lightness, which green does not.
+     amber  H 72    — "changed / expiring / degraded".
+     rose   H 25    — "removed / down / critical".
+     slate  H 282   — neutrals, tinted toward the brand hue. Greys that carry a
+                      trace of the brand read as one family; dead grey reads as
+                      an unfinished template.
+
+   emerald / amber / red / slate are Tailwind's own family names, deliberately
+   overridden below. ~600 call sites across this app reach for raw
+   `text-emerald-600`, `bg-red-50`, `text-slate-500` and friends. Redefining the
+   families pulls every one of those into the system at once instead of editing
+   600 lines — the lightness curve is unchanged, so nothing shifts in contrast,
+   only in hue.
+   =========================================================================== */
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-space-grotesk), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, "Cascadia Code", monospace;
+
+  --color-brand-50: oklch(0.972 0.013 279.5);
+  --color-brand-100: oklch(0.940 0.029 279.5);
+  --color-brand-200: oklch(0.888 0.055 279.5);
+  --color-brand-300: oklch(0.818 0.092 279.5);
+  --color-brand-400: oklch(0.718 0.149 279.5);
+  --color-brand-500: oklch(0.628 0.172 279.5);
+  --color-brand-600: oklch(0.545 0.170 279.5);
+  --color-brand-700: oklch(0.470 0.155 279.5);
+  --color-brand-800: oklch(0.398 0.129 279.5);
+  --color-brand-900: oklch(0.330 0.100 279.5);
+  --color-brand-950: oklch(0.245 0.075 279.5);
+
+  /* "emerald" in name only — the hue is the teal described above. */
+  --color-emerald-50: oklch(0.974 0.021 172);
+  --color-emerald-100: oklch(0.944 0.039 172);
+  --color-emerald-200: oklch(0.895 0.065 172);
+  --color-emerald-300: oklch(0.830 0.088 172);
+  --color-emerald-400: oklch(0.745 0.112 172);
+  --color-emerald-500: oklch(0.660 0.118 172);
+  --color-emerald-600: oklch(0.575 0.112 172);
+  --color-emerald-700: oklch(0.495 0.096 172);
+  --color-emerald-800: oklch(0.415 0.081 172);
+  --color-emerald-900: oklch(0.340 0.067 172);
+  --color-emerald-950: oklch(0.255 0.052 172);
+
+  --color-amber-50: oklch(0.980 0.015 72);
+  --color-amber-100: oklch(0.955 0.034 72);
+  --color-amber-200: oklch(0.912 0.068 72);
+  --color-amber-300: oklch(0.855 0.117 72);
+  --color-amber-400: oklch(0.808 0.147 72);
+  --color-amber-500: oklch(0.762 0.158 72);
+  --color-amber-600: oklch(0.680 0.146 72);
+  --color-amber-700: oklch(0.585 0.126 72);
+  --color-amber-800: oklch(0.490 0.106 72);
+  --color-amber-900: oklch(0.400 0.087 72);
+  --color-amber-950: oklch(0.300 0.062 72);
+
+  --color-red-50: oklch(0.972 0.013 25);
+  --color-red-100: oklch(0.940 0.030 25);
+  --color-red-200: oklch(0.888 0.058 25);
+  --color-red-300: oklch(0.818 0.102 25);
+  --color-red-400: oklch(0.718 0.176 25);
+  --color-red-500: oklch(0.628 0.205 25);
+  --color-red-600: oklch(0.545 0.201 25);
+  --color-red-700: oklch(0.470 0.180 25);
+  --color-red-800: oklch(0.398 0.150 25);
+  --color-red-900: oklch(0.330 0.117 25);
+  --color-red-950: oklch(0.245 0.088 25);
+
+  --color-slate-50: oklch(0.986 0.007 282);
+  --color-slate-100: oklch(0.968 0.010 282);
+  --color-slate-200: oklch(0.936 0.015 282);
+  --color-slate-300: oklch(0.884 0.020 282);
+  --color-slate-400: oklch(0.800 0.022 282);
+  --color-slate-500: oklch(0.700 0.022 282);
+  --color-slate-600: oklch(0.585 0.021 282);
+  --color-slate-700: oklch(0.470 0.019 282);
+  --color-slate-800: oklch(0.360 0.017 282);
+  --color-slate-900: oklch(0.255 0.014 282);
+  --color-slate-950: oklch(0.175 0.012 282);
+}
+
+/* Semantic aliases. `inline` so a utility compiles to `var(--primary)` and
+   therefore re-resolves when .dark swaps the value, instead of baking one
+   theme's colour into the class. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -22,6 +122,20 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* Status pairs. Each is a surface + a foreground already checked against it
+     (AA at 14px in both themes), so a badge or pill never has to guess. */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-surface: var(--success-surface);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-surface: var(--warning-surface);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-surface: var(--danger-surface);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-surface: var(--info-surface);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -36,47 +150,79 @@
      it, and any viewport-height page subtracts it (see the Clients table). */
   --chat-safe-area: 5.5rem;
   --radius: 1rem;
-  --background: oklch(0.985 0.003 290);
-  --foreground: oklch(0.141 0.005 285.823);
+
+  --background: oklch(0.986 0.004 282);
+  --foreground: oklch(0.205 0.020 282);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
+  --card-foreground: var(--foreground);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.53 0.23 288);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.965 0.008 290);
-  --secondary-foreground: oklch(0.35 0.09 288);
-  --muted: oklch(0.965 0.005 290);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.955 0.02 290);
-  --accent-foreground: oklch(0.35 0.12 288);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.92 0.006 288);
-  --input: oklch(0.92 0.006 288);
-  --ring: oklch(0.53 0.23 288);
+  --popover-foreground: var(--foreground);
+  /* brand-600, not the logo's brand-500: white label text on brand-500 lands at
+     3.70:1, under the 4.5:1 floor. brand-600 clears it at 5.25:1 and still
+     reads as the same colour beside the mark. */
+  --primary: var(--color-brand-600);
+  --primary-foreground: oklch(0.995 0 0);
+  --secondary: oklch(0.968 0.010 282);
+  --secondary-foreground: var(--color-brand-700);
+  --muted: oklch(0.968 0.010 282);
+  --muted-foreground: oklch(0.545 0.021 282);
+  --accent: var(--color-brand-50);
+  --accent-foreground: var(--color-brand-700);
+  --destructive: var(--color-red-600);
+  --destructive-foreground: oklch(0.995 0 0);
+  --border: oklch(0.925 0.012 282);
+  --input: oklch(0.905 0.014 282);
+  --ring: var(--color-brand-500);
+
+  --success: var(--color-emerald-600);
+  --success-foreground: var(--color-emerald-700);
+  --success-surface: var(--color-emerald-50);
+  --warning: var(--color-amber-500);
+  --warning-foreground: var(--color-amber-800);
+  --warning-surface: var(--color-amber-50);
+  --danger: var(--color-red-600);
+  --danger-foreground: var(--color-red-700);
+  --danger-surface: var(--color-red-50);
+  --info: var(--color-brand-500);
+  --info-foreground: var(--color-brand-700);
+  --info-surface: var(--color-brand-50);
 }
 
 .dark {
-  --background: oklch(0.145 0.012 290);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.185 0.014 290);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.185 0.014 290);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.68 0.19 288);
-  --primary-foreground: oklch(0.145 0.012 290);
-  --secondary: oklch(0.275 0.02 290);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.275 0.015 290);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.3 0.05 290);
-  --accent-foreground: oklch(0.92 0.04 290);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.275 0.02 290);
-  --input: oklch(0.275 0.02 290);
-  --ring: oklch(0.68 0.19 288);
+  --background: oklch(0.178 0.014 282);
+  --foreground: oklch(0.965 0.004 282);
+  --card: oklch(0.215 0.016 282);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.215 0.016 282);
+  --popover-foreground: var(--foreground);
+  /* Flipped up the ramp, not lightened from the light-mode value: a dark
+     surface needs its own step. brand-400 carries dark ink at 6.97:1. */
+  --primary: var(--color-brand-400);
+  --primary-foreground: oklch(0.205 0.020 282);
+  --secondary: oklch(0.275 0.018 282);
+  --secondary-foreground: var(--foreground);
+  --muted: oklch(0.275 0.018 282);
+  --muted-foreground: oklch(0.735 0.020 282);
+  --accent: oklch(0.298 0.038 282);
+  --accent-foreground: var(--color-brand-200);
+  --destructive: var(--color-red-500);
+  --destructive-foreground: oklch(0.205 0.020 282);
+  --border: oklch(0.298 0.018 282);
+  --input: oklch(0.318 0.020 282);
+  --ring: var(--color-brand-400);
+
+  --success: var(--color-emerald-400);
+  --success-foreground: var(--color-emerald-300);
+  --success-surface: var(--color-emerald-950);
+  --warning: var(--color-amber-400);
+  --warning-foreground: var(--color-amber-300);
+  --warning-surface: var(--color-amber-950);
+  --danger: var(--color-red-400);
+  --danger-foreground: var(--color-red-300);
+  --danger-surface: var(--color-red-950);
+  --info: var(--color-brand-400);
+  --info-foreground: var(--color-brand-300);
+  --info-surface: var(--color-brand-950);
 }
 
 @layer base {
@@ -85,8 +231,41 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+    /* cv05 gives lowercase l a tail and cv08 puts serifs on uppercase I. In a
+       console whose job is spotting that one character changed in a script URL,
+       l / I / 1 collapsing into the same stem is a correctness problem, not a
+       taste one. */
+    font-feature-settings: "cv05" 1, "cv08" 1;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
+
+  /* Headings carry the display face. Space Grotesk is drawn off Space Mono, so
+     the headline layer and the machine-data layer below read as one voice. */
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.018em;
+  }
+}
+
+/* Machine strings — script URLs, SRI hashes, site IDs, snippet code. This app
+   is mostly these, and setting them in the same face as prose is why a changed
+   character is easy to miss. */
+.dv-code {
+  font-family: var(--font-mono);
+  font-feature-settings: "zero" 1;
+  font-size: 0.9em;
+  letter-spacing: -0.01em;
+}
+
+/* Figures that stack in a column — response times, counts, percentages, dates.
+   Proportional digits make a column of numbers ragged; tabular ones line the
+   decimal points up so the eye can compare down the column instead of reading
+   each row. */
+.dv-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 1;
 }
 
 /* ---------------------------------------------------------------------------
