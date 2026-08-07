@@ -105,7 +105,12 @@ export function WebsiteAlertsStatus({
         <p className="text-xs text-muted-foreground">
           All alerts for this site — script changes, domain/SSL/hosting expiry, SEO,
           and uptime/downtime — go to this channel. Leave on &ldquo;Team default&rdquo;
-          to use the team&apos;s active channels.
+          to use the team&apos;s active channels. To put every site on one channel at
+          once, use{" "}
+          <Link href="/monitors/channels" className="underline hover:text-foreground">
+            Notification Channels
+          </Link>
+          .
         </p>
       </div>
 

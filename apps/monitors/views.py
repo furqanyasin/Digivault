@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService, site_meta
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import IsTeamMember
+from apps.common.permissions import IsTeamMember, RolePermission
 from apps.integrations.clickup import ClickUpClient
 from apps.monitors.models import Monitor, MonitorCheck, MonitorNotificationRule, NotificationChannel
 from apps.monitors.serializers import (
@@ -337,6 +337,46 @@ class NotificationChannelTestView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
         ok, message = _test_channel(channel)
         return Response({"success": ok, "message": message})
+
+
+class NotificationChannelApplyAllView(APIView):
+    """POST /api/v1/notification-channels/<pk>/apply-to-all-websites/
+
+    Points every website in the team at this channel. Routing is otherwise set
+    one site at a time, and a team that has just wired up a channel wants all of
+    them on it — the sites missed in that manual pass are the ones that go on
+    alerting nowhere.
+
+    Any per-site uptime override is cleared as well. Leaving downtime routed to
+    an older channel would defeat the point of the action, and uptime falls back
+    to the general channel when unset.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, RolePermission]
+    # Rerouting every alert in the team is not a per-site edit.
+    required_role = "manager"
+
+    def post(self, request, pk):
+        from apps.websites.models import Website
+
+        team = request.user.active_team
+        if not team:
+            return Response({"detail": "No active team."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            channel = NotificationChannel.objects.get(pk=pk, team=team)
+        except NotificationChannel.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        updated = Website.objects.filter(team=team).update(
+            notification_channel=channel, uptime_notification_channel=None
+        )
+
+        AuditService.log_request(
+            request, ActivityLog.Action.NOTIFICATION_CHANNEL_APPLIED_ALL,
+            description=f"Routed {updated} website(s) to notification channel '{channel.name}'",
+            resource_type="notification_channel", resource_id=channel.pk,
+        )
+        return Response({"updated": updated, "channel": channel.name})
 
 
 def _test_channel(channel) -> tuple[bool, str]:

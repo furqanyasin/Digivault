@@ -67,6 +67,9 @@ class ActivityLog(BaseModel):
         ALERT_RULE_DELETED = "alert.rule_deleted", "Alert rule deleted"
         NOTIFICATION_CHANNEL_CREATED = "alert.channel_created", "Notification channel created"
         NOTIFICATION_CHANNEL_DELETED = "alert.channel_deleted", "Notification channel deleted"
+        NOTIFICATION_CHANNEL_APPLIED_ALL = (
+            "alert.channel_applied_all", "Notification channel applied to all websites"
+        )
         # Monitors (extended)
         MONITOR_UPDATED = "monitor.updated", "Monitor updated"
         MONITOR_DELETED = "monitor.deleted", "Monitor deleted"
