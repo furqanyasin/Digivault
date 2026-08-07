@@ -656,17 +656,51 @@ def _guess_credential_type(url: str, grouping: str) -> str:
     return "custom"
 
 
+# Column widths on Credential — a CSV row longer than these would raise a
+# DataError mid-import and abandon every row after it.
+_LABEL_MAX = 200
+_URL_MAX = 500
+
+
+def _normalize_login_url(url: str) -> str:
+    """Identity form of a login URL — scheme, case and trailing slash removed.
+
+    Only used to decide whether two rows describe the same login; the original
+    URL is what gets stored.
+    """
+    u = (url or "").strip().lower()
+    u = u.removeprefix("https://").removeprefix("http://")
+    return u.rstrip("/")
+
+
+def _import_identity(website_id, username_hash: str, login_url: str, label: str) -> tuple:
+    """What makes an imported login unique.
+
+    A credential is "the same login" only when it is the same account (username)
+    at the same *service*. Keying on username alone collapses every hosting panel
+    an agency signs into with one shared email down to a single row. The login URL
+    names the service; when a row has no URL, its label is the only thing left to
+    tell it apart.
+    """
+    url_key = _normalize_login_url(login_url)
+    return (website_id, username_hash, url_key or f"label:{label.strip().lower()}")
+
+
 class CredentialImportView(APIView):
     """POST /api/v1/credentials/import/ — import a LastPass CSV export.
 
     Expected columns (LastPass default): url, username, password, totp, extra,
     name, grouping, fav. Each row becomes an encrypted Credential. When the URL's
     host matches a team website the credential links to it; otherwise it's a
-    standalone (Hosting & General) login. Re-importing the same site+username
-    refreshes the stored password instead of duplicating.
+    standalone (Hosting & General) login. Re-importing the same login — same
+    account at the same service — refreshes the stored password instead of
+    duplicating.
+
+    Owner/manager only: an import writes to the whole team's vault.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, RolePermission]
+    required_role = "manager"
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
@@ -691,73 +725,196 @@ class CredentialImportView(APIView):
 
         from apps.websites.models import Website
 
-        created = updated = skipped = 0
-        for row in reader:
-            name = (row.get("name") or "").strip()
-            url = (row.get("url") or "").strip()
-            username = (row.get("username") or "").strip()
-            password = row.get("password") or ""
-            extra = (row.get("extra") or "").strip()
-            totp = (row.get("totp") or "").strip()
-            grouping = (row.get("grouping") or "").strip()
+        # Index the team's existing vault once. Looking each row up with its own
+        # query was both N queries and — because the lookup ignored the service —
+        # the reason distinct logins overwrote each other.
+        index: dict[tuple, Credential] = {}
+        for cred in Credential.objects.filter(team=team):
+            index.setdefault(
+                _import_identity(cred.website_id, cred.username_hash, cred.login_url, cred.label),
+                cred,
+            )
 
-            # Skip secure notes / rows with no usable login.
-            if not username and not password:
-                skipped += 1
-                continue
+        # Domains resolve to the same handful of websites over and over.
+        website_cache: dict[str, object] = {}
 
-            notes = extra
-            if totp:
-                notes = (notes + "\n" if notes else "") + f"TOTP secret: {totp}"
+        def _website_for(host: str):
+            if host in website_cache:
+                return website_cache[host]
+            bare = host.removeprefix("www.")
+            site = (
+                Website.objects.filter(team=team, domain__iexact=host).first()
+                or Website.objects.filter(team=team, domain__iexact=bare).first()
+                or Website.objects.filter(team=team, domain__iexact=f"www.{bare}").first()
+            )
+            website_cache[host] = site
+            return site
 
-            # Link to a team website when the host matches; else standalone.
-            host = ""
+        rows = created = updated = skipped = failed = 0
+        errors: list[str] = []
+
+        for line_no, row in enumerate(reader, start=2):  # line 1 is the header
+            rows += 1
             try:
-                parsed = urlparse(url if "://" in url else f"https://{url}")
-                host = (parsed.hostname or "").lower()
-            except ValueError:
+                name = (row.get("name") or "").strip()
+                url = (row.get("url") or "").strip()
+                username = (row.get("username") or "").strip()
+                password = row.get("password") or ""
+                extra = (row.get("extra") or "").strip()
+                totp = (row.get("totp") or "").strip()
+                grouping = (row.get("grouping") or "").strip()
+
+                # Skip secure notes / rows with no usable login.
+                if not username and not password:
+                    skipped += 1
+                    continue
+
+                notes = extra
+                if totp:
+                    notes = (notes + "\n" if notes else "") + f"TOTP secret: {totp}"
+
+                # Link to a team website when the host matches; else standalone.
                 host = ""
-            website = None
-            if host:
-                bare = host.removeprefix("www.")
-                website = (
-                    Website.objects.filter(team=team, domain__iexact=host).first()
-                    or Website.objects.filter(team=team, domain__iexact=bare).first()
-                    or Website.objects.filter(team=team, domain__iexact=f"www.{bare}").first()
-                )
+                try:
+                    parsed = urlparse(url if "://" in url else f"https://{url}")
+                    host = (parsed.hostname or "").lower()
+                except ValueError:
+                    host = ""
+                website = _website_for(host) if host else None
 
-            label = name or host or "Imported login"
-            cred_type = _guess_credential_type(url, grouping)
+                label = (name or host or "Imported login")[:_LABEL_MAX]
+                cred_type = _guess_credential_type(url, grouping)
 
-            existing = None
-            if username:
-                existing = Credential.objects.filter(
-                    team=team, website=website,
-                    username_hash=Credential.hash_username(username),
-                ).first()
+                # A URL past the column width would blow up the insert. Keep the
+                # full value in the notes rather than storing a truncated link.
+                stored_url = url
+                if len(stored_url) > _URL_MAX:
+                    notes = (notes + "\n" if notes else "") + f"Full login URL: {url}"
+                    stored_url = ""
 
-            if existing:
-                CredentialService.update(
-                    credential=existing,
-                    password=password or None,
-                    login_url=url or None,
-                    updated_by=request.user,
+                key = _import_identity(
+                    website.id if website else None,
+                    Credential.hash_username(username),
+                    stored_url or url,
+                    label,
                 )
-                updated += 1
-            else:
-                CredentialService.create(
-                    label=label, credential_type=cred_type, login_url=url,
-                    username=username, password=password, notes=notes,
-                    created_by=request.user, team=team, website=website,
-                )
-                created += 1
+                existing = index.get(key)
+
+                if existing:
+                    # The CSV is the source of truth on re-import: refresh the
+                    # label and type too, so a repeat import repairs rows left
+                    # mislabelled by an earlier one rather than freezing them.
+                    CredentialService.update(
+                        credential=existing,
+                        label=label,
+                        credential_type=cred_type,
+                        password=password or None,
+                        login_url=stored_url or None,
+                        updated_by=request.user,
+                    )
+                    updated += 1
+                else:
+                    cred = CredentialService.create(
+                        label=label, credential_type=cred_type, login_url=stored_url,
+                        username=username, password=password, notes=notes,
+                        created_by=request.user, team=team, website=website,
+                    )
+                    index[key] = cred
+                    created += 1
+            except Exception as exc:  # noqa: BLE001 — one bad row must not sink the import
+                failed += 1
+                if len(errors) < 10:
+                    errors.append(f"Row {line_no}: {exc.__class__.__name__}")
 
         if created or updated:
             AuditService.log_request(
-                request, ActivityLog.Action.CREDENTIAL_CREATED,
+                request, ActivityLog.Action.CREDENTIAL_IMPORTED,
                 description=f"Imported credentials from CSV — {created} created, {updated} updated",
                 resource_type="credential",
-                metadata={"created": created, "updated": updated, "skipped": skipped, "source": "lastpass_csv"},
+                metadata={
+                    "rows": rows, "created": created, "updated": updated,
+                    "skipped": skipped, "failed": failed, "source": "lastpass_csv",
+                },
             )
 
-        return Response({"created": created, "updated": updated, "skipped": skipped})
+        return Response({
+            "rows": rows, "created": created, "updated": updated,
+            "skipped": skipped, "failed": failed, "errors": errors,
+        })
+
+
+class CredentialExportThrottle(UserRateThrottle):
+    rate = "10/hour"
+    scope = "credential_export"
+
+
+class CredentialExportView(APIView):
+    """GET /api/v1/credentials/export/ — download the team vault as a CSV.
+
+    Emits the same columns the importer reads, so an export round-trips back in.
+    Owner/manager only, rate limited, and audit logged twice: once as a team
+    activity and once per credential in the immutable access log, because an
+    export is a bulk reveal of every password in the vault.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, RolePermission]
+    required_role = "manager"
+    throttle_classes = [CredentialExportThrottle]
+
+    def get(self, request):
+        team = request.user.active_team
+        if team is None:
+            return Response({"detail": "No active team."}, status=status.HTTP_400_BAD_REQUEST)
+
+        creds = list(
+            Credential.objects.visible_to(request.user)
+            .filter(team=team)
+            .select_related("website")
+            .order_by("website__domain", "label")
+        )
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["url", "username", "password", "totp", "extra", "name", "grouping", "fav"])
+        for c in creds:
+            try:
+                username, password, notes = c.get_username(), c.get_password(), c.get_notes()
+            except Exception:
+                # A row encrypted under a rotated key must not abort the export.
+                username = password = ""
+                notes = "Could not decrypt — vault key mismatch."
+            writer.writerow([
+                c.login_url,
+                username,
+                password,
+                "",
+                notes,
+                c.label,
+                "Website Credentials" if c.website_id else "Hosting & General",
+                "0",
+            ])
+
+        CredentialAccessLog.objects.bulk_create([
+            CredentialAccessLog(
+                credential=c,
+                user=request.user,
+                action=CredentialAccessLog.Action.VIEWED,
+                ip_address=_get_client_ip(request),
+            )
+            for c in creds
+        ])
+        AuditService.log_request(
+            request, ActivityLog.Action.CREDENTIAL_EXPORTED,
+            description=f"Exported {len(creds)} credential(s) to CSV",
+            resource_type="credential",
+            metadata={"count": len(creds)},
+        )
+
+        from django.http import HttpResponse
+
+        # Excel reads a BOM-less UTF-8 CSV as ANSI; the importer strips the BOM.
+        response = HttpResponse(
+            "﻿" + buf.getvalue(), content_type="text/csv; charset=utf-8"
+        )
+        response["Content-Disposition"] = 'attachment; filename="digivault-vault-export.csv"'
+        return response
