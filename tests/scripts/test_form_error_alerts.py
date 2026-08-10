@@ -16,7 +16,7 @@ from apps.accounts.models import User
 from apps.accounts.services import TeamService
 from apps.monitors.models import NotificationChannel
 from apps.scripts.models import FormSubmissionError
-from apps.scripts.notifications import notify_form_error
+from apps.scripts.notifications import MAX_ALERTS_PER_WEBSITE, notify_form_error
 from apps.websites.models import Website
 
 
@@ -83,6 +83,35 @@ class TestTeamChannelAnnounce:
 
         with patch("apps.integrations.chat.notify_problem") as np:
             notify_form_error(other)
+
+        assert np.called
+
+    def test_a_site_cannot_be_flooded_by_minting_new_form_ids(self, website):
+        """The per-form cooldown is keyed on attacker-supplied input.
+
+        form_id arrives on the unauthenticated ingest endpoint, so a unique id
+        per request is a unique cooldown key — an unbounded stream of ClickUp
+        messages and emails from one site. The per-site ceiling is the backstop.
+        """
+        for i in range(MAX_ALERTS_PER_WEBSITE):
+            _error(website, form_id=f"minted-{i}", alerted_at=timezone.now())
+        flood = _error(website, form_id="minted-next")
+
+        with patch("apps.integrations.chat.notify_problem") as np:
+            assert notify_form_error(flood) is False
+
+        assert not np.called
+
+    def test_the_ceiling_only_counts_alerts_inside_the_window(self, website):
+        for i in range(MAX_ALERTS_PER_WEBSITE):
+            _error(
+                website, form_id=f"old-{i}",
+                alerted_at=timezone.now() - timedelta(hours=25),
+            )
+        fresh = _error(website, form_id="today")
+
+        with patch("apps.integrations.chat.notify_problem") as np:
+            notify_form_error(fresh)
 
         assert np.called
 

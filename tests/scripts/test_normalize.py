@@ -320,3 +320,49 @@ class TestNormalizePageUrl:
     def test_garbage_input_returned_unchanged(self):
         assert normalize_page_url("nonsense") == "nonsense"
         assert normalize_page_url("") == ""
+
+
+class TestPageContextParams:
+    """A tracker that carries the current page in its src is one script, not one
+    per page. ActiveCampaign's prism/trackcmp beacons put the whole page URL in
+    `u=`/`url=` and a per-visit UUID in `prismid=`, which minted a Script row —
+    and a high-severity "unknown script" change — for every page on the site.
+    """
+
+    def test_a_url_valued_param_is_dropped(self):
+        a = normalize_script_url(
+            "https://prism.app-us1.com/?a=224932943&u=https%3A%2F%2Fsite.com%2Fblog%2F4%2F"
+        )
+        b = normalize_script_url(
+            "https://prism.app-us1.com/?a=224932943&u=https%3A%2F%2Fsite.com%2Fblog%2F5%2F"
+        )
+        assert a == b
+        assert "site.com" not in a
+        # The account id is identity and must survive.
+        assert "a=224932943" in a
+
+    def test_a_uuid_valued_param_is_dropped(self):
+        a = normalize_script_url(
+            "https://trackcmp.net/t.php?trackid=2249&prismid=df38e203-e545-42a5-a998-0e3a1df09038"
+        )
+        b = normalize_script_url(
+            "https://trackcmp.net/t.php?trackid=2249&prismid=c444ff8d-d018-4061-b1af-682006e3d3eb"
+        )
+        assert a == b
+        assert "trackid=2249" in a
+
+    def test_the_whole_activecampaign_beacon_collapses_to_one_identity(self):
+        urls = [
+            "https://trackcmp.net/t_prism_sitemessages.php?trackid=224932943"
+            "&prismid=df38e203-e545-42a5-a998-0e3a1df09038"
+            "&url=https%3A%2F%2Fsite.com%2Fblog%2F16%2F",
+            "https://trackcmp.net/t_prism_sitemessages.php?trackid=224932943"
+            "&prismid=b0488a7a-4958-4ece-8e1e-c954ea5e9fec"
+            "&url=https%3A%2F%2Fsite.com%2Fcategory%2Fblog%2Fpage%2F4%2F",
+        ]
+        assert len({normalize_script_url(u) for u in urls}) == 1
+
+    def test_a_non_url_non_uuid_param_still_counts_as_identity(self):
+        a = normalize_script_url("https://vendor.io/tag.js?id=GTM-ABC")
+        b = normalize_script_url("https://vendor.io/tag.js?id=GTM-XYZ")
+        assert a != b

@@ -105,13 +105,16 @@ class TestDiffEngine:
     def test_unknown_widget_version_swap_collapses_to_single_update(self):
         """A versioned third-party widget (same host) should read as one calm
         'updated' event, not a high Added + medium Removed pair."""
-        prev = [self._script("https://widgets.leadconnectorhq.com/loader-abc123.js")]
-        curr = [self._script("https://widgets.leadconnectorhq.com/loader-def456.js")]
+        # Deliberately an unclassified host: a recognised provider names itself
+        # in the description instead of quoting the URL, which is a different
+        # path than the one under test here.
+        prev = [self._script("https://widgets.some-unknown-saas.io/loader-abc123.js")]
+        curr = [self._script("https://widgets.some-unknown-saas.io/loader-def456.js")]
         changes = DiffEngine.diff(prev, curr)
         assert len(changes) == 1
         assert changes[0].change_type == ScriptChange.ChangeType.URL_CHANGED
         assert changes[0].severity == ScriptChange.Severity.MEDIUM
-        assert "leadconnectorhq.com" in changes[0].description
+        assert "some-unknown-saas.io" in changes[0].description
 
     def test_unknown_add_and_unrelated_remove_not_collapsed(self):
         """Different hosts must NOT collapse — a genuine add and remove stay separate."""

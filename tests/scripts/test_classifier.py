@@ -1,4 +1,6 @@
 
+import pytest
+
 from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.models import Script
 
@@ -105,3 +107,27 @@ class TestScriptClassifier:
         result = ScriptClassifier.classify("https://js.hsadspixel.net/pixels.js")
         assert result.provider == "HubSpot Ads Pixel"
         assert result.category == Script.Category.ADVERTISING
+
+
+class TestActiveCampaignAndLeadConnector:
+    """Providers that arrived as high-severity "Unknown script detected" noise.
+
+    ActiveCampaign's site messaging serves from two hosts besides trackcmp.net,
+    and LeadConnector (GoHighLevel) chat widgets ship from two more — every one
+    of them was unrecognised, which is the loudest severity the dashboard has.
+    """
+
+    @pytest.mark.parametrize("url", [
+        "https://prism.app-us1.com/?a=224932943",
+        "https://diffuser-cdn.app-us1.com/diffuser/diffuser.js",
+    ])
+    def test_activecampaign_hosts_are_recognised(self, url):
+        assert ScriptClassifier.classify(url).provider == "ActiveCampaign"
+
+    @pytest.mark.parametrize("url", [
+        "https://widgets.leadconnectorhq.com/chat-widget/chat-widget.js",
+        "https://widgets.leadconnectorhq.com/loader.js",
+        "https://stcdn.leadconnectorhq.com/libphonenumber/libphonenumber-js.min.js",
+    ])
+    def test_leadconnector_widgets_are_recognised(self, url):
+        assert ScriptClassifier.classify(url).provider == "LeadConnector (GoHighLevel)"
