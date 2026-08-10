@@ -250,6 +250,12 @@ class DetectedForm(BaseModel):
     )
     # For embedded forms — the third-party provider (e.g. "HubSpot", "Typeform").
     provider = models.CharField(max_length=100, blank=True)
+    # Where this form's submissions are configured to be sent. Detected from
+    # form *configuration* only (mailto: action, data-email/data-recipient
+    # attributes, hidden input values) — never from what a visitor types.
+    # Blank when the destination is configured server-side (Contact Form 7,
+    # Formspree, Netlify) and therefore invisible to any in-page script.
+    recipient_email = models.CharField(max_length=254, blank=True, default="")
     # Structural hash that uniquely identifies a form within a page.
     fingerprint = models.CharField(max_length=64, db_index=True)
     # Count of submit attempts observed by the snippet (native/same-origin

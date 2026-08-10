@@ -77,6 +77,46 @@ class TestExtractForms:
         forms = _extract_forms('<form><input type="text"></form>')
         assert forms[0]["fields"] == []
 
+    def test_mailto_action_yields_recipient_email(self):
+        forms = _extract_forms(
+            '<form action="mailto:info@example.com?subject=hello">'
+            '<input type="text" name="q">'
+            "</form>"
+        )
+        assert forms[0]["recipient_email"] == "info@example.com"
+
+    def test_hidden_input_value_yields_recipient_email(self):
+        forms = _extract_forms(
+            '<form action="/submit/">'
+            '<input type="text" name="name">'
+            '<input type="hidden" name="recipient" value="Sales@Example.com">'
+            '<input type="submit" value="Send">'
+            "</form>"
+        )
+        assert forms[0]["recipient_email"] == "sales@example.com"
+        # The hidden config field stays out of the visible field list.
+        assert [(f["name"], f["type"]) for f in forms[0]["fields"]] == [("name", "text")]
+
+    def test_visitor_email_field_is_not_a_recipient(self):
+        forms = _extract_forms(
+            '<form action="/submit/">'
+            '<input type="email" name="your-email" value="visitor@example.com">'
+            "</form>"
+        )
+        assert forms[0]["recipient_email"] == ""
+
+    def test_malformed_hidden_value_yields_no_recipient(self):
+        forms = _extract_forms(
+            '<form action="/submit/">'
+            '<input type="hidden" name="recipient" value="not-an-email">'
+            "</form>"
+        )
+        assert forms[0]["recipient_email"] == ""
+
+    def test_form_without_recipient_defaults_empty(self):
+        forms = _extract_forms('<form action="/submit/"><input name="q"></form>')
+        assert forms[0]["recipient_email"] == ""
+
 
 @pytest.mark.django_db
 class TestScanQueuesForms:

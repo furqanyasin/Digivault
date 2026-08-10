@@ -13,6 +13,7 @@ from apps.audit.services import AuditService
 from apps.audit.models import ActivityLog
 from apps.site_health.models import SiteScanState
 from apps.site_health.serializers import SiteScanStateSerializer
+from apps.scripts.normalize import normalize_recipient_email
 from apps.websites.serializers import (
     SnippetInstructionSerializer,
     WebsiteCreateSerializer,
@@ -175,14 +176,23 @@ def _extract_forms(html: str) -> list[dict]:
         block = html[form_match.end():end if end != -1 else form_match.end() + 8000]
 
         fields: list[dict] = []
+        recipient_email = ""
         for field_match in re.finditer(r"<(input|textarea|select)\b[^>]*>", block, re.IGNORECASE):
             tag = field_match.group(1).lower()
             field_attrs = tag_attrs(field_match.group(0))
             name = field_attrs.get("name", "")
-            if not name:
-                continue
             ftype = field_type(tag, field_attrs)
-            if tag == "input" and ftype in ("hidden", "submit", "button", "reset", "image"):
+            if tag == "input" and ftype in ("submit", "button", "reset", "image"):
+                continue
+            # Hidden inputs carry the form's *configuration* — most commonly
+            # its recipient address — never a visitor's typed value. Captured
+            # for recipient_email but kept out of the field list, matching the
+            # snippet's collectForms().
+            if tag == "input" and ftype == "hidden":
+                if not recipient_email:
+                    recipient_email = normalize_recipient_email(field_attrs.get("value", ""))
+                continue
+            if not name:
                 continue
             label = ""
             fid = field_attrs.get("id")
@@ -206,6 +216,10 @@ def _extract_forms(html: str) -> list[dict]:
                 or bool(re.search(r"\brequired\b", field_match.group(0), re.IGNORECASE)),
             })
 
+        if not recipient_email:
+            action = form_attrs.get("action", "")
+            if re.match(r"^mailto:", action, re.IGNORECASE):
+                recipient_email = action.split("?")[0].split(":")[1].split(",")[0]
         forms.append({
             "form_id": form_attrs.get("id", ""),
             "form_name": form_attrs.get("name", ""),
@@ -213,6 +227,7 @@ def _extract_forms(html: str) -> list[dict]:
             "form_method": (form_attrs.get("method") or "post").lower(),
             "detection_type": "native",
             "provider": "",
+            "recipient_email": normalize_recipient_email(recipient_email),
             "fields": fields[:200],
         })
 
