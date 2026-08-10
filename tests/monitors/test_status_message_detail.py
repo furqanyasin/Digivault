@@ -6,9 +6,12 @@ HTTP code, the error text, the timing — and these tests pin that it reaches th
 channel, with the people who manage the site named on it.
 """
 
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+
+from django.utils import timezone
 
 from apps.accounts.models import TeamMembership, User
 from apps.accounts.services import TeamService
@@ -101,8 +104,15 @@ def test_fields_survive_a_check_that_recorded_nothing(setup):
 
 def test_latest_check_is_the_one_that_triggered_the_alert(setup):
     _, _, monitor, _ = setup
-    MonitorCheck.objects.create(monitor=monitor, status="up", status_code=200)
+    older = MonitorCheck.objects.create(monitor=monitor, status="up", status_code=200)
     newest = _failed_check(monitor)
+    # auto_now_add stamps both rows within the same microsecond, so ordering by
+    # -checked_at alone is a coin flip. Pin an explicit order to test what the
+    # production flow guarantees: the row written right before the alert fires.
+    MonitorCheck.objects.filter(pk=older.pk).update(
+        checked_at=timezone.now() - timedelta(seconds=1)
+    )
+    newest.refresh_from_db()
 
     assert latest_check(monitor) == newest
 

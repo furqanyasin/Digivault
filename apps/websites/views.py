@@ -21,6 +21,58 @@ from apps.websites.serializers import (
 
 logger = logging.getLogger(__name__)
 
+# Browser-ish headers for the snippet verifier. A UA that names a scanner is an
+# easy target for host WAFs, and a bare request with no Accept/Sec-Fetch headers
+# reads as a bot to most bot-management edges.
+_VERIFY_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Cache-Control": "no-cache, no-store",
+    "Pragma": "no-cache",
+}
+
+# Bodies a bot-protection edge or WAF serves in place of the real page. Matching
+# any of these means we did not see the customer's HTML, so we cannot conclude
+# anything about whether the snippet is installed.
+_BLOCK_PAGE_MARKERS = (
+    "just a moment",
+    "cf-browser-verification",
+    "cf_chl_opt",
+    "checking your browser",
+    "enable javascript and cookies to continue",
+    "attention required! | cloudflare",
+    "ddos protection by",
+    "403 - forbidden",
+    "403 forbidden",
+    "access denied",
+    "request blocked",
+    "you have been blocked",
+    "web application firewall",
+    "mod_security",
+    "are you a human",
+    "captcha",
+)
+
+# Real pages are bigger than this. Interstitials and error stubs are not.
+_MIN_PLAUSIBLE_PAGE_BYTES = 1024
+
+
+def _looks_like_block_page(html: str) -> bool:
+    """True when the body is an interstitial rather than the site's real page."""
+    head = html[:8192].lower()
+    if any(marker in head for marker in _BLOCK_PAGE_MARKERS):
+        return True
+    return len(html) < _MIN_PLAUSIBLE_PAGE_BYTES
+
 
 def _extract_script_urls(html: str) -> list[str]:
     """Extract external script URLs from raw HTML — both static tags and common inline loaders.
@@ -502,19 +554,56 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="verify-snippet")
     def verify_snippet(self, request, pk=None):
-        """Fetch the website URL and confirm the tracking snippet is present."""
+        """Confirm the tracking snippet is installed.
+
+        Two signals, strongest first:
+
+        1. Ingest traffic. Only a real browser loading a page that carries the
+           snippet can produce a snapshot, so its existence proves installation
+           outright. Server-side `scan` snapshots are excluded — those come from
+           us, not from the snippet.
+        2. A server-side fetch of the homepage. This is best-effort: sites behind
+           Cloudflare bot management or a host WAF serve us a challenge or a 403
+           instead of their real HTML, and we must not read that as "the snippet
+           is missing" — doing so sent users re-pasting HTML that was correct.
+        """
         import secrets as _secrets
         import requests as _requests
 
+        from apps.scripts.models import ScriptSnapshot
+
         website = self.get_object()
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
-        marker = f'data-site="{website.site_id}"'
+
+        def _verified(reason, **extra):
+            AuditService.log_request(
+                request, ActivityLog.Action.WEBSITE_SNIPPET_VERIFIED,
+                description=f"Snippet verified for '{website.domain}'",
+                resource_type="website", resource_id=website.pk,
+            )
+            return Response({"verified": True, "reason": reason, **extra})
+
+        # 1. Ingest traffic is authoritative — check it before touching the network.
+        traffic = (
+            ScriptSnapshot.objects.filter(website=website)
+            .exclude(snippet_version="server-scan")
+            .order_by("-captured_at")
+            .first()
+        )
+        if traffic is not None:
+            return _verified(
+                "ingest_traffic",
+                detail=(
+                    "The snippet is reporting in — we last received data from "
+                    f"{traffic.page_url} on {traffic.captured_at:%d %b %Y at %H:%M} UTC."
+                ),
+            )
 
         from apps.common.ssrf import BlockedURLError, assert_public_url
         try:
             assert_public_url(url)
         except BlockedURLError as e:
-            return Response({"verified": False, "error": str(e)})
+            return Response({"verified": False, "reason": "unreachable", "error": str(e)})
 
         # Append a random cache-buster so CDNs/proxies return a fresh response.
         bust = _secrets.token_hex(8)
@@ -523,29 +612,59 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         try:
             resp = _requests.get(
                 fetch_url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (compatible; Digivault-Verifier/1.0)",
-                    "Cache-Control": "no-cache, no-store",
-                    "Pragma": "no-cache",
-                },
+                headers=_VERIFY_HEADERS,
                 timeout=15,
                 allow_redirects=True,
             )
             html = resp.text
         except Exception as e:
             logger.warning("Snippet verify failed for website %s: %s", website.pk, e)
-            return Response({"verified": False, "error": "Could not reach the site. Check the domain is correct and publicly accessible."})
+            return Response({
+                "verified": False,
+                "reason": "unreachable",
+                "error": "Could not reach the site. Check the domain is correct and publicly accessible.",
+            })
 
-        if marker in html:
-            AuditService.log_request(
-                request, ActivityLog.Action.WEBSITE_SNIPPET_VERIFIED,
-                description=f"Snippet verified for '{website.domain}'",
-                resource_type="website", resource_id=website.pk,
-            )
-            return Response({"verified": True})
+        # Match on the site ID alone, not on `data-site="<id>"` — HTML minifiers
+        # and page builders re-quote attributes, and the ID is a 43-char random
+        # token, so its presence anywhere in the page is proof enough.
+        if website.site_id in html:
+            return _verified("html_match")
+
+        blocked_note = (
+            " Add the snippet to your firewall/CDN allowlist, or just wait — once a "
+            "visitor loads the page, the snippet reports in and this verifies itself."
+        )
+
+        if resp.status_code >= 400:
+            return Response({
+                "verified": False,
+                "reason": "blocked",
+                "error": (
+                    f"{url} answered our check with HTTP {resp.status_code}, so we never saw "
+                    f"your page — this is the site's firewall or CDN blocking us, not a "
+                    f"problem with your snippet.{blocked_note}"
+                ),
+            })
+
+        if _looks_like_block_page(html):
+            return Response({
+                "verified": False,
+                "reason": "blocked",
+                "error": (
+                    f"{url} served a bot-protection page ({len(html):,} bytes) instead of your "
+                    f"HTML, so we could not check the snippet.{blocked_note}"
+                ),
+            })
+
         return Response({
             "verified": False,
-            "error": f"Snippet not found on {url}. Checked {len(html):,} bytes of HTML.",
+            "reason": "not_found",
+            "error": (
+                f"Snippet not found on {url}. Checked {len(html):,} bytes of HTML. "
+                f"Make sure the tag is in the <head> of the published page and that any "
+                f"page cache has been cleared."
+            ),
         })
 
     @action(detail=False, methods=["get"], url_path="expiring-domains")

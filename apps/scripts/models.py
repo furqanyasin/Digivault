@@ -407,11 +407,17 @@ class FormSubmissionError(BaseModel):
     form_id = models.CharField(max_length=200, blank=True)
     page_url = models.TextField()
     message = models.TextField()
+    # When this row's failure was announced to the team. Only the row that
+    # actually raised the alert is stamped — that is what the per-form cooldown
+    # in apps.scripts.notifications reads, so a form that keeps failing gets
+    # re-reported once a day instead of once ever.
+    alerted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["website", "-created_at"]),
+            models.Index(fields=["website", "form_id", "-alerted_at"]),
         ]
 
     def __str__(self) -> str:
