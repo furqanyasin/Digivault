@@ -10,10 +10,12 @@ export function RefreshDomainButton({
   websiteId,
   label = "Refresh domain info",
   variant = "outline",
+  runFullCheck = false,
 }: {
   websiteId: string;
   label?: string;
   variant?: "outline" | "default";
+  runFullCheck?: boolean;
 }) {
   const { toast } = useToast();
   const router = useRouter();
@@ -22,16 +24,37 @@ export function RefreshDomainButton({
   async function handle() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/websites/${websiteId}/domain`, { method: "POST" });
-      if (res.ok) {
-        toast({ title: "Domain info updated", description: "WHOIS and SSL data refreshed." });
-        router.refresh();
+      const calls = [
+        fetch(`/api/websites/${websiteId}/domain`, { method: "POST" }),
+      ];
+      if (runFullCheck) {
+        calls.push(fetch(`/api/websites/${websiteId}/scan`, { method: "POST" }));
+      }
+      const [domainRes, scanRes] = await Promise.all(calls);
+
+      const failures: string[] = [];
+      if (!domainRes.ok) failures.push(`domain refresh (${domainRes.status})`);
+      if (scanRes && !scanRes.ok) failures.push(`scan (${scanRes.status})`);
+
+      if (failures.length === 0) {
+        toast({
+          title: runFullCheck ? "Check complete" : "Domain info updated",
+          description: runFullCheck
+            ? "Scripts, forms, WHOIS and SSL data refreshed."
+            : "WHOIS and SSL data refreshed.",
+        });
+        if (runFullCheck) {
+          // The scan's ingest runs asynchronously in Celery — give it a moment
+          // to process, then reload the page so freshly-detected data shows.
+          setTimeout(() => router.refresh(), 2500);
+        } else {
+          router.refresh();
+        }
       } else {
-        const d = await res.json().catch(() => ({}));
         toast({
           variant: "destructive",
-          title: "Domain check failed",
-          description: d?.detail ?? `Error ${res.status}`,
+          title: runFullCheck ? "Check failed" : "Domain check failed",
+          description: `Could not complete ${failures.join(", ")}.`,
         });
       }
     } catch {

@@ -139,6 +139,86 @@ def _extract_script_urls(html: str) -> list[str]:
     return urls
 
 
+def _extract_forms(html: str) -> list[dict]:
+    """Best-effort native <form> extraction from raw server-side HTML.
+
+    Mirrors the field shape the snippet's collectForms() reports for native
+    forms (see apps/scripts/snippet.js) so descriptors flow through the same
+    upsert path and produce rows the snippet's submission counter can match.
+    Regex-based like _extract_script_urls: div-based and embedded iframe forms
+    are invisible in static HTML and there is no HTML-parser dependency.
+    """
+    import re
+
+    forms: list[dict] = []
+
+    def tag_attrs(tag: str) -> dict:
+        out: dict = {}
+        for m in re.finditer(
+            r"""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""",
+            tag,
+        ):
+            out[m.group(1).lower()] = m.group(2) or m.group(3) or m.group(4) or ""
+        return out
+
+    def field_type(tag: str, attrs: dict) -> str:
+        if tag == "textarea":
+            return "textarea"
+        if tag == "select":
+            return "select"
+        return (attrs.get("type") or "text").lower()
+
+    for form_match in re.finditer(r"<form\b[^>]*>", html, re.IGNORECASE):
+        form_attrs = tag_attrs(form_match.group(0))
+        end = html.find("</form>", form_match.end())
+        # A stray unclosed <form> must not swallow the rest of the page.
+        block = html[form_match.end():end if end != -1 else form_match.end() + 8000]
+
+        fields: list[dict] = []
+        for field_match in re.finditer(r"<(input|textarea|select)\b[^>]*>", block, re.IGNORECASE):
+            tag = field_match.group(1).lower()
+            field_attrs = tag_attrs(field_match.group(0))
+            name = field_attrs.get("name", "")
+            if not name:
+                continue
+            ftype = field_type(tag, field_attrs)
+            if tag == "input" and ftype in ("hidden", "submit", "button", "reset", "image"):
+                continue
+            label = ""
+            fid = field_attrs.get("id")
+            if fid:
+                lm = re.search(
+                    r'<label\b[^>]*\bfor=["\']' + re.escape(fid) + r'["\'][^>]*>(.*?)</label>',
+                    block,
+                    re.IGNORECASE | re.DOTALL,
+                )
+                if lm:
+                    label = re.sub(r"<[^>]+>", "", lm.group(1)).strip()
+            if not label:
+                label = field_attrs.get("placeholder", "")
+            fields.append({
+                "name": name,
+                "type": ftype,
+                "label": label,
+                # `required` is a bare boolean attribute — it never has a value,
+                # so it cannot be captured by the key="value" regex above.
+                "required": "required" in field_attrs
+                or bool(re.search(r"\brequired\b", field_match.group(0), re.IGNORECASE)),
+            })
+
+        forms.append({
+            "form_id": form_attrs.get("id", ""),
+            "form_name": form_attrs.get("name", ""),
+            "form_action": form_attrs.get("action", ""),
+            "form_method": (form_attrs.get("method") or "post").lower(),
+            "detection_type": "native",
+            "provider": "",
+            "fields": fields[:200],
+        })
+
+    return forms
+
+
 _MANAGER_ROLES = {"owner", "manager"}
 
 
@@ -506,11 +586,13 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             website.save(update_fields=["platform"])
 
         script_urls = _extract_script_urls(html)
+        forms = _extract_forms(html)
 
-        if not script_urls:
+        if not script_urls and not forms:
             return Response({
-                "detail": "No external scripts found on the page.",
+                "detail": "No external scripts or forms found on the page.",
                 "count": 0,
+                "forms": 0,
                 "platform": website.platform,
             })
 
@@ -525,6 +607,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         payload = {
             "page_url": final_url,
             "scripts": scripts,
+            "forms": forms,
             "user_agent": "Digivault-Scanner/1.0",
             "snippet_version": "server-scan",
         }
@@ -547,8 +630,9 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             resource_type="website", resource_id=website.pk,
         )
         return Response({
-            "detail": f"Scan queued — found {len(scripts)} scripts.",
+            "detail": f"Scan queued — found {len(scripts)} scripts and {len(forms)} forms.",
             "count": len(scripts),
+            "forms": len(forms),
             "platform": website.platform,
         })
 

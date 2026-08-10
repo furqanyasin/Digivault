@@ -11,6 +11,33 @@
     ingestUrl = window.location.origin + '/api/ingest/';
   }
 
+  // POST without credentials. navigator.sendBeacon always sends with
+  // credentials mode "include", which browsers refuse for a cross-origin
+  // response carrying `Access-Control-Allow-Origin: *` — the ingest endpoints
+  // are unauthenticated and must never accept cookies, so every sendBeacon on
+  // a client site died at the preflight with a CORS error and the site's
+  // scripts, forms and errors never reached the backend. fetch() with
+  // credentials omitted matches the server's `*` policy; keepalive keeps the
+  // page-unload survival that was sendBeacon's reason for existing.
+  function post(url, payload) {
+    if (typeof fetch === 'function') {
+      try {
+        fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+          credentials: 'omit',
+          keepalive: true
+        });
+        return;
+      } catch (err) { /* fall through to XHR */ }
+    }
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.send(payload);
+  }
+
   function isWpCore(src) {
     return src.indexOf('/wp-includes/') !== -1 || src.indexOf('/wp-admin/') !== -1;
   }
@@ -212,17 +239,9 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.9'
+      snippet_version: '1.10'
     });
-    if (navigator.sendBeacon) {
-      var blob = new Blob([payload], { type: 'application/json' });
-      navigator.sendBeacon(ingestUrl, blob);
-    } else {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', ingestUrl, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(payload);
-    }
+    post(ingestUrl, payload);
   }
 
   var hasSent = false;
@@ -353,14 +372,7 @@
       page_url: window.location.href,
       form: desc
     });
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(formSubmitUrl, new Blob([payload], { type: 'application/json' }));
-    } else {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', formSubmitUrl, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(payload);
-    }
+    post(formSubmitUrl, payload);
   }
 
   // Clicks on submit-style controls, for the forms a `submit` event never
@@ -432,14 +444,7 @@
       form_id: formId || '',
       message: (message || '').slice(0, 500)
     });
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(formErrorsUrl, new Blob([payload], { type: 'application/json' }));
-    } else {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', formErrorsUrl, true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(payload);
-    }
+    post(formErrorsUrl, payload);
   }
 
   function formSource(form) {
@@ -529,14 +534,7 @@
         // First frames only — a full trace can be enormous and adds little.
         stack: String(stack || '').split(NEWLINE).slice(0, 5).join(NEWLINE).slice(0, 4000)
       });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon(jsErrorsUrl, new Blob([payload], { type: 'application/json' }));
-      } else {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', jsErrorsUrl, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.send(payload);
-      }
+      post(jsErrorsUrl, payload);
     } catch (e) { /* never let reporting break the page */ }
   }
 

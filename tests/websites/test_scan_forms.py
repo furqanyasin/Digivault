@@ -1,0 +1,154 @@
+"""Server-side scan must surface forms, not just scripts.
+
+The scan endpoint fetches the homepage server-side; before this, its payload
+carried only scripts, so a freshly added <form> stayed invisible until a
+real browser loaded the page with the passive snippet. The extraction mirrors
+the snippet's native-form descriptor shape so the row it writes matches what
+the submission counter looks up.
+"""
+
+from unittest.mock import Mock, patch
+
+import pytest
+
+from apps.websites.views import _extract_forms
+
+
+class TestExtractForms:
+    def test_native_form_descriptor(self):
+        html = """
+        <form id="contact" name="contact-form" action="/submit/" method="post">
+          <label for="your-name">Your name</label>
+          <input type="text" id="your-name" name="your-name" required>
+          <input type="email" name="your-email" placeholder="Email">
+          <input type="hidden" name="_wpcf7" value="123">
+          <input type="submit" value="Send">
+        </form>
+        """
+        forms = _extract_forms(html)
+
+        assert len(forms) == 1
+        form = forms[0]
+        assert form["form_id"] == "contact"
+        assert form["form_name"] == "contact-form"
+        assert form["form_action"] == "/submit/"
+        assert form["form_method"] == "post"
+        assert form["detection_type"] == "native"
+        assert form["provider"] == ""
+
+        names = [(f["name"], f["type"]) for f in form["fields"]]
+        assert names == [("your-name", "text"), ("your-email", "email")]
+
+        your_name = form["fields"][0]
+        assert your_name["label"] == "Your name"
+        assert your_name["required"] is True
+        assert form["fields"][1]["label"] == "Email"
+        assert form["fields"][1]["required"] is False
+
+    def test_textarea_and_select_types(self):
+        html = """
+        <form action="/x">
+          <textarea name="message"></textarea>
+          <select name="subject"><option>1</option></select>
+        </form>
+        """
+        forms = _extract_forms(html)
+
+        assert [(f["name"], f["type"]) for f in forms[0]["fields"]] == [
+            ("message", "textarea"),
+            ("subject", "select"),
+        ]
+
+    def test_actionless_form_defaults_to_post(self):
+        forms = _extract_forms('<form><input name="q"></form>')
+        assert forms[0]["form_action"] == ""
+        assert forms[0]["form_method"] == "post"
+
+    def test_unclosed_form_does_not_swallow_the_page(self):
+        # A stray <form> with no </form> must not make a later page's inputs
+        # fields of it — and must not blow up the extractor.
+        html = "<form id='broken'>" + "<input name='a'>" + "x" * 10000 + "</body></html>"
+        forms = _extract_forms(html)
+
+        assert len(forms) == 1
+        assert [f["name"] for f in forms[0]["fields"]] == ["a"]
+
+    def test_anonymous_fields_are_kept(self):
+        forms = _extract_forms('<form><input type="text"></form>')
+        assert forms[0]["fields"] == []
+
+
+@pytest.mark.django_db
+class TestScanQueuesForms:
+    def _patch_fetch(self, html):
+        resp = Mock()
+        resp.status_code = 200
+        resp.text = html
+        resp.url = "https://example.com/"
+        resp.headers = {}
+        return resp
+
+    def _scan(self, auth_client, website, html):
+        resp = self._patch_fetch(html)
+        ingest_mock = Mock()
+        with patch("requests.get", return_value=resp), \
+             patch("apps.scripts.tasks.process_ingest_payload", ingest_mock), \
+             patch("apps.site_health.tasks.run_security_scan"), \
+             patch("apps.site_health.tasks.run_seo_check"):
+            response = auth_client.post(f"/api/v1/websites/{website.id}/scan/")
+        return response, ingest_mock
+
+    def _website(self, team):
+        from apps.websites.models import Website
+        return Website.objects.create(team=team, name="Example", domain="example.com")
+
+    def test_scan_payload_includes_forms(self, auth_client, team):
+        website = self._website(team)
+        html = """
+        <html><body>
+          <script src="https://cdn.example.com/app.js"></script>
+          <form id="contact" action="/submit/" method="post">
+            <input type="text" name="name" required>
+            <input type="submit" value="Send">
+          </form>
+        </body></html>
+        """
+        response, ingest_mock = self._scan(auth_client, website, html)
+
+        assert response.status_code == 200, response.data
+        assert response.data["count"] == 1
+        assert response.data["forms"] == 1
+
+        ingest_mock.delay.assert_called_once()
+        payload = ingest_mock.delay.call_args[0][1]
+        assert len(payload["scripts"]) == 1
+        assert len(payload["forms"]) == 1
+        assert payload["forms"][0]["form_id"] == "contact"
+        assert payload["forms"][0]["form_action"] == "/submit/"
+        assert payload["forms"][0]["detection_type"] == "native"
+
+    def test_scan_with_forms_but_no_scripts_still_queues(self, auth_client, team):
+        website = self._website(team)
+        html = """
+        <html><body>
+          <form action="/submit/"><input type="text" name="email"></form>
+        </body></html>
+        """
+        response, ingest_mock = self._scan(auth_client, website, html)
+
+        assert response.status_code == 200, response.data
+        assert response.data["count"] == 0
+        assert response.data["forms"] == 1
+        ingest_mock.delay.assert_called_once()
+        assert ingest_mock.delay.call_args[0][1]["forms"][0]["form_id"] == ""
+
+    def test_scan_with_neither_returns_early(self, auth_client, team):
+        website = self._website(team)
+        response, ingest_mock = self._scan(
+            auth_client, website, "<html><body><p>No forms here</p></body></html>"
+        )
+
+        assert response.status_code == 200
+        assert response.data["count"] == 0
+        assert response.data["forms"] == 0
+        ingest_mock.delay.assert_not_called()
