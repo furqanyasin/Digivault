@@ -197,6 +197,7 @@ function FormsTable({
           <TableRow>
             <TableHead>Form</TableHead>
             <TableHead>Path</TableHead>
+            <TableHead>Goes to</TableHead>
             <TableHead className="text-right">Submits</TableHead>
             <TableHead className="text-right">Success</TableHead>
             <TableHead>Last submit</TableHead>
@@ -222,6 +223,23 @@ function FormsTable({
                     <span className="ml-1 whitespace-nowrap font-sans">
                       +{form.pages.length - 1} more
                     </span>
+                  )}
+                </TableCell>
+                <TableCell
+                  className="font-mono text-xs text-muted-foreground max-w-[200px] truncate"
+                  title={form.recipient_emails.join("\n")}
+                >
+                  {form.recipient_emails.length > 0 ? (
+                    <>
+                      {form.recipient_emails[0]}
+                      {form.recipient_emails.length > 1 && (
+                        <span className="ml-1 whitespace-nowrap font-sans">
+                          +{form.recipient_emails.length - 1} more
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="font-sans">{embedded ? "—" : "Server-side"}</span>
                   )}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">

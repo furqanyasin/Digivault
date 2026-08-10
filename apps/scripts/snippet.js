@@ -142,6 +142,51 @@
   // "native" hashes to something that was never stored.
   var trackedForms = [];
 
+  function isEmailAddress(s) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+  }
+
+  // Hidden input names that read as "where to send this" rather than a visitor
+  // field. Bare "email"/"your-email" are deliberately excluded: on a real
+  // form they are the visitor's address, not the destination, and multi-step
+  // forms carry the visitor's email between steps in a hidden field.
+  var RECIPIENT_NAME = /(_to|^to$|sendto|send_to|recipient|receiver|notify|mailto|mail_to|admin_email|notification|target_email|forward|destination|deliver|report)/i;
+
+  var RECIPIENT_ATTRS = [
+    'data-email', 'data-recipient', 'data-recipient-email', 'data-send-to',
+    'data-mailto', 'data-email-to', 'data-notify-email', 'data-deliver-to'
+  ];
+
+  // Where a form's submissions are configured to go. Reads form *configuration*
+  // only — the mailto: action, data-* attributes, and hidden input values
+  // (which carry server-side config, never what a visitor types). A form whose
+  // destination lives server-side (Contact Form 7, Formspree, Netlify) is
+  // invisible here and returns "". Returns the first address found, preferring
+  // the highest-confidence signal, else "".
+  function detectRecipientEmail(formEl) {
+    var action = formEl.getAttribute ? formEl.getAttribute('action') || '' : '';
+    if (/^mailto:/i.test(action)) {
+      var addr = action.replace(/^mailto:/i, '').split('?')[0].split(',')[0].trim();
+      if (isEmailAddress(addr)) return addr.toLowerCase();
+    }
+    if (formEl.getAttribute) {
+      for (var a = 0; a < RECIPIENT_ATTRS.length; a++) {
+        var v = formEl.getAttribute(RECIPIENT_ATTRS[a]);
+        if (v && isEmailAddress(v)) return v.toLowerCase();
+      }
+    }
+    var hidden = formEl.querySelectorAll ? formEl.querySelectorAll('input[type="hidden"]') : [];
+    var fallback = '';
+    for (var h = 0; h < hidden.length; h++) {
+      var val = (hidden[h].value || '').trim();
+      if (!isEmailAddress(val)) continue;
+      var name = (hidden[h].name || '').toLowerCase();
+      if (RECIPIENT_NAME.test(name)) return val.toLowerCase();
+      if (!fallback) fallback = val.toLowerCase();
+    }
+    return fallback;
+  }
+
   function collectForms() {
     var result = [];
     trackedForms = [];
@@ -163,6 +208,7 @@
         form_method: (f.method || 'post').toLowerCase(),
         detection_type: 'native',
         provider: '',
+        recipient_email: detectRecipientEmail(f),
         fields: fieldList
       };
       result.push(nativeDesc);
@@ -198,6 +244,7 @@
         form_method: 'post',
         detection_type: 'dom',
         provider: '',
+        recipient_email: detectRecipientEmail(grp.container),
         fields: grp.fields
       };
       result.push(domDesc);
@@ -239,7 +286,7 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.10'
+      snippet_version: '1.11'
     });
     post(ingestUrl, payload);
   }

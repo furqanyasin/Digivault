@@ -307,6 +307,7 @@ class Command(BaseCommand):
                     "form_name": "Contact form",
                     "form_action": f"https://{domain}/contact",
                     "detection_type": "native",
+                    "recipient_email": f"hello@{domain.replace('www.', '')}",
                     "fields": [
                         {"name": "name", "type": "text", "label": "Name", "required": True},
                         {"name": "email", "type": "email", "label": "Email", "required": True},

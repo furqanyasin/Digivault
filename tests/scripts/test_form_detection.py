@@ -63,6 +63,33 @@ class TestUpsertForm:
         _upsert_form(website, PAGE, payload)
         assert DetectedForm.objects.filter(website=website, page_url=PAGE).count() == 1
 
+    def test_recipient_email_is_normalized_on_store(self, website):
+        _upsert_form(website, PAGE, {
+            "detection_type": "native", "form_action": "mailto:Info@Example.com",
+            "fields": [{"name": "name"}], "recipient_email": " Info@Example.com ",
+        })
+        form = DetectedForm.objects.get(website=website, page_url=PAGE)
+        assert form.recipient_email == "info@example.com"
+
+    def test_invalid_recipient_email_does_not_400(self, website):
+        _upsert_form(website, PAGE, {
+            "detection_type": "native", "form_action": "/submit",
+            "fields": [{"name": "name"}], "recipient_email": "not-an-email",
+        })
+        form = DetectedForm.objects.get(website=website, page_url=PAGE)
+        assert form.recipient_email == ""
+
+    def test_recipient_email_update_is_idempotent_across_ingests(self, website):
+        payload = {
+            "detection_type": "native", "form_action": "/submit",
+            "fields": [{"name": "name"}], "recipient_email": "info@example.com",
+        }
+        _upsert_form(website, PAGE, payload)
+        _upsert_form(website, PAGE, payload)
+        assert DetectedForm.objects.filter(website=website, page_url=PAGE).count() == 1
+        form = DetectedForm.objects.get(website=website, page_url=PAGE)
+        assert form.recipient_email == "info@example.com"
+
 
 @pytest.mark.django_db
 class TestIngestFormsEndToEnd:
@@ -91,6 +118,45 @@ class TestIngestFormsEndToEnd:
         forms = DetectedForm.objects.filter(website=website, page_url=PAGE)
         assert forms.count() == 3
         assert set(forms.values_list("detection_type", flat=True)) == {"native", "dom", "embedded"}
+
+    def test_ingest_stores_recipient_email(self, website):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        resp = client.post("/api/ingest/", {
+            "site_id": website.site_id,
+            "page_url": PAGE,
+            "scripts": [],
+            "forms": [{
+                "detection_type": "native",
+                "form_action": "mailto:info@example.com",
+                "recipient_email": "Info@Example.com",
+                "fields": [{"name": "email", "type": "email"}],
+            }],
+            "snippet_version": "1.11",
+        }, format="json")
+        assert resp.status_code == 202
+
+        form = DetectedForm.objects.get(website=website, page_url=PAGE)
+        assert form.recipient_email == "info@example.com"
+
+    def test_ingest_rejects_overlong_recipient_email(self, website):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        resp = client.post("/api/ingest/", {
+            "site_id": website.site_id,
+            "page_url": PAGE,
+            "scripts": [],
+            "forms": [{
+                "detection_type": "native",
+                "form_action": "/submit",
+                "recipient_email": f"a@{'x' * 300}.com",
+                "fields": [{"name": "email", "type": "email"}],
+            }],
+            "snippet_version": "1.11",
+        }, format="json")
+        assert resp.status_code == 400
 
 
 class TestFingerprint:

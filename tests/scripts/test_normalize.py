@@ -1,7 +1,11 @@
 """Tests for apps.scripts.normalize — stable URL identity."""
 
 
-from apps.scripts.normalize import normalize_page_url, normalize_script_url
+from apps.scripts.normalize import (
+    normalize_page_url,
+    normalize_recipient_email,
+    normalize_script_url,
+)
 
 
 class TestNormalizeScriptUrl:
@@ -366,3 +370,20 @@ class TestPageContextParams:
         a = normalize_script_url("https://vendor.io/tag.js?id=GTM-ABC")
         b = normalize_script_url("https://vendor.io/tag.js?id=GTM-XYZ")
         assert a != b
+
+
+class TestNormalizeRecipientEmail:
+    def test_lowercases_and_strips(self):
+        assert normalize_recipient_email("  Info@Site.com  ") == "info@site.com"
+
+    def test_keeps_plus_addressing(self):
+        assert normalize_recipient_email("sales+quotes@site.com") == "sales+quotes@site.com"
+
+    def test_strips_name_angle_bracket_form(self):
+        assert normalize_recipient_email("Sales <sales@site.com>") == "sales@site.com"
+
+    def test_empty_and_garbage_rejected(self):
+        assert normalize_recipient_email("") == ""
+        assert normalize_recipient_email("not-an-email") == ""
+        assert normalize_recipient_email("a@b") == ""
+        assert normalize_recipient_email("sales@site.com, dev@site.com") == ""

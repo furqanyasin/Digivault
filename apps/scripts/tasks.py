@@ -21,7 +21,11 @@ from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.suspicion import analyse
 from apps.scripts.diff_engine import DiffEngine
 from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
-from apps.scripts.normalize import normalize_page_url, normalize_script_url
+from apps.scripts.normalize import (
+    normalize_page_url,
+    normalize_recipient_email,
+    normalize_script_url,
+)
 from apps.scripts.wp_assets import diff_assets
 from apps.site_health.models import SiteEvent
 from apps.websites.models import Website
@@ -508,6 +512,9 @@ def _upsert_form(website, page_url: str, form_data: dict) -> None:
                 "detection_type", DetectedForm.DetectionType.NATIVE
             ),
             "provider": form_data.get("provider", ""),
+            "recipient_email": normalize_recipient_email(
+                form_data.get("recipient_email", "")
+            ),
             "fields": form_data.get("fields", []),
         },
     )

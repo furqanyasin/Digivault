@@ -179,3 +179,28 @@ def normalize_page_url(url: str) -> str:
     host = parts.netloc.lower().removeprefix("www.")
     path = parts.path.rstrip("/") or "/"
     return urlunsplit((parts.scheme.lower() or "https", host, path, "", ""))
+
+
+# A conservative address check: one local part, one dot in the domain. Keeps
+# "info@site.com" and rejects "not-an-email", tokens and half-typed addresses.
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+
+def normalize_recipient_email(value: str) -> str:
+    """Return a stable, validated recipient address, or "" when it isn't one.
+
+    The recipient email is form *configuration* — where a submission is sent —
+    not visitor input. It is lowercased and stripped so the same address seen
+    as "Info@Site.com" and "info@site.com" stores once, and garbage from a
+    malformed hidden input (quotes, trailing spaces, list separators) is
+    rejected rather than stored.
+    """
+    if not value:
+        return ""
+    candidate = value.strip().strip('"').strip("'").lower()
+    # A "Name <addr>" style value: keep only the angle-bracketed address.
+    if " <" in candidate and candidate.endswith(">"):
+        candidate = candidate.split(" <", 1)[1].rstrip(">").strip()
+    if not _EMAIL_RE.match(candidate):
+        return ""
+    return candidate

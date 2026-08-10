@@ -10,7 +10,11 @@
 import type { DetectedForm } from "@/lib/api";
 
 /** A form merged across every page it was found on. */
-export type FormRow = DetectedForm & { pages: string[] };
+export type FormRow = DetectedForm & {
+  pages: string[];
+  /** Distinct recipient addresses collected across the pages it appears on. */
+  recipient_emails: string[];
+};
 
 // A structural signature for a form, ignoring which page it appeared on, so the
 // same form across pages collapses into a single row (with summed submissions).
@@ -44,10 +48,17 @@ export function dedupeForms(forms: DetectedForm[]): FormRow[] {
     const sig = formSignature(f);
     const existing = bySignature.get(sig);
     if (!existing) {
-      bySignature.set(sig, { ...f, pages: [f.page_url] });
+      bySignature.set(sig, {
+        ...f,
+        pages: [f.page_url],
+        recipient_emails: f.recipient_email ? [f.recipient_email] : [],
+      });
     } else {
       existing.submission_count += f.submission_count;
       if (!existing.pages.includes(f.page_url)) existing.pages.push(f.page_url);
+      if (f.recipient_email && !existing.recipient_emails.includes(f.recipient_email)) {
+        existing.recipient_emails.push(f.recipient_email);
+      }
       if (f.last_submission_at && (!existing.last_submission_at || f.last_submission_at > existing.last_submission_at)) {
         existing.last_submission_at = f.last_submission_at;
       }

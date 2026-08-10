@@ -409,6 +409,7 @@ export interface DetectedForm {
   form_method: string;
   detection_type: "native" | "dom" | "embedded";
   provider: string;
+  recipient_email: string;
   is_managed: boolean;
   submission_count: number;
   last_submission_at: string | null;
