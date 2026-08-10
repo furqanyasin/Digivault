@@ -369,7 +369,7 @@ export default async function WebsiteDetailPage({
             websiteId={id}
             wpSsoConfigured={website.wp_sso_configured ?? false}
           />
-          <RefreshDomainButton websiteId={id} label="Run check" variant="default" />
+          <RefreshDomainButton websiteId={id} label="Run check" variant="default" runFullCheck />
         </div>
       </div>
 
