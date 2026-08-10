@@ -33,6 +33,28 @@ _VOLATILE_PARAMS = frozenset({
 # Values that are clearly content hashes / cache tokens regardless of key.
 _HEXLIKE_VALUE = re.compile(r"^[0-9a-f]{16,}$", re.IGNORECASE)
 
+# A param whose value is itself a URL carries the page the beacon fired on, not
+# the beacon's identity. ActiveCampaign's prism/trackcmp trackers send the whole
+# current page in `u=`/`url=`, so a 60-page site listed the same tracker sixty
+# times — each as a separate high-severity "unknown script". Matched on the
+# value rather than a key list because every vendor spells the key differently.
+_URL_VALUE = re.compile(r"^(https?:)?//|^https?%3a%2f%2f", re.IGNORECASE)
+
+# A bare UUID is a per-visit session or message token — `prismid=` rotates on
+# every page view. Identity params (container ids, account ids, site keys) are
+# vendor-shaped strings, not UUIDs. Deliberately anchored: a UUID *inside* a
+# longer value is left alone.
+_UUID_VALUE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def _is_volatile_value(value: str) -> bool:
+    """True when a param's value identifies the visit, not the script."""
+    return bool(
+        _HEXLIKE_VALUE.match(value) or _URL_VALUE.match(value) or _UUID_VALUE.match(value)
+    )
+
 # A content hash embedded in a filename, bounded by . or - and followed by
 # another . or - — e.g. modules.75bf3488a101739acfe9.js (Hotjar),
 # app-a1b2c3d4e5f60718.js, main.4f2b8c1d9e0a.chunk.js (webpack/Vite).
@@ -125,7 +147,7 @@ def normalize_script_url(url: str) -> str:
         # A blank value identifies nothing — `?id=` is a misconfigured tag, and
         # keeping it would list that tag separately from every real container.
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
-        if v and k.lower() not in _VOLATILE_PARAMS and not _HEXLIKE_VALUE.match(v)
+        if v and k.lower() not in _VOLATILE_PARAMS and not _is_volatile_value(v)
     ]
     kept.sort()
     return urlunsplit((

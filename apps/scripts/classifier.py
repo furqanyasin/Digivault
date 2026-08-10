@@ -222,6 +222,9 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"sdk\.gorgias\.io", "Gorgias", _C.CHAT),
     _e(r"beacon-v2\.helpscout\.net", "Help Scout", _C.CHAT),
     _e(r"cdn\.podium\.com", "Podium", _C.CHAT),
+    # GoHighLevel's widget CDN — chat widget, form loader and its phone-number
+    # helper all ship from here on agency-built client sites.
+    _e(r"leadconnectorhq\.com", "LeadConnector (GoHighLevel)", _C.CHAT),
     _e(r"cdn\.birdeye\.com", "BirdEye", _C.CHAT),
     _e(r"cdn\.front-chat\.com", "Front", _C.CHAT),
     _e(r"cdn\.statuspage\.io", "Statuspage", _C.CHAT),
@@ -241,6 +244,10 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"js\.hsforms\.net|js\.hubspot\.com", "HubSpot", _C.CRM),
     _e(r"pi\.pardot\.com", "Salesforce Pardot", _C.CRM),
     _e(r"trackcmp\.net", "ActiveCampaign", _C.CRM),
+    # ActiveCampaign's site-messaging/personalisation stack. Same account as
+    # trackcmp.net, different hosts — unrecognised, they arrived as the loudest
+    # severity the dashboard has.
+    _e(r"(^|\.)app-us1\.com", "ActiveCampaign", _C.CRM),
     _e(r"munchkin\.marketo\.net", "Marketo", _C.CRM),
     _e(r"static\.klaviyo\.com", "Klaviyo", _C.CRM),
     _e(r"cdn\.mailchimpapp\.com", "Mailchimp", _C.CRM),

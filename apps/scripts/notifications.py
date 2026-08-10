@@ -33,6 +33,14 @@ logger = logging.getLogger(__name__)
 # developer who reads the first message is still working on it an hour later.
 ALERT_COOLDOWN = timedelta(days=1)
 
+# Ceiling on alerts one website can raise in a cooldown window. The per-form
+# cooldown is keyed on `form_id`, which arrives on the unauthenticated ingest
+# endpoint — a caller minting a fresh id per request mints a fresh cooldown key
+# with it, and every one would be a ClickUp message and an email. Ten distinct
+# genuinely-broken forms on a single site in one day is already implausible;
+# past that the honest reading is a flood, and the rows are still all stored.
+MAX_ALERTS_PER_WEBSITE = 10
+
 EMOJI = "📩"
 TITLE = "has a failing form"
 
@@ -82,6 +90,27 @@ def _recently_alerted(error) -> bool:
         .exclude(pk=error.pk)
         .exists()
     )
+
+
+def _website_at_ceiling(error) -> bool:
+    """True when this site has already spent its alert budget for the window.
+
+    Counts distinct forms, not rows: the per-form cooldown stamps one row per
+    form, so this is "how many separate forms have shouted today".
+    """
+    from apps.scripts.models import FormSubmissionError
+
+    spent = (
+        FormSubmissionError.objects.filter(
+            website_id=error.website_id,
+            alerted_at__gte=timezone.now() - ALERT_COOLDOWN,
+        )
+        .exclude(pk=error.pk)
+        .values("form_id")
+        .distinct()
+        .count()
+    )
+    return spent >= MAX_ALERTS_PER_WEBSITE
 
 
 def _send_email(channel, error) -> None:
@@ -140,6 +169,13 @@ def notify_form_error(error) -> bool:
         logger.info(
             "Form %s on website %s already alerted within cooldown; staying quiet",
             error.form_id, error.website_id,
+        )
+        return False
+
+    if _website_at_ceiling(error):
+        logger.warning(
+            "Website %s hit the form-alert ceiling (%s per %s); staying quiet",
+            error.website_id, MAX_ALERTS_PER_WEBSITE, ALERT_COOLDOWN,
         )
         return False
 
