@@ -1,3 +1,4 @@
+import logging
 import os
 
 from django.http import HttpResponse
@@ -34,8 +35,14 @@ from apps.scripts.serializers import (
     ScriptChangeSerializer,
     ScriptSerializer,
 )
-from apps.scripts.tasks import _upsert_form, process_ingest_payload
+from apps.scripts.tasks import (
+    _upsert_form,
+    deliver_form_error_alert,
+    process_ingest_payload,
+)
 from apps.websites.models import Website
+
+logger = logging.getLogger(__name__)
 
 
 class SnippetJsView(APIView):
@@ -256,13 +263,20 @@ class FormErrorIngestView(APIView):
                 return Response(status=status.HTTP_403_FORBIDDEN)
 
         if is_important_form_error(data["message"]):
-            FormSubmissionError.objects.create(
+            error = FormSubmissionError.objects.create(
                 website=website,
                 source=data["source"][:100],
                 form_id=data["form_id"][:200],
                 page_url=sanitize_page_url(data["page_url"]),
                 message=sanitize_error_message(data["message"]),
             )
+            # Best-effort: the row is the record of truth. A broker outage or a
+            # failing channel must not turn a captured error into a 500 that the
+            # snippet retries.
+            try:
+                deliver_form_error_alert.delay(str(error.pk))
+            except Exception:
+                logger.exception("Could not queue alert for form error %s", error.pk)
         return Response(status=status.HTTP_202_ACCEPTED)
 
 

@@ -585,3 +585,23 @@ def purge_old_snapshots() -> int:
 
     logger.info("purge_old_snapshots: removed %d snapshots", total_deleted)
     return total_deleted
+
+
+@shared_task(name="scripts.deliver_form_error_alert")
+def deliver_form_error_alert(error_id: str) -> bool:
+    """Alert on a stored form error, off the ingest request's critical path.
+
+    Split out because delivery talks to ClickUp and SMTP, and `/api/ingest/
+    form-errors/` is a public snippet endpoint that must answer in milliseconds.
+    """
+    from apps.scripts import notifications
+    from apps.scripts.models import FormSubmissionError
+
+    error = (
+        FormSubmissionError.objects.filter(pk=error_id)
+        .select_related("website", "website__team", "website__client")
+        .first()
+    )
+    if error is None:
+        return False
+    return notifications.notify_form_error(error)

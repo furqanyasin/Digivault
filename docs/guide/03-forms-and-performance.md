@@ -34,10 +34,17 @@ and time.
   the server redacts any email/phone/secret that leaks into that text before storing.
 - **Noise filter:** ordinary validation messages ("field is required", "invalid
   email") are ignored; only genuine server‑side failures are recorded.
+- **You get told:** a recorded failure is announced in the team's ClickUp channel
+  (naming the client, site, page and the error text) and sent to any notification
+  channels the site or team has configured — the same routing uptime and expiry
+  alerts use. **One alert per form per day:** every visitor who hits the broken
+  form reports it, so the second and later failures stay quiet until the cooldown
+  passes; a form still broken tomorrow is reported again.
 
 **Get 100% benefit:** this is your early warning that a client's contact form has
 silently stopped emailing leads. Check it after any hosting/SMTP change. To test:
-break the form's mail config and submit — the failure shows within moments.
+break the form's mail config and submit — the failure shows within moments, and
+the ClickUp message lands with it.
 
 ## Performance
 
