@@ -144,9 +144,28 @@ class TestAccessors:
         assert primary_recipient(EMPTY_RECIPIENTS) == ""
         assert primary_recipient({}) == ""
 
-    def test_empty_recipients_is_immutable(self):
-        """Callers cannot corrupt keys in the shared EMPTY_RECIPIENTS object."""
-        with pytest.raises(TypeError):
-            EMPTY_RECIPIENTS["to"] = ["corruption"]
-        # Verify the constant is still intact and unchanged
+    def test_build_recipients_returns_distinct_objects(self):
+        """Each call returns a new dict, safe to mutate without affecting others."""
+        result1 = build_recipients()
+        result2 = build_recipients()
+        # Different objects in memory
+        assert result1 is not result2
+        # But same content
+        assert result1 == result2 == EMPTY_RECIPIENTS
+
+    def test_mutating_a_build_recipients_result_does_not_affect_empty_recipients(self):
+        """Callers can safely mutate build_recipients() results."""
+        result = build_recipients()
+        result["to"].append("test@site.com")
+        # EMPTY_RECIPIENTS is unchanged
         assert EMPTY_RECIPIENTS == {"to": [], "cc": [], "bcc": []}
+        assert result != EMPTY_RECIPIENTS
+
+    def test_mutating_one_result_does_not_affect_another(self):
+        """Different results are truly independent."""
+        result1 = build_recipients(to="a@site.com")
+        result2 = build_recipients()
+        result1["cc"].append("added@site.com")
+        # result2 is unaffected
+        assert result2 == EMPTY_RECIPIENTS
+        assert result1 != result2
