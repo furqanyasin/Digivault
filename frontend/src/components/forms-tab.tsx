@@ -4,73 +4,24 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { fmtRelative } from "@/lib/utils";
-import { dedupeForms, type FormRow } from "@/lib/detected-forms";
+import {
+  dedupeForms,
+  errorsForForm,
+  fmtPct,
+  formLabel,
+  health,
+  pagePath,
+  successRate,
+  HEALTH_LABEL,
+  HEALTH_VARIANT,
+  type FormRow,
+} from "@/lib/detected-forms";
+import { FormDetailDialog } from "@/components/form-detail-dialog";
 import type { DetectedForm, FormSubmissionError } from "@/lib/api";
 
 interface Props {
   forms: DetectedForm[];
   formErrors?: FormSubmissionError[];
-}
-
-// A friendly name for a form: its name/id, else the embedded provider, else
-// the page it lives on.
-function formLabel(f: DetectedForm): string {
-  if (f.form_name) return f.form_name;
-  if (f.form_id) return f.form_id;
-  if (f.provider) return f.provider;
-  const path = f.page_url.replace(/^https?:\/\/[^/]+/, "") || "/";
-  return `Form on ${path}`;
-}
-
-function pagePath(url: string): string {
-  return url.replace(/^https?:\/\/[^/]+/, "") || "/";
-}
-
-// Errors that belong to a form. The snippet identifies an error's form as
-// `id || name`, while a detected form keeps id and name in separate columns, so
-// matching on id alone could never link a form identified only by its name —
-// every Elementor form, among others. Those forms always read 100% success no
-// matter how many failures were recorded against them.
-function errorsForForm(f: DetectedForm, errors: FormSubmissionError[]): FormSubmissionError[] {
-  const keys = [f.form_id, f.form_name].filter(Boolean);
-  if (keys.length === 0) return [];
-  return errors.filter((e) => e.form_id && keys.includes(e.form_id));
-}
-
-// Share of observed submits that didn't produce a server-side failure. Null when
-// nothing has been submitted yet — 0 submits is "no data", not "0% success".
-function successRate(f: DetectedForm, errors: FormSubmissionError[]): number | null {
-  const submits = f.submission_count || 0;
-  if (submits === 0) return null;
-  const failed = Math.min(errorsForForm(f, errors).length, submits);
-  return ((submits - failed) / submits) * 100;
-}
-
-type Health = "healthy" | "degraded" | "failing";
-
-function health(rate: number | null): Health | null {
-  if (rate === null) return null;
-  if (rate < 50) return "failing";
-  if (rate < 95) return "degraded";
-  return "healthy";
-}
-
-const HEALTH_LABEL: Record<Health, string> = {
-  healthy: "Healthy",
-  degraded: "Degraded",
-  failing: "Failing",
-};
-
-const HEALTH_VARIANT: Record<Health, "success" | "warning" | "destructive"> = {
-  healthy: "success",
-  degraded: "warning",
-  failing: "destructive",
-};
-
-function fmtPct(rate: number | null): string {
-  if (rate === null) return "—";
-  // Keep a decimal only when it carries information (99.3% vs a clean 100%).
-  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}%`;
 }
 
 function StatTile({
@@ -202,6 +153,7 @@ function FormsTable({
             <TableHead className="text-right">Success</TableHead>
             <TableHead>Last submit</TableHead>
             <TableHead>Status</TableHead>
+            <TableHead className="w-px"><span className="sr-only">Details</span></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -227,7 +179,13 @@ function FormsTable({
                 </TableCell>
                 <TableCell
                   className="font-mono text-xs text-muted-foreground max-w-[200px] truncate"
-                  title={form.recipient_emails.join("\n")}
+                  title={
+                    form.recipient_emails.length > 0
+                      ? form.recipient_emails.join("\n")
+                      : embedded
+                        ? "Handled by the form's provider — open Details"
+                        : "No recipient in the page markup; set server-side — open Details"
+                  }
                 >
                   {form.recipient_emails.length > 0 ? (
                     <>
@@ -264,6 +222,9 @@ function FormsTable({
                       {embedded ? "Not tracked" : "No submits yet"}
                     </span>
                   )}
+                </TableCell>
+                <TableCell className="text-right">
+                  <FormDetailDialog form={form} formErrors={formErrors} embedded={embedded} />
                 </TableCell>
               </TableRow>
             );
