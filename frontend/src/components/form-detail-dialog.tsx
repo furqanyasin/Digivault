@@ -57,6 +57,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  */
 function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
   if (form.recipient_emails.length > 0) {
+    const fromWordPress = form.recipient_source === "wordpress";
     return (
       <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
         <p className="flex items-center gap-1.5 text-xs font-medium">
@@ -71,8 +72,17 @@ function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
           ))}
         </ul>
         <p className="text-xs text-muted-foreground">
-          Read from the form&apos;s own markup — a <code>mailto:</code> action, a
-          recipient <code>data-</code> attribute, or a hidden configuration field.
+          {fromWordPress ? (
+            <>
+              Read from this site&apos;s WordPress form settings over WP Connect — the
+              address the form plugin will actually send to.
+            </>
+          ) : (
+            <>
+              Read from the form&apos;s own markup — a <code>mailto:</code> action, a
+              recipient <code>data-</code> attribute, or a hidden configuration field.
+            </>
+          )}
         </p>
       </div>
     );
@@ -94,12 +104,13 @@ function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
           </>
         ) : (
           <>
-            Digivault reads a recipient from the page itself — a <code>mailto:</code>{" "}
-            action, a recipient <code>data-</code> attribute, or a hidden configuration
-            field. This form carries none of them, which is normal: Contact Form 7,
-            WPForms, Elementor, Gravity Forms, Formspree and Netlify all keep the
-            address in the site&apos;s admin, where no in-page script can see it. Check
-            the form&apos;s settings in the CMS to confirm where it delivers.
+            Nothing in the page carries a recipient — no <code>mailto:</code> action, no
+            recipient <code>data-</code> attribute, no hidden configuration field. That is
+            normal: Contact Form 7, WPForms, Elementor, Gravity Forms, Formspree and
+            Netlify all keep the address in the site&apos;s admin, where no in-page
+            script can reach it. On WordPress, set up{" "}
+            <span className="font-medium">WP Connect</span> in the Setup tab and
+            Digivault will read the real recipient from the form plugin itself.
           </>
         )}
       </p>

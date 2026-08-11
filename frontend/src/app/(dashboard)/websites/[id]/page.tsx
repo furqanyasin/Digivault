@@ -460,7 +460,12 @@ export default async function WebsiteDetailPage({
               <CardTitle className="text-base">Detected Forms</CardTitle>
             </CardHeader>
             <CardContent className="p-0 px-4 pb-4">
-              <FormsTab forms={forms} formErrors={formErrors} />
+              <FormsTab
+                forms={forms}
+                formErrors={formErrors}
+                websiteId={id}
+                isWordPress={isWordPress}
+              />
             </CardContent>
           </Card>
 

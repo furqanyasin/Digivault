@@ -345,6 +345,32 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         # tracking script); the raw secret is returned only for reference.
         return Response({"secret": secret, "snippet": website.wp_sso_snippet})
 
+    @action(detail=True, methods=["post"], url_path="sync-form-recipients")
+    def sync_form_recipients(self, request, pk=None):
+        """Ask this site's WP Connect snippet where its forms deliver, now.
+
+        The nightly task does the same sweep; this exists so pasting the snippet
+        and seeing the Forms tab fill in are the same minute rather than a day
+        apart.
+        """
+        from apps.websites.wp_forms import sync_website
+
+        website = self.get_object()
+        if not website.wp_sso_secret:
+            return Response(
+                {"detail": "Set up WP Connect for this website first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        try:
+            updated = sync_website(website)
+        except Exception:
+            logger.exception("sync_form_recipients failed for website %s", website.pk)
+            return Response(
+                {"detail": "Could not read the site's form settings."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"updated": updated})
+
     @action(detail=True, methods=["post"], url_path="wp-login")
     def wp_login(self, request, pk=None):
         """Issue a signed, single-use, 2-minute wp-admin login URL for the

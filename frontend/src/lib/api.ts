@@ -410,6 +410,9 @@ export interface DetectedForm {
   detection_type: "native" | "dom" | "embedded";
   provider: string;
   recipient_email: string;
+  /** How the recipient was learned. WordPress is the form's real config; the
+   *  page markup is only a proxy for it. Blank when there is no recipient. */
+  recipient_source: "" | "page" | "wordpress";
   is_managed: boolean;
   submission_count: number;
   last_submission_at: string | null;

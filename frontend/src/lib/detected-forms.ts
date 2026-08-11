@@ -59,6 +59,10 @@ export function dedupeForms(forms: DetectedForm[]): FormRow[] {
       if (f.recipient_email && !existing.recipient_emails.includes(f.recipient_email)) {
         existing.recipient_emails.push(f.recipient_email);
       }
+      // One form's copies across pages share a destination, but not necessarily
+      // a source: WordPress fills the rows it can match, and the markup fills
+      // the rest. Report the stronger of the two for the merged row.
+      if (f.recipient_source === "wordpress") existing.recipient_source = "wordpress";
       if (f.last_submission_at && (!existing.last_submission_at || f.last_submission_at > existing.last_submission_at)) {
         existing.last_submission_at = f.last_submission_at;
       }
