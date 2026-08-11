@@ -231,6 +231,10 @@ class DetectedForm(BaseModel):
         DOM = "dom", "Div-based / JS"
         EMBEDDED = "embedded", "Embedded (iframe)"
 
+    class RecipientSource(models.TextChoices):
+        PAGE = "page", "Read from the page markup"
+        WORDPRESS = "wordpress", "Reported by WordPress"
+
     website = models.ForeignKey(
         "websites.Website",
         on_delete=models.CASCADE,
@@ -256,6 +260,16 @@ class DetectedForm(BaseModel):
     # Blank when the destination is configured server-side (Contact Form 7,
     # Formspree, Netlify) and therefore invisible to any in-page script.
     recipient_email = models.CharField(max_length=254, blank=True, default="")
+    # How the recipient above was learned. The page markup is a proxy for the
+    # form's configuration; WordPress is the configuration itself, so it wins
+    # and an ingest must not overwrite it (see _upsert_form). Also lets the UI
+    # state which of the two it is rather than implying equal confidence.
+    recipient_source = models.CharField(
+        max_length=10,
+        choices=RecipientSource.choices,
+        blank=True,
+        default="",
+    )
     # Structural hash that uniquely identifies a form within a page.
     fingerprint = models.CharField(max_length=64, db_index=True)
     # Count of submit attempts observed by the snippet (native/same-origin

@@ -495,7 +495,7 @@ def _upsert_script(website: Website, script_data: dict, page_url: str) -> Script
 
 def _upsert_form(website, page_url: str, form_data: dict) -> None:
     fingerprint = DetectedForm.compute_fingerprint(form_data)
-    DetectedForm.objects.update_or_create(
+    form, _ = DetectedForm.objects.update_or_create(
         website=website,
         page_url=page_url,
         fingerprint=fingerprint,
@@ -512,12 +512,41 @@ def _upsert_form(website, page_url: str, form_data: dict) -> None:
                 "detection_type", DetectedForm.DetectionType.NATIVE
             ),
             "provider": form_data.get("provider", ""),
-            "recipient_email": normalize_recipient_email(
-                form_data.get("recipient_email", "")
-            ),
             "fields": form_data.get("fields", []),
         },
     )
+    _apply_page_recipient(form, form_data.get("recipient_email", ""))
+
+
+def _apply_page_recipient(form: DetectedForm, raw: str) -> None:
+    """Record a recipient the snippet read out of the page markup.
+
+    Deliberately not part of the upsert's `defaults`, for two reasons.
+
+    A WordPress-reported recipient is the form's actual configuration, while the
+    markup is only a proxy for it — so an ingest must never overwrite one. Written
+    through `defaults`, every pageview wiped the address the WP Connect route had
+    filled in (page-invisible for Elementor/CF7 forms, so the markup reads "").
+
+    And an empty reading does not clear a stored one. A form is observed several
+    times per page load, and one observation missing a `mailto:` action is not
+    evidence the action is gone — the same reasoning the diff window applies to
+    scripts. A recipient that genuinely disappears goes stale rather than
+    flapping empty on every burst.
+    """
+    recipient = normalize_recipient_email(raw)
+    if not recipient:
+        return
+    if form.recipient_source == DetectedForm.RecipientSource.WORDPRESS:
+        return
+    if (
+        form.recipient_email == recipient
+        and form.recipient_source == DetectedForm.RecipientSource.PAGE
+    ):
+        return
+    form.recipient_email = recipient
+    form.recipient_source = DetectedForm.RecipientSource.PAGE
+    form.save(update_fields=["recipient_email", "recipient_source", "updated_at"])
 
 
 def _update_script_scopes(website: Website) -> None:

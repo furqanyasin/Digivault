@@ -51,6 +51,33 @@ def recalculate_all_health() -> int:
     return count
 
 
+@shared_task(name="websites.sync_wp_form_recipients")
+def sync_wp_form_recipients(website_pk: str | None = None) -> int:
+    """Ask WP Connect sites where their forms deliver. Returns rows written.
+
+    Skips sites with no snippet secret and sites with no detected forms — there
+    is nothing to sign a request with, or nothing to join the answer onto.
+    """
+    from apps.websites.models import Website
+    from apps.websites.wp_forms import sync_website
+
+    sites = Website.objects.exclude(wp_sso_secret="").exclude(
+        status=Website.Status.INACTIVE
+    )
+    if website_pk:
+        sites = sites.filter(pk=website_pk)
+    sites = sites.filter(detected_forms__isnull=False).distinct()
+
+    written = 0
+    for website in sites.iterator():
+        try:
+            written += sync_website(website)
+        except Exception:
+            logger.exception("sync_wp_form_recipients failed for %s", website.pk)
+    logger.info("sync_wp_form_recipients: updated %d form(s)", written)
+    return written
+
+
 def _run_uptime_check(website) -> None:
     try:
         from apps.monitors.models import Monitor, MonitorCheck

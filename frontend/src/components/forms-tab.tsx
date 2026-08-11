@@ -17,11 +17,15 @@ import {
   type FormRow,
 } from "@/lib/detected-forms";
 import { FormDetailDialog } from "@/components/form-detail-dialog";
+import { SyncFormRecipientsButton } from "@/components/sync-form-recipients-button";
 import type { DetectedForm, FormSubmissionError } from "@/lib/api";
 
 interface Props {
   forms: DetectedForm[];
   formErrors?: FormSubmissionError[];
+  websiteId: string;
+  /** WordPress sites can be asked where their forms deliver; others can't. */
+  isWordPress?: boolean;
 }
 
 function StatTile({
@@ -48,7 +52,12 @@ function StatTile({
   );
 }
 
-export function FormsTab({ forms, formErrors = [] }: Props) {
+export function FormsTab({
+  forms,
+  formErrors = [],
+  websiteId,
+  isWordPress = false,
+}: Props) {
   if (forms.length === 0) {
     return (
       <div className="py-16 flex flex-col items-center gap-3 text-center">
@@ -110,6 +119,18 @@ export function FormsTab({ forms, formErrors = [] }: Props) {
           label="Failing"
         />
       </div>
+
+      {/* Offered only on WordPress: it reads the form plugins' own settings, and
+          there is nothing equivalent to read on any other platform. */}
+      {isWordPress && managedForms.some((f) => f.recipient_emails.length === 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-4 py-3">
+          <p className="text-xs text-muted-foreground">
+            Some forms don&apos;t show where they deliver — WordPress keeps that address
+            out of the page. Digivault can read it from the form plugin over WP Connect.
+          </p>
+          <SyncFormRecipientsButton websiteId={websiteId} />
+        </div>
+      )}
 
       <FormsTable forms={managedForms} formErrors={formErrors} />
 

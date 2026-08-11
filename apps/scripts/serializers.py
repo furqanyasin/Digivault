@@ -174,7 +174,8 @@ class DetectedFormSerializer(BaseModelSerializer):
         fields = (
             "id", "page_url", "form_id", "form_name",
             "form_action", "form_method", "fields",
-            "detection_type", "provider", "recipient_email", "is_managed",
+            "detection_type", "provider", "recipient_email", "recipient_source",
+            "is_managed",
             "submission_count", "last_submission_at",
             "first_seen_at", "last_seen_at",
         )

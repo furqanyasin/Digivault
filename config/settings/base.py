@@ -228,6 +228,13 @@ CELERY_BEAT_SCHEDULE = {
         "task": "websites.recalculate_all_health",
         "schedule": crontab(hour=6, minute=30),
     },
+    # Where each WordPress form delivers. Config, not traffic, so it only moves
+    # when someone edits a form — a daily read is plenty, and the Setup tab can
+    # trigger one on demand right after the snippet is pasted.
+    "sync-wp-form-recipients-daily": {
+        "task": "websites.sync_wp_form_recipients",
+        "schedule": crontab(hour=6, minute=45),
+    },
     "run-due-seo-checks": {
         "task": "site_health.run_due_seo_checks",
         "schedule": crontab(hour=4, minute=0),
