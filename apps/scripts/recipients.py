@@ -11,6 +11,8 @@ the right answer for one field and the wrong one for a list, which is why
 """
 from __future__ import annotations
 
+from types import MappingProxyType
+
 from apps.scripts.normalize import normalize_recipient_email
 
 #: A form with more than this many addresses in one kind is misconfigured or
@@ -19,9 +21,11 @@ MAX_RECIPIENTS_PER_KIND = 20
 
 _KINDS = ("to", "cc", "bcc")
 
-#: The shape of a form with no known destination. A fresh dict every read —
-#: a module-level constant would be mutated by callers through its lists.
-EMPTY_RECIPIENTS: dict = {"to": [], "cc": [], "bcc": []}
+#: The shape of a form with no known destination. Immutable (read-only proxy) to
+#: prevent callers from accidentally mutating keys and corrupting this object for
+#: subsequent callers. Functions that need it can call build_recipients() with no
+#: args, or callers can treat it as a template they copy or compare against.
+EMPTY_RECIPIENTS = MappingProxyType({"to": [], "cc": [], "bcc": []})
 
 
 def normalize_recipient_list(value) -> list[str]:

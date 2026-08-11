@@ -143,3 +143,10 @@ class TestAccessors:
     def test_primary_of_nothing_is_the_empty_string(self):
         assert primary_recipient(EMPTY_RECIPIENTS) == ""
         assert primary_recipient({}) == ""
+
+    def test_empty_recipients_is_immutable(self):
+        """Callers cannot corrupt keys in the shared EMPTY_RECIPIENTS object."""
+        with pytest.raises(TypeError):
+            EMPTY_RECIPIENTS["to"] = ["corruption"]
+        # Verify the constant is still intact and unchanged
+        assert EMPTY_RECIPIENTS == {"to": [], "cc": [], "bcc": []}
