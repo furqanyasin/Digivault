@@ -7,7 +7,7 @@
  *  module that declares neither.
  */
 
-import type { DetectedForm } from "@/lib/api";
+import type { DetectedForm, FormSubmissionError } from "@/lib/api";
 
 /** A form merged across every page it was found on. */
 export type FormRow = DetectedForm & {
@@ -69,6 +69,72 @@ export function dedupeForms(forms: DetectedForm[]): FormRow[] {
     }
   }
   return Array.from(bySignature.values());
+}
+
+// A friendly name for a form: its name/id, else the embedded provider, else
+// the page it lives on.
+export function formLabel(f: DetectedForm): string {
+  if (f.form_name) return f.form_name;
+  if (f.form_id) return f.form_id;
+  if (f.provider) return f.provider;
+  return `Form on ${pagePath(f.page_url)}`;
+}
+
+export function pagePath(url: string): string {
+  return url.replace(/^https?:\/\/[^/]+/, "") || "/";
+}
+
+// Errors that belong to a form. The snippet identifies an error's form as
+// `id || name`, while a detected form keeps id and name in separate columns, so
+// matching on id alone could never link a form identified only by its name —
+// every Elementor form, among others. Those forms always read 100% success no
+// matter how many failures were recorded against them.
+export function errorsForForm(
+  f: DetectedForm,
+  errors: FormSubmissionError[]
+): FormSubmissionError[] {
+  const keys = [f.form_id, f.form_name].filter(Boolean);
+  if (keys.length === 0) return [];
+  return errors.filter((e) => e.form_id && keys.includes(e.form_id));
+}
+
+// Share of observed submits that didn't produce a server-side failure. Null when
+// nothing has been submitted yet — 0 submits is "no data", not "0% success".
+export function successRate(
+  f: DetectedForm,
+  errors: FormSubmissionError[]
+): number | null {
+  const submits = f.submission_count || 0;
+  if (submits === 0) return null;
+  const failed = Math.min(errorsForForm(f, errors).length, submits);
+  return ((submits - failed) / submits) * 100;
+}
+
+export type Health = "healthy" | "degraded" | "failing";
+
+export function health(rate: number | null): Health | null {
+  if (rate === null) return null;
+  if (rate < 50) return "failing";
+  if (rate < 95) return "degraded";
+  return "healthy";
+}
+
+export const HEALTH_LABEL: Record<Health, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  failing: "Failing",
+};
+
+export const HEALTH_VARIANT: Record<Health, "success" | "warning" | "destructive"> = {
+  healthy: "success",
+  degraded: "warning",
+  failing: "destructive",
+};
+
+export function fmtPct(rate: number | null): string {
+  if (rate === null) return "—";
+  // Keep a decimal only when it carries information (99.3% vs a clean 100%).
+  return `${Number.isInteger(rate) ? rate : rate.toFixed(1)}%`;
 }
 
 /** Forms the site owns — third-party embedded forms are listed separately. */
