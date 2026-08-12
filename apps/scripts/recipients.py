@@ -19,12 +19,6 @@ MAX_RECIPIENTS_PER_KIND = 20
 
 _KINDS = ("to", "cc", "bcc")
 
-#: The shape of a form with no known destination. A shared read-only sentinel used
-#: for comparison and as a fallback when reading legacy or corrupted data. This
-#: object must never be mutated; callers needing a mutable empty shape must call
-#: build_recipients() with no arguments, which returns a distinct dict every time.
-EMPTY_RECIPIENTS: dict = {"to": [], "cc": [], "bcc": []}
-
 
 def normalize_recipient_list(value) -> list[str]:
     """Every valid address in `value`, normalized, deduped, in order.

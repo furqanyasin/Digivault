@@ -3,7 +3,6 @@
 import pytest
 
 from apps.scripts.recipients import (
-    EMPTY_RECIPIENTS,
     MAX_RECIPIENTS_PER_KIND,
     all_recipients,
     build_recipients,
@@ -76,8 +75,8 @@ class TestBuildRecipients:
         }
 
     def test_empty_input_is_the_empty_shape(self):
-        assert build_recipients() == EMPTY_RECIPIENTS
-        assert build_recipients(to="", cc=None, bcc=[]) == EMPTY_RECIPIENTS
+        assert build_recipients() == {"to": [], "cc": [], "bcc": []}
+        assert build_recipients(to="", cc=None, bcc=[]) == {"to": [], "cc": [], "bcc": []}
 
     def test_an_address_in_to_is_not_repeated_in_cc(self):
         """Elementor lets you put the same address in both; showing it twice
@@ -124,9 +123,9 @@ class TestComparison:
 
     def test_a_legacy_dict_missing_keys_compares_as_empty(self):
         """Rows written before this shape existed, and hand-edited data."""
-        assert recipients_equal({}, EMPTY_RECIPIENTS)
-        assert recipients_equal({"to": []}, EMPTY_RECIPIENTS)
-        assert not recipients_equal({"to": ["a@site.com"]}, EMPTY_RECIPIENTS)
+        assert recipients_equal({}, {"to": [], "cc": [], "bcc": []})
+        assert recipients_equal({"to": []}, {"to": [], "cc": [], "bcc": []})
+        assert not recipients_equal({"to": ["a@site.com"]}, {"to": [], "cc": [], "bcc": []})
 
 
 class TestAccessors:
@@ -141,7 +140,7 @@ class TestAccessors:
         assert primary_recipient(build_recipients(cc="b@site.com")) == "b@site.com"
 
     def test_primary_of_nothing_is_the_empty_string(self):
-        assert primary_recipient(EMPTY_RECIPIENTS) == ""
+        assert primary_recipient({"to": [], "cc": [], "bcc": []}) == ""
         assert primary_recipient({}) == ""
 
     def test_build_recipients_returns_distinct_objects(self):
@@ -151,15 +150,16 @@ class TestAccessors:
         # Different objects in memory
         assert result1 is not result2
         # But same content
-        assert result1 == result2 == EMPTY_RECIPIENTS
+        assert result1 == result2 == {"to": [], "cc": [], "bcc": []}
 
-    def test_mutating_a_build_recipients_result_does_not_affect_empty_recipients(self):
-        """Callers can safely mutate build_recipients() results."""
+    def test_mutating_a_build_recipients_result_does_not_affect_a_later_call(self):
+        """Callers can safely mutate build_recipients() results: there is no
+        shared empty-shape object underneath for a mutation to corrupt."""
         result = build_recipients()
         result["to"].append("test@site.com")
-        # EMPTY_RECIPIENTS is unchanged
-        assert EMPTY_RECIPIENTS == {"to": [], "cc": [], "bcc": []}
-        assert result != EMPTY_RECIPIENTS
+        # A fresh call still returns the empty shape, unaffected.
+        assert build_recipients() == {"to": [], "cc": [], "bcc": []}
+        assert result != {"to": [], "cc": [], "bcc": []}
 
     def test_mutating_one_result_does_not_affect_another(self):
         """Different results are truly independent."""
@@ -167,5 +167,5 @@ class TestAccessors:
         result2 = build_recipients()
         result1["cc"].append("added@site.com")
         # result2 is unaffected
-        assert result2 == EMPTY_RECIPIENTS
+        assert result2 == {"to": [], "cc": [], "bcc": []}
         assert result1 != result2
