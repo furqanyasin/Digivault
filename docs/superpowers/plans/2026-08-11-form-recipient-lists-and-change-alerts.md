@@ -62,7 +62,7 @@
   - `recipients_equal(a: dict, b: dict) -> bool`
   - `all_recipients(recipients: dict) -> list[str]`
   - `primary_recipient(recipients: dict) -> str`
-  - `EMPTY_RECIPIENTS: dict`
+  - ~~`EMPTY_RECIPIENTS: dict`~~ — **amended during execution.** A shared module-level dict of lists is the classic Python footgun: `MappingProxyType` only freezes the keys, and a plain dict lets any caller append into `EMPTY_RECIPIENTS["to"]` and corrupt it for the whole process. It earned too little to keep — `build_recipients()` already returns a fresh empty shape, and the one downstream use (`_format_recipients` in Task 7) only needs `{}`. Use `build_recipients()` or a literal instead.
   - `MAX_RECIPIENTS_PER_KIND: int`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1968,9 +1968,7 @@ def _format_recipients(recipients: dict) -> str:
     A Bcc that reads identically to a To would hide the most interesting case
     this alert exists to surface.
     """
-    from apps.scripts.recipients import EMPTY_RECIPIENTS
-
-    recipients = recipients if isinstance(recipients, dict) else EMPTY_RECIPIENTS
+    recipients = recipients if isinstance(recipients, dict) else {}
     parts = list(recipients.get("to") or [])
     parts += [f"{e} (Cc)" for e in recipients.get("cc") or []]
     parts += [f"{e} (Bcc)" for e in recipients.get("bcc") or []]
