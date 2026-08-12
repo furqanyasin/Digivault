@@ -254,11 +254,20 @@ class DetectedForm(BaseModel):
     )
     # For embedded forms — the third-party provider (e.g. "HubSpot", "Typeform").
     provider = models.CharField(max_length=100, blank=True)
-    # Where this form's submissions are configured to be sent. Detected from
-    # form *configuration* only (mailto: action, data-email/data-recipient
-    # attributes, hidden input values) — never from what a visitor types.
-    # Blank when the destination is configured server-side (Contact Form 7,
-    # Formspree, Netlify) and therefore invisible to any in-page script.
+    # Where this form's submissions are configured to go:
+    # {"to": [...], "cc": [...], "bcc": [...]}. Read from form *configuration*
+    # only — a mailto: action, recipient data- attributes, hidden input values,
+    # or the site's own form plugin over WP Connect — never from what a visitor
+    # types. Empty lists when the destination is configured server-side and no
+    # WP Connect snippet has reported it.
+    #
+    # A dict rather than a single address because real forms have several: an
+    # Elementor "To" holding "sales@x.com, dev@x.com" used to store nothing at
+    # all, because a comma-joined value is not one valid address.
+    recipients = models.JSONField(default=dict, blank=True)
+    # Deprecated, superseded by `recipients` above. Still written by the current
+    # writers until they move over, and dropped once a release has run on the
+    # new field. Read through `primary_recipient(form.recipients)`, never here.
     recipient_email = models.CharField(max_length=254, blank=True, default="")
     # How the recipient above was learned. The page markup is a proxy for the
     # form's configuration; WordPress is the configuration itself, so it wins
