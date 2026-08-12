@@ -144,14 +144,17 @@ def _match(entry: dict, forms: list) -> list:
 
 
 def apply_recipients(website, entries: list[dict]) -> int:
-    """Fill in `recipient_email` from what WordPress reported. Returns rows written.
+    """Fill in `recipients` from what WordPress reported. Returns rows written.
 
-    Only the first address is stored — `DetectedForm.recipient_email` holds one.
-    The route deliberately returns the whole list anyway, so widening the field
-    later needs no change on any client site.
+    Only the first address is stored, as a single-entry `to` — this module's
+    own Cc/Bcc support lands in a later task. Writing through `build_recipients`
+    and comparing with `recipients_equal` here (rather than the deprecated
+    `recipient_email` column) is only so this stays comparable with the page
+    path's shape now that `_upsert_form` writes `recipients` too; the route's
+    payload keys and this function's single-address behavior are unchanged.
     """
     from apps.scripts.models import DetectedForm
-    from apps.scripts.normalize import normalize_recipient_email
+    from apps.scripts.recipients import build_recipients, recipients_equal
 
     forms = list(website.detected_forms.all())
     if not forms:
@@ -159,11 +162,11 @@ def apply_recipients(website, entries: list[dict]) -> int:
 
     written = 0
     for entry in entries:
-        recipients = entry.get("recipients")
-        if not isinstance(recipients, list) or not recipients:
+        raw = entry.get("recipients")
+        if not isinstance(raw, list) or not raw:
             continue
-        recipient = normalize_recipient_email(str(recipients[0]))
-        if not recipient:
+        recipients = build_recipients(to=str(raw[0]))
+        if not recipients["to"]:
             continue
 
         matched = _match(entry, forms)
@@ -178,14 +181,14 @@ def apply_recipients(website, entries: list[dict]) -> int:
 
         for form in matched:
             if (
-                form.recipient_email == recipient
+                recipients_equal(form.recipients, recipients)
                 and form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
             ):
                 continue
-            form.recipient_email = recipient
+            form.recipients = recipients
             form.recipient_source = DetectedForm.RecipientSource.WORDPRESS
             form.save(
-                update_fields=["recipient_email", "recipient_source", "updated_at"]
+                update_fields=["recipients", "recipient_source", "updated_at"]
             )
             written += 1
 

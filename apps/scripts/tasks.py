@@ -23,9 +23,9 @@ from apps.scripts.diff_engine import DiffEngine
 from apps.scripts.models import DetectedForm, Script, ScriptChange, ScriptSnapshot
 from apps.scripts.normalize import (
     normalize_page_url,
-    normalize_recipient_email,
     normalize_script_url,
 )
+from apps.scripts.recipients import all_recipients, build_recipients
 from apps.scripts.wp_assets import diff_assets
 from apps.site_health.models import SiteEvent
 from apps.websites.models import Website
@@ -515,38 +515,43 @@ def _upsert_form(website, page_url: str, form_data: dict) -> None:
             "fields": form_data.get("fields", []),
         },
     )
-    _apply_page_recipient(form, form_data.get("recipient_email", ""))
+    _apply_page_recipients(form, form_data)
 
 
-def _apply_page_recipient(form: DetectedForm, raw: str) -> None:
-    """Record a recipient the snippet read out of the page markup.
+def _apply_page_recipients(form: DetectedForm, form_data: dict) -> None:
+    """Record the destinations the snippet read out of the page markup.
 
     Deliberately not part of the upsert's `defaults`, for two reasons.
 
-    A WordPress-reported recipient is the form's actual configuration, while the
-    markup is only a proxy for it — so an ingest must never overwrite one. Written
-    through `defaults`, every pageview wiped the address the WP Connect route had
-    filled in (page-invisible for Elementor/CF7 forms, so the markup reads "").
+    A WordPress-reported set is the form's actual configuration, while the
+    markup is only a proxy for it — so an ingest must never overwrite one.
+    Written through `defaults`, every pageview wiped what the WP Connect route
+    had filled in (page-invisible for Elementor/CF7 forms, so the markup reads
+    nothing).
 
-    And an empty reading does not clear a stored one. A form is observed several
+    And an empty reading does not clear a stored set. A form is observed several
     times per page load, and one observation missing a `mailto:` action is not
     evidence the action is gone — the same reasoning the diff window applies to
-    scripts. A recipient that genuinely disappears goes stale rather than
-    flapping empty on every burst.
+    scripts. That protection only applies once something is on record, though:
+    a brand-new row has nothing to lose, so an empty reading still normalizes
+    its `recipients` from the model's bare `{}` default to the canonical
+    `{"to": [], "cc": [], "bcc": []}` shape.
     """
-    recipient = normalize_recipient_email(raw)
-    if not recipient:
-        return
+    raw = form_data.get("recipients") or {}
+    recipients = build_recipients(
+        to=raw.get("to") or form_data.get("recipient_email", ""),
+        cc=raw.get("cc"),
+        bcc=raw.get("bcc"),
+    )
     if form.recipient_source == DetectedForm.RecipientSource.WORDPRESS:
         return
-    if (
-        form.recipient_email == recipient
-        and form.recipient_source == DetectedForm.RecipientSource.PAGE
-    ):
+    if not any(recipients.values()) and any(all_recipients(form.recipients)):
         return
-    form.recipient_email = recipient
+    if recipients == form.recipients and form.recipient_source == DetectedForm.RecipientSource.PAGE:
+        return
+    form.recipients = recipients
     form.recipient_source = DetectedForm.RecipientSource.PAGE
-    form.save(update_fields=["recipient_email", "recipient_source", "updated_at"])
+    form.save(update_fields=["recipients", "recipient_source", "updated_at"])
 
 
 def _update_script_scopes(website: Website) -> None:

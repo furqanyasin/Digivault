@@ -151,40 +151,61 @@
   // form they are the visitor's address, not the destination, and multi-step
   // forms carry the visitor's email between steps in a hidden field.
   var RECIPIENT_NAME = /(_to|^to$|sendto|send_to|recipient|receiver|notify|mailto|mail_to|admin_email|notification|target_email|forward|destination|deliver|report)/i;
+  var CC_NAME = /(^cc$|_cc$|carbon)/i;
+  var BCC_NAME = /(^bcc$|_bcc$|blind)/i;
 
   var RECIPIENT_ATTRS = [
     'data-email', 'data-recipient', 'data-recipient-email', 'data-send-to',
     'data-mailto', 'data-email-to', 'data-notify-email', 'data-deliver-to'
   ];
 
-  // Where a form's submissions are configured to go. Reads form *configuration*
-  // only — the mailto: action, data-* attributes, and hidden input values
-  // (which carry server-side config, never what a visitor types). A form whose
-  // destination lives server-side (Contact Form 7, Formspree, Netlify) is
-  // invisible here and returns "". Returns the first address found, preferring
-  // the highest-confidence signal, else "".
-  function detectRecipientEmail(formEl) {
+  // Where a form's submissions are configured to go, as {to, cc, bcc} of
+  // comma-joined strings. Reads form *configuration* only — the mailto: action
+  // (including its ?cc= and ?bcc= parameters), data-* attributes, and hidden
+  // input values, which carry server-side config and never what a visitor
+  // types. A form whose destination lives server-side (Contact Form 7,
+  // Formspree, Netlify) is invisible here and yields empty strings.
+  function detectRecipients(formEl) {
+    var out = { to: '', cc: '', bcc: '' };
     var action = formEl.getAttribute ? formEl.getAttribute('action') || '' : '';
+
     if (/^mailto:/i.test(action)) {
-      var addr = action.replace(/^mailto:/i, '').split('?')[0].split(',')[0].trim();
-      if (isEmailAddress(addr)) return addr.toLowerCase();
+      var body = action.replace(/^mailto:/i, '');
+      var q = body.indexOf('?');
+      out.to = q === -1 ? body : body.slice(0, q);
+      if (q !== -1) {
+        var pairs = body.slice(q + 1).split('&');
+        for (var p = 0; p < pairs.length; p++) {
+          var kv = pairs[p].split('=');
+          var key = decodeURIComponent(kv[0] || '').toLowerCase();
+          var val = decodeURIComponent((kv[1] || '').replace(/\+/g, ' '));
+          if (key === 'cc') out.cc = out.cc ? out.cc + ',' + val : val;
+          if (key === 'bcc') out.bcc = out.bcc ? out.bcc + ',' + val : val;
+        }
+      }
     }
+
     if (formEl.getAttribute) {
       for (var a = 0; a < RECIPIENT_ATTRS.length; a++) {
         var v = formEl.getAttribute(RECIPIENT_ATTRS[a]);
-        if (v && isEmailAddress(v)) return v.toLowerCase();
+        if (v && isEmailAddress(v) && !out.to) out.to = v;
       }
     }
+
     var hidden = formEl.querySelectorAll ? formEl.querySelectorAll('input[type="hidden"]') : [];
     var fallback = '';
     for (var h = 0; h < hidden.length; h++) {
-      var val = (hidden[h].value || '').trim();
-      if (!isEmailAddress(val)) continue;
+      var value = (hidden[h].value || '').trim();
+      if (!isEmailAddress(value)) continue;
       var name = (hidden[h].name || '').toLowerCase();
-      if (RECIPIENT_NAME.test(name)) return val.toLowerCase();
-      if (!fallback) fallback = val.toLowerCase();
+      if (BCC_NAME.test(name)) { out.bcc = out.bcc ? out.bcc + ',' + value : value; continue; }
+      if (CC_NAME.test(name)) { out.cc = out.cc ? out.cc + ',' + value : value; continue; }
+      if (RECIPIENT_NAME.test(name)) { out.to = out.to ? out.to + ',' + value : value; continue; }
+      if (!fallback) fallback = value;
     }
-    return fallback;
+    if (!out.to && fallback) out.to = fallback;
+
+    return out;
   }
 
   function collectForms() {
@@ -208,7 +229,7 @@
         form_method: (f.method || 'post').toLowerCase(),
         detection_type: 'native',
         provider: '',
-        recipient_email: detectRecipientEmail(f),
+        recipients: detectRecipients(f),
         fields: fieldList
       };
       result.push(nativeDesc);
@@ -244,7 +265,7 @@
         form_method: 'post',
         detection_type: 'dom',
         provider: '',
-        recipient_email: detectRecipientEmail(grp.container),
+        recipients: detectRecipients(grp.container),
         fields: grp.fields
       };
       result.push(domDesc);
@@ -286,7 +307,7 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.11'
+      snippet_version: '1.12'
     });
     post(ingestUrl, payload);
   }

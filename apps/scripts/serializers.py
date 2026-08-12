@@ -38,6 +38,19 @@ class IngestFormFieldSerializer(serializers.Serializer):
     required = serializers.BooleanField(default=False)
 
 
+class IngestRecipientsSerializer(serializers.Serializer):
+    """Where a form delivers, as the snippet read it.
+
+    Every field is a free string: the snippet sends a comma-joined list and
+    validation happens in the upsert. A malformed address must not 400 the
+    payload, which would drop the scripts posted alongside it.
+    """
+
+    to = serializers.CharField(max_length=2048, allow_blank=True, default="")
+    cc = serializers.CharField(max_length=2048, allow_blank=True, default="")
+    bcc = serializers.CharField(max_length=2048, allow_blank=True, default="")
+
+
 class IngestFormSerializer(serializers.Serializer):
     form_id = serializers.CharField(max_length=200, allow_blank=True, default="")
     form_name = serializers.CharField(max_length=200, allow_blank=True, default="")
@@ -48,12 +61,13 @@ class IngestFormSerializer(serializers.Serializer):
         default=DetectedForm.DetectionType.NATIVE,
     )
     provider = serializers.CharField(max_length=100, allow_blank=True, default="")
-    # Where this form's submissions go. Ingest-side it is only leniently
-    # validated — a malformed value must not 400 the whole payload (which would
-    # drop the scripts too) — normalization happens in the upsert task.
+    # Superseded by `recipients` below, kept because the snippet is served with
+    # Cache-Control: max-age=300 and pasted copies live far longer than that —
+    # a browser running an older snippet must not lose its recipient.
     recipient_email = serializers.CharField(
         max_length=254, allow_blank=True, default=""
     )
+    recipients = IngestRecipientsSerializer(required=False)
     fields = IngestFormFieldSerializer(
         many=True, default=list, max_length=MAX_FIELDS_PER_FORM
     )
@@ -168,14 +182,18 @@ class DetectedFormSerializer(BaseModelSerializer):
     # submissions can't be verified from the page, so the UI counts only
     # managed (native / div-based) forms.
     is_managed = serializers.SerializerMethodField()
+    # Derived, read-only, and deliberately still here: the frontend deploys
+    # separately from the backend (host-pm2 vs Docker), so dropping the key
+    # outright would blank the Goes to column until the frontend caught up.
+    recipient_email = serializers.SerializerMethodField()
 
     class Meta:
         model = DetectedForm
         fields = (
             "id", "page_url", "form_id", "form_name",
             "form_action", "form_method", "fields",
-            "detection_type", "provider", "recipient_email", "recipient_source",
-            "is_managed",
+            "detection_type", "provider", "recipients", "recipient_email",
+            "recipient_source", "is_managed",
             "submission_count", "last_submission_at",
             "first_seen_at", "last_seen_at",
         )
@@ -183,6 +201,11 @@ class DetectedFormSerializer(BaseModelSerializer):
 
     def get_is_managed(self, obj) -> bool:
         return obj.detection_type != DetectedForm.DetectionType.EMBEDDED
+
+    def get_recipient_email(self, obj) -> str:
+        from apps.scripts.recipients import primary_recipient
+
+        return primary_recipient(obj.recipients)
 
 
 class ScriptChangeSerializer(BaseModelSerializer):

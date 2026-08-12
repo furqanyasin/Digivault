@@ -69,7 +69,7 @@ class TestUpsertForm:
             "fields": [{"name": "name"}], "recipient_email": " Info@Example.com ",
         })
         form = DetectedForm.objects.get(website=website, page_url=PAGE)
-        assert form.recipient_email == "info@example.com"
+        assert form.recipients["to"] == ["info@example.com"]
 
     def test_invalid_recipient_email_does_not_400(self, website):
         _upsert_form(website, PAGE, {
@@ -77,7 +77,7 @@ class TestUpsertForm:
             "fields": [{"name": "name"}], "recipient_email": "not-an-email",
         })
         form = DetectedForm.objects.get(website=website, page_url=PAGE)
-        assert form.recipient_email == ""
+        assert form.recipients == {"to": [], "cc": [], "bcc": []}
 
     def test_recipient_email_update_is_idempotent_across_ingests(self, website):
         payload = {
@@ -88,7 +88,7 @@ class TestUpsertForm:
         _upsert_form(website, PAGE, payload)
         assert DetectedForm.objects.filter(website=website, page_url=PAGE).count() == 1
         form = DetectedForm.objects.get(website=website, page_url=PAGE)
-        assert form.recipient_email == "info@example.com"
+        assert form.recipients["to"] == ["info@example.com"]
 
 
 @pytest.mark.django_db
@@ -138,7 +138,7 @@ class TestIngestFormsEndToEnd:
         assert resp.status_code == 202
 
         form = DetectedForm.objects.get(website=website, page_url=PAGE)
-        assert form.recipient_email == "info@example.com"
+        assert form.recipients["to"] == ["info@example.com"]
 
     def test_ingest_rejects_overlong_recipient_email(self, website):
         from rest_framework.test import APIClient
@@ -157,6 +157,64 @@ class TestIngestFormsEndToEnd:
             "snippet_version": "1.11",
         }, format="json")
         assert resp.status_code == 400
+
+
+@pytest.mark.django_db
+class TestRecipientLists:
+    def test_a_comma_separated_to_stores_every_address(self, website):
+        """The bug that started this: two addresses in one To stored nothing."""
+        _upsert_form(website, PAGE, {
+            "form_id": "multi", "detection_type": "native",
+            "fields": [{"name": "email"}],
+            "recipients": {"to": "sales@site.com, dev@site.com"},
+        })
+        form = DetectedForm.objects.get(website=website, form_id="multi")
+        assert form.recipients["to"] == ["sales@site.com", "dev@site.com"]
+
+    def test_cc_and_bcc_are_stored_separately(self, website):
+        _upsert_form(website, PAGE, {
+            "form_id": "copies", "detection_type": "native",
+            "fields": [{"name": "email"}],
+            "recipients": {
+                "to": "lead@site.com", "cc": "manager@site.com",
+                "bcc": "archive@site.com",
+            },
+        })
+        form = DetectedForm.objects.get(website=website, form_id="copies")
+        assert form.recipients == {
+            "to": ["lead@site.com"], "cc": ["manager@site.com"],
+            "bcc": ["archive@site.com"],
+        }
+
+    def test_a_legacy_recipient_email_payload_still_works(self, website):
+        """The snippet is cached for 5 minutes and pasted copies live longer;
+        a browser running yesterday's snippet must not lose its recipient."""
+        _upsert_form(website, PAGE, {
+            "form_id": "legacy", "detection_type": "native",
+            "fields": [{"name": "email"}], "recipient_email": "Info@Site.com",
+        })
+        form = DetectedForm.objects.get(website=website, form_id="legacy")
+        assert form.recipients["to"] == ["info@site.com"]
+
+    def test_an_empty_reading_does_not_clear_stored_recipients(self, website):
+        payload = {
+            "form_id": "keep", "detection_type": "native",
+            "fields": [{"name": "email"}],
+            "recipients": {"to": "info@site.com"},
+        }
+        _upsert_form(website, PAGE, payload)
+        _upsert_form(website, PAGE, {**payload, "recipients": {}})
+        form = DetectedForm.objects.get(website=website, form_id="keep")
+        assert form.recipients["to"] == ["info@site.com"]
+
+    def test_a_junk_address_does_not_400_the_payload(self, website):
+        _upsert_form(website, PAGE, {
+            "form_id": "junk", "detection_type": "native",
+            "fields": [{"name": "email"}],
+            "recipients": {"to": "not-an-email"},
+        })
+        form = DetectedForm.objects.get(website=website, form_id="junk")
+        assert form.recipients == {"to": [], "cc": [], "bcc": []}
 
 
 class TestFingerprint:

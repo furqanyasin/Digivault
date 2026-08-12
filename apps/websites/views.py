@@ -1,4 +1,6 @@
 import logging
+from html import unescape
+from urllib.parse import parse_qs
 
 from django.db.models import Count, Q
 from rest_framework import permissions, status
@@ -13,7 +15,7 @@ from apps.audit.services import AuditService
 from apps.audit.models import ActivityLog
 from apps.site_health.models import SiteScanState
 from apps.site_health.serializers import SiteScanStateSerializer
-from apps.scripts.normalize import normalize_recipient_email
+from apps.scripts.recipients import build_recipients
 from apps.websites.serializers import (
     SnippetInstructionSerializer,
     WebsiteCreateSerializer,
@@ -140,7 +142,29 @@ def _extract_script_urls(html: str) -> list[str]:
     return urls
 
 
-def _extract_forms(html: str) -> list[dict]:
+def _parse_mailto(action: str) -> tuple[list[str], list[str], list[str]]:
+    """To, Cc and Bcc out of a `mailto:` action.
+
+    `mailto:a@x.com,b@x.com?cc=c@x.com&bcc=d@x.com` is a fully specified
+    destination — the whole address list and both copy headers. Earlier code
+    split on "?" and took only the first address before the first comma, so a
+    form addressed to two people reported one and its Cc not at all.
+    """
+    import re
+
+    if not re.match(r"^mailto:", action, re.IGNORECASE):
+        return [], [], []
+    body = action[len("mailto:"):]
+    path, _, query = body.partition("?")
+    params = parse_qs(unescape(query))
+    return (
+        [unescape(path)],
+        params.get("cc", []),
+        params.get("bcc", []),
+    )
+
+
+def _extract_forms(html: str, page_url: str = "") -> list[dict]:
     """Best-effort native <form> extraction from raw server-side HTML.
 
     Mirrors the field shape the snippet's collectForms() reports for native
@@ -148,6 +172,10 @@ def _extract_forms(html: str) -> list[dict]:
     upsert path and produce rows the snippet's submission counter can match.
     Regex-based like _extract_script_urls: div-based and embedded iframe forms
     are invisible in static HTML and there is no HTML-parser dependency.
+
+    `page_url` is accepted for parity with callers that have it on hand but is
+    not otherwise used here — a form's action is stored as reported, absolute
+    or relative, the same as the snippet.
     """
     import re
 
@@ -176,7 +204,9 @@ def _extract_forms(html: str) -> list[dict]:
         block = html[form_match.end():end if end != -1 else form_match.end() + 8000]
 
         fields: list[dict] = []
-        recipient_email = ""
+        hidden_to: list[str] = []
+        hidden_cc: list[str] = []
+        hidden_bcc: list[str] = []
         for field_match in re.finditer(r"<(input|textarea|select)\b[^>]*>", block, re.IGNORECASE):
             tag = field_match.group(1).lower()
             field_attrs = tag_attrs(field_match.group(0))
@@ -185,12 +215,18 @@ def _extract_forms(html: str) -> list[dict]:
             if tag == "input" and ftype in ("submit", "button", "reset", "image"):
                 continue
             # Hidden inputs carry the form's *configuration* — most commonly
-            # its recipient address — never a visitor's typed value. Captured
-            # for recipient_email but kept out of the field list, matching the
+            # its recipient address(es) — never a visitor's typed value. Captured
+            # for recipients but kept out of the field list, matching the
             # snippet's collectForms().
             if tag == "input" and ftype == "hidden":
-                if not recipient_email:
-                    recipient_email = normalize_recipient_email(field_attrs.get("value", ""))
+                hidden_name = (field_attrs.get("name") or "").lower()
+                hidden_value = field_attrs.get("value", "")
+                if "bcc" in hidden_name:
+                    hidden_bcc.append(hidden_value)
+                elif "cc" in hidden_name:
+                    hidden_cc.append(hidden_value)
+                else:
+                    hidden_to.append(hidden_value)
                 continue
             if not name:
                 continue
@@ -216,18 +252,22 @@ def _extract_forms(html: str) -> list[dict]:
                 or bool(re.search(r"\brequired\b", field_match.group(0), re.IGNORECASE)),
             })
 
-        if not recipient_email:
-            action = form_attrs.get("action", "")
-            if re.match(r"^mailto:", action, re.IGNORECASE):
-                recipient_email = action.split("?")[0].split(":")[1].split(",")[0]
+        action = form_attrs.get("action", "")
+        mailto_to, mailto_cc, mailto_bcc = _parse_mailto(action)
         forms.append({
             "form_id": form_attrs.get("id", ""),
             "form_name": form_attrs.get("name", ""),
-            "form_action": form_attrs.get("action", ""),
+            "form_action": action,
             "form_method": (form_attrs.get("method") or "post").lower(),
             "detection_type": "native",
             "provider": "",
-            "recipient_email": normalize_recipient_email(recipient_email),
+            # A mailto: action is the form's stated destination and outranks a
+            # hidden field, which is only a guess from an input's name.
+            "recipients": build_recipients(
+                to=mailto_to or hidden_to,
+                cc=mailto_cc or hidden_cc,
+                bcc=mailto_bcc or hidden_bcc,
+            ),
             "fields": fields[:200],
         })
 
