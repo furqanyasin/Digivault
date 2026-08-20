@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { fmtRelative } from "@/lib/utils";
 import {
   dedupeForms,
+  destinationCount,
   errorsForForm,
   fmtPct,
   formLabel,
@@ -122,7 +123,7 @@ export function FormsTab({
 
       {/* Offered only on WordPress: it reads the form plugins' own settings, and
           there is nothing equivalent to read on any other platform. */}
-      {isWordPress && managedForms.some((f) => f.recipient_emails.length === 0) && (
+      {isWordPress && managedForms.some((f) => destinationCount(f) === 0) && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground">
             Some forms don&apos;t show where they deliver — WordPress keeps that address
@@ -201,19 +202,23 @@ function FormsTable({
                 <TableCell
                   className="font-mono text-xs text-muted-foreground max-w-[200px] truncate"
                   title={
-                    form.recipient_emails.length > 0
-                      ? form.recipient_emails.join("\n")
+                    destinationCount(form) > 0
+                      ? [
+                          ...form.recipients.to,
+                          ...form.recipients.cc.map((e) => `${e} (Cc)`),
+                          ...form.recipients.bcc.map((e) => `${e} (Bcc)`),
+                        ].join("\n")
                       : embedded
                         ? "Handled by the form's provider — open Details"
                         : "No recipient in the page markup; set server-side — open Details"
                   }
                 >
-                  {form.recipient_emails.length > 0 ? (
+                  {destinationCount(form) > 0 ? (
                     <>
-                      {form.recipient_emails[0]}
-                      {form.recipient_emails.length > 1 && (
+                      {form.recipients.to[0] ?? form.recipients.cc[0]}
+                      {destinationCount(form) > 1 && (
                         <span className="ml-1 whitespace-nowrap font-sans">
-                          +{form.recipient_emails.length - 1} more
+                          +{destinationCount(form) - 1} more
                         </span>
                       )}
                     </>

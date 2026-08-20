@@ -409,6 +409,11 @@ export interface DetectedForm {
   form_method: string;
   detection_type: "native" | "dom" | "embedded";
   provider: string;
+  /** Where this form delivers. Read from the page markup or reported by the
+   *  site's own form plugin over WP Connect — see recipient_source. */
+  recipients: { to: string[]; cc: string[]; bcc: string[] };
+  /** Derived server-side from recipients.to[0]. Kept for compatibility with a
+   *  frontend deployed ahead of the backend; prefer recipients. */
   recipient_email: string;
   /** How the recipient was learned. WordPress is the form's real config; the
    *  page markup is only a proxy for it. Blank when there is no recipient. */
