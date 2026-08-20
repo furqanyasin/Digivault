@@ -1,4 +1,5 @@
 import logging
+import re
 from html import unescape
 from urllib.parse import parse_qs
 
@@ -142,6 +143,17 @@ def _extract_script_urls(html: str) -> list[str]:
     return urls
 
 
+# Hidden-field name classifiers for the recipient bucketer below. Must stay in
+# lockstep with apps/scripts/snippet.js's CC_NAME / BCC_NAME — the two cannot
+# literally share code (one is server-side Python, the other browser JS), so
+# this comment is what keeps the word-boundary-ish rule identical on both
+# sides. A bare `"cc" in name` substring test — the previous version of this
+# module — misclassified any field merely *containing* "cc" (success_url,
+# account_email, occupation) as a Cc address.
+_HIDDEN_CC_RE = re.compile(r"(^cc$|_cc$|carbon)", re.IGNORECASE)
+_HIDDEN_BCC_RE = re.compile(r"(^bcc$|_bcc$|blind)", re.IGNORECASE)
+
+
 def _parse_mailto(action: str) -> tuple[list[str], list[str], list[str]]:
     """To, Cc and Bcc out of a `mailto:` action.
 
@@ -150,8 +162,6 @@ def _parse_mailto(action: str) -> tuple[list[str], list[str], list[str]]:
     split on "?" and took only the first address before the first comma, so a
     form addressed to two people reported one and its Cc not at all.
     """
-    import re
-
     if not re.match(r"^mailto:", action, re.IGNORECASE):
         return [], [], []
     body = action[len("mailto:"):]
@@ -164,7 +174,7 @@ def _parse_mailto(action: str) -> tuple[list[str], list[str], list[str]]:
     )
 
 
-def _extract_forms(html: str, page_url: str = "") -> list[dict]:
+def _extract_forms(html: str) -> list[dict]:
     """Best-effort native <form> extraction from raw server-side HTML.
 
     Mirrors the field shape the snippet's collectForms() reports for native
@@ -172,13 +182,7 @@ def _extract_forms(html: str, page_url: str = "") -> list[dict]:
     upsert path and produce rows the snippet's submission counter can match.
     Regex-based like _extract_script_urls: div-based and embedded iframe forms
     are invisible in static HTML and there is no HTML-parser dependency.
-
-    `page_url` is accepted for parity with callers that have it on hand but is
-    not otherwise used here — a form's action is stored as reported, absolute
-    or relative, the same as the snippet.
     """
-    import re
-
     forms: list[dict] = []
 
     def tag_attrs(tag: str) -> dict:
@@ -221,9 +225,9 @@ def _extract_forms(html: str, page_url: str = "") -> list[dict]:
             if tag == "input" and ftype == "hidden":
                 hidden_name = (field_attrs.get("name") or "").lower()
                 hidden_value = field_attrs.get("value", "")
-                if "bcc" in hidden_name:
+                if _HIDDEN_BCC_RE.search(hidden_name):
                     hidden_bcc.append(hidden_value)
-                elif "cc" in hidden_name:
+                elif _HIDDEN_CC_RE.search(hidden_name):
                     hidden_cc.append(hidden_value)
                 else:
                     hidden_to.append(hidden_value)

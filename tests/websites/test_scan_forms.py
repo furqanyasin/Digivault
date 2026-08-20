@@ -123,7 +123,7 @@ class TestExtractForms:
             '?cc=c@example.com&amp;bcc=d@example.com">'
             '<input name="name"><button type="submit">Go</button></form>'
         )
-        forms = _extract_forms(html, "https://example.com/")
+        forms = _extract_forms(html)
         assert forms[0]["recipients"] == {
             "to": ["a@example.com", "b@example.com"],
             "cc": ["c@example.com"],
@@ -135,8 +135,23 @@ class TestExtractForms:
             '<form action="mailto:info@example.com">'
             '<input name="name"><button type="submit">Go</button></form>'
         )
-        forms = _extract_forms(html, "https://example.com/")
+        forms = _extract_forms(html)
         assert forms[0]["recipients"]["to"] == ["info@example.com"]
+
+    def test_a_hidden_field_merely_containing_cc_is_not_a_cc(self):
+        """success_url, account_email, occupation all contain "cc" as a
+        substring — a bare `"cc" in name` test misfiles them as a Cc address.
+        Only ^cc$ / _cc$ / "carbon" (mirroring snippet.js's CC_NAME) qualify."""
+        html = (
+            '<form action="/submit/">'
+            '<input type="hidden" name="account_email" value="owner@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"] == {
+            "to": ["owner@example.com"], "cc": [], "bcc": [],
+        }
 
 
 @pytest.mark.django_db
