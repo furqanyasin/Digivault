@@ -49,6 +49,11 @@ class SiteEvent(BaseModel):
         SEO_ROBOTS_BLOCK = "seo_robots_block", "SEO: robots.txt blocks all"
         SEO_SITEMAP_MISSING = "seo_sitemap_missing", "SEO: sitemap missing"
         SEO_META_CHANGED = "seo_meta_changed", "SEO: on-page meta changed"
+        # Where a form delivers changed. Not a "script" change — it comes from
+        # the form's own configuration (a mailto: action, or the site's form
+        # plugin read over WP Connect), so it has no ScriptChange to hang off
+        # and lives here, on the site's timeline.
+        FORM_RECIPIENTS_CHANGED = "form_recipients_changed", "Form recipients changed"
 
     class Severity(models.TextChoices):
         INFO = "info", "Info"
