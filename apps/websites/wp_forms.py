@@ -144,15 +144,7 @@ def _match(entry: dict, forms: list) -> list:
 
 
 def apply_recipients(website, entries: list[dict]) -> int:
-    """Fill in `recipients` from what WordPress reported. Returns rows written.
-
-    Only the first address is stored, as a single-entry `to` — this module's
-    own Cc/Bcc support lands in a later task. Writing through `build_recipients`
-    and comparing with `recipients_equal` here (rather than the deprecated
-    `recipient_email` column) is only so this stays comparable with the page
-    path's shape now that `_upsert_form` writes `recipients` too; the route's
-    payload keys and this function's single-address behavior are unchanged.
-    """
+    """Fill in `recipients` from what WordPress reported. Returns rows written."""
     from apps.scripts.models import DetectedForm
     from apps.scripts.recipients import build_recipients, recipients_equal
 
@@ -162,11 +154,15 @@ def apply_recipients(website, entries: list[dict]) -> int:
 
     written = 0
     for entry in entries:
-        raw = entry.get("recipients")
-        if not isinstance(raw, list) or not raw:
-            continue
-        recipients = build_recipients(to=str(raw[0]))
-        if not recipients["to"]:
+        # "recipients" is the pre-Cc/Bcc key name: a site pasted with the
+        # previous snippet still answers with it.
+        reported_to = entry.get("to")
+        if reported_to is None:
+            reported_to = entry.get("recipients")
+        recipients = build_recipients(
+            to=reported_to, cc=entry.get("cc"), bcc=entry.get("bcc")
+        )
+        if not any(recipients.values()):
             continue
 
         matched = _match(entry, forms)

@@ -146,13 +146,13 @@ class TestApplyRecipients:
             "name": "Some Other Form", "recipients": ["x@y.com"],
         }]) == 0
 
-    def test_only_the_first_recipient_is_stored(self, website):
+    def test_every_recipient_is_stored_not_just_the_first(self, website):
         form = _elementor_form(website)
         apply_recipients(website, [{
             "name": "New Form", "recipients": ["first@site.com", "second@site.com"],
         }])
         form.refresh_from_db()
-        assert form.recipients["to"] == ["first@site.com"]
+        assert form.recipients["to"] == ["first@site.com", "second@site.com"]
 
     def test_malformed_recipients_are_skipped(self, website):
         form = _elementor_form(website)
@@ -369,3 +369,46 @@ class TestEndpoint:
             resp = client_for(website).post(self._url(website))
         assert resp.status_code == 200
         assert resp.data["updated"] == 0
+
+
+@pytest.mark.django_db
+class TestReportedCopies:
+    def test_cc_and_bcc_are_stored(self, website):
+        form = _elementor_form(website)
+        apply_recipients(website, [{
+            "plugin": "elementor", "name": "New Form",
+            "to": ["website@digilatics.com"],
+            "cc": ["manager@digilatics.com"],
+            "bcc": ["archive@digilatics.com"],
+        }])
+        form.refresh_from_db()
+        assert form.recipients == {
+            "to": ["website@digilatics.com"],
+            "cc": ["manager@digilatics.com"],
+            "bcc": ["archive@digilatics.com"],
+        }
+
+    def test_every_to_address_is_stored_not_just_the_first(self, website):
+        form = _elementor_form(website)
+        apply_recipients(website, [{
+            "name": "New Form", "to": ["first@site.com", "second@site.com"],
+        }])
+        form.refresh_from_db()
+        assert form.recipients["to"] == ["first@site.com", "second@site.com"]
+
+    def test_the_old_recipients_key_is_still_accepted(self, website):
+        """A site pasted with the previous snippet answers with `recipients`."""
+        form = _elementor_form(website)
+        assert apply_recipients(website, [{
+            "name": "New Form", "recipients": ["website@digilatics.com"],
+        }]) == 1
+        form.refresh_from_db()
+        assert form.recipients["to"] == ["website@digilatics.com"]
+
+    def test_a_reordered_report_is_not_a_write(self, website):
+        _elementor_form(website)
+        first = {"name": "New Form", "to": ["a@site.com", "b@site.com"]}
+        assert apply_recipients(website, [first]) == 1
+        assert apply_recipients(
+            website, [{"name": "New Form", "to": ["b@site.com", "a@site.com"]}]
+        ) == 0

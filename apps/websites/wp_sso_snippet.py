@@ -110,6 +110,39 @@ if ( ! function_exists( 'dvc_split_emails' ) ) {
 }
 
 /**
+ * The first non-empty value among several candidate setting keys.
+ *
+ * Plugin setting names are not documented API and differ between versions —
+ * Elementor's Cc field has been seen as both `email_cc` and `email_to_cc`.
+ * Reading a candidate list costs nothing and degrades to "no Cc found" rather
+ * than to a wrong answer.
+ */
+if ( ! function_exists( 'dvc_first_setting' ) ) {
+	function dvc_first_setting( $settings, $keys ) {
+		foreach ( (array) $keys as $key ) {
+			if ( isset( $settings[ $key ] ) && '' !== trim( (string) $settings[ $key ] ) ) {
+				return $settings[ $key ];
+			}
+		}
+		return '';
+	}
+}
+
+/** Cc/Bcc out of an RFC-822 header blob, as Contact Form 7 stores them. */
+if ( ! function_exists( 'dvc_headers_copies' ) ) {
+	function dvc_headers_copies( $headers ) {
+		$out = array( 'cc' => array(), 'bcc' => array() );
+		foreach ( preg_split( '/\r\n|\r|\n/', (string) $headers ) as $line ) {
+			if ( preg_match( '/^\s*(bcc|cc)\s*:\s*(.+)$/i', $line, $m ) ) {
+				$kind = strtolower( $m[1] );
+				$out[ $kind ] = array_merge( $out[ $kind ], dvc_split_emails( $m[2] ) );
+			}
+		}
+		return $out;
+	}
+}
+
+/**
  * Where each form on this site is configured to send its submissions.
  *
  * Digivault's tracking snippet can only read a recipient that appears in the
@@ -187,10 +220,12 @@ if ( ! function_exists( 'dvc_walk_elementor' ) ) {
 					}
 					if ( ! empty( $to ) ) {
 						$out[] = array(
-							'plugin'     => 'elementor',
-							'name'       => isset( $s['form_name'] ) ? (string) $s['form_name'] : '',
-							'id_prefix'  => '',
-							'recipients' => $to,
+							'plugin'    => 'elementor',
+							'name'      => isset( $s['form_name'] ) ? (string) $s['form_name'] : '',
+							'id_prefix' => '',
+							'to'        => $to,
+							'cc'        => dvc_split_emails( dvc_first_setting( $s, array( 'email_cc', 'email_to_cc' ) ) ),
+							'bcc'       => dvc_split_emails( dvc_first_setting( $s, array( 'email_bcc', 'email_to_bcc' ) ) ),
 						);
 					}
 				}
@@ -220,12 +255,17 @@ if ( ! function_exists( 'dvc_forms_cf7' ) ) {
 			$to   = is_array( $mail ) && isset( $mail['recipient'] )
 				? dvc_split_emails( $mail['recipient'] )
 				: array();
+			$copies = is_array( $mail ) && isset( $mail['additional_headers'] )
+				? dvc_headers_copies( $mail['additional_headers'] )
+				: array( 'cc' => array(), 'bcc' => array() );
 			if ( ! empty( $to ) ) {
 				$out[] = array(
-					'plugin'     => 'contact-form-7',
-					'name'       => $post->post_title,
-					'id_prefix'  => 'wpcf7-f' . $post->ID . '-',
-					'recipients' => $to,
+					'plugin'    => 'contact-form-7',
+					'name'      => $post->post_title,
+					'id_prefix' => 'wpcf7-f' . $post->ID . '-',
+					'to'        => $to,
+					'cc'        => $copies['cc'],
+					'bcc'       => $copies['bcc'],
 				);
 			}
 		}
@@ -254,19 +294,30 @@ if ( ! function_exists( 'dvc_forms_wpforms' ) ) {
 			$notifications = isset( $data['settings']['notifications'] )
 				? (array) $data['settings']['notifications']
 				: array();
-			$to = array();
+			$to  = array();
+			$cc  = array();
+			$bcc = array();
 			foreach ( $notifications as $n ) {
-				if ( is_array( $n ) && isset( $n['email'] ) ) {
+				if ( ! is_array( $n ) ) {
+					continue;
+				}
+				if ( isset( $n['email'] ) ) {
 					$to = array_merge( $to, dvc_split_emails( $n['email'] ) );
 				}
+				$cc  = array_merge( $cc, dvc_split_emails( dvc_first_setting( $n, array( 'carboncopy', 'cc' ) ) ) );
+				$bcc = array_merge( $bcc, dvc_split_emails( dvc_first_setting( $n, array( 'blindcarboncopy', 'bcc' ) ) ) );
 			}
-			$to = array_values( array_unique( $to ) );
+			$to  = array_values( array_unique( $to ) );
+			$cc  = array_values( array_unique( $cc ) );
+			$bcc = array_values( array_unique( $bcc ) );
 			if ( ! empty( $to ) ) {
 				$out[] = array(
-					'plugin'     => 'wpforms',
-					'name'       => $post->post_title,
-					'id_prefix'  => 'wpforms-form-' . $post->ID,
-					'recipients' => $to,
+					'plugin'    => 'wpforms',
+					'name'      => $post->post_title,
+					'id_prefix' => 'wpforms-form-' . $post->ID,
+					'to'        => $to,
+					'cc'        => $cc,
+					'bcc'       => $bcc,
 				);
 			}
 		}
@@ -282,22 +333,36 @@ if ( ! function_exists( 'dvc_forms_gravity' ) ) {
 		}
 		$out = array();
 		foreach ( (array) GFAPI::get_forms() as $form ) {
-			$to = array();
+			$to  = array();
+			$cc  = array();
+			$bcc = array();
 			foreach ( (array) ( isset( $form['notifications'] ) ? $form['notifications'] : array() ) as $n ) {
+				if ( ! is_array( $n ) ) {
+					continue;
+				}
 				// A notification routed to a field carries the visitor's address,
 				// not a destination the agency configured.
-				if ( is_array( $n ) && isset( $n['to'] )
-					&& ( ! isset( $n['toType'] ) || 'email' === $n['toType'] ) ) {
+				if ( isset( $n['to'] ) && ( ! isset( $n['toType'] ) || 'email' === $n['toType'] ) ) {
 					$to = array_merge( $to, dvc_split_emails( $n['to'] ) );
 				}
+				if ( isset( $n['cc'] ) ) {
+					$cc = array_merge( $cc, dvc_split_emails( $n['cc'] ) );
+				}
+				if ( isset( $n['bcc'] ) ) {
+					$bcc = array_merge( $bcc, dvc_split_emails( $n['bcc'] ) );
+				}
 			}
-			$to = array_values( array_unique( $to ) );
+			$to  = array_values( array_unique( $to ) );
+			$cc  = array_values( array_unique( $cc ) );
+			$bcc = array_values( array_unique( $bcc ) );
 			if ( ! empty( $to ) ) {
 				$out[] = array(
-					'plugin'     => 'gravity-forms',
-					'name'       => isset( $form['title'] ) ? (string) $form['title'] : '',
-					'id_prefix'  => 'gform_' . $form['id'],
-					'recipients' => $to,
+					'plugin'    => 'gravity-forms',
+					'name'      => isset( $form['title'] ) ? (string) $form['title'] : '',
+					'id_prefix' => 'gform_' . $form['id'],
+					'to'        => $to,
+					'cc'        => $cc,
+					'bcc'       => $bcc,
 				);
 			}
 		}
