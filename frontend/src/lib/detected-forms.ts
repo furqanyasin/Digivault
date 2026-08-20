@@ -102,9 +102,19 @@ export function pagePath(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, "") || "/";
 }
 
-/** Every address a form delivers to, To first — what the "Goes to" column counts. */
+/** How many addresses a form delivers to in total, across To, Cc and Bcc. */
 export function destinationCount(f: FormRow): number {
   return f.recipients.to.length + f.recipients.cc.length + f.recipients.bcc.length;
+}
+
+/** The one address to show when there is only room for one.
+ *
+ *  Falls back To -> Cc -> Bcc, mirroring the backend's primary_recipient() in
+ *  apps/scripts/recipients.py: a Bcc-only form does have a destination, and
+ *  reporting "" for it would read as "nobody receives this."
+ */
+export function primaryRecipient(f: FormRow): string {
+  return f.recipients.to[0] ?? f.recipients.cc[0] ?? f.recipients.bcc[0] ?? "";
 }
 
 // Errors that belong to a form. The snippet identifies an error's form as

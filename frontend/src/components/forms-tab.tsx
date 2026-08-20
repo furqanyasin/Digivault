@@ -12,6 +12,7 @@ import {
   formLabel,
   health,
   pagePath,
+  primaryRecipient,
   successRate,
   HEALTH_LABEL,
   HEALTH_VARIANT,
@@ -215,7 +216,7 @@ function FormsTable({
                 >
                   {destinationCount(form) > 0 ? (
                     <>
-                      {form.recipients.to[0] ?? form.recipients.cc[0]}
+                      {primaryRecipient(form)}
                       {destinationCount(form) > 1 && (
                         <span className="ml-1 whitespace-nowrap font-sans">
                           +{destinationCount(form) - 1} more
