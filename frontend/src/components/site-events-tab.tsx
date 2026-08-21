@@ -1,6 +1,6 @@
 "use client";
 
-import { History, Puzzle, Layers, Globe, Rocket, Pencil } from "lucide-react";
+import { History, Puzzle, Layers, Globe, Rocket, Pencil, Mail } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -19,6 +19,7 @@ const EVENT_ICON: Record<string, React.ReactNode> = {
   core_updated:     <Globe className="h-3.5 w-3.5" />,
   deployment:       <Rocket className="h-3.5 w-3.5" />,
   manual:           <Pencil className="h-3.5 w-3.5" />,
+  form_recipients_changed: <Mail className="h-3.5 w-3.5" />,
 };
 
 const SEVERITY_CLASS: Record<string, string> = {
@@ -35,6 +36,7 @@ const EVENT_LABEL: Record<string, string> = {
   core_updated:     "Core Updated",
   deployment:       "Deployment",
   manual:           "Manual Entry",
+  form_recipients_changed: "Form Recipients Changed",
 };
 
 export function SiteEventsTab({ events }: Props) {

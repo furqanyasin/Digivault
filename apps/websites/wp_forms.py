@@ -146,6 +146,7 @@ def _match(entry: dict, forms: list) -> list:
 def apply_recipients(website, entries: list[dict]) -> int:
     """Fill in `recipients` from what WordPress reported. Returns rows written."""
     from apps.scripts.models import DetectedForm
+    from apps.scripts.recipient_changes import record_recipient_change
     from apps.scripts.recipients import build_recipients, recipients_equal
 
     forms = list(website.detected_forms.all())
@@ -181,10 +182,18 @@ def apply_recipients(website, entries: list[dict]) -> int:
                 and form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
             ):
                 continue
+            old_recipients = form.recipients
+            old_source = form.recipient_source
             form.recipients = recipients
             form.recipient_source = DetectedForm.RecipientSource.WORDPRESS
             form.save(
                 update_fields=["recipients", "recipient_source", "updated_at"]
+            )
+            record_recipient_change(
+                form,
+                old_recipients=old_recipients,
+                old_source=old_source,
+                new_source=DetectedForm.RecipientSource.WORDPRESS,
             )
             written += 1
 

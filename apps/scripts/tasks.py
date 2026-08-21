@@ -25,6 +25,7 @@ from apps.scripts.normalize import (
     normalize_page_url,
     normalize_script_url,
 )
+from apps.scripts.recipient_changes import record_recipient_change
 from apps.scripts.recipients import all_recipients, build_recipients
 from apps.scripts.wp_assets import diff_assets
 from apps.site_health.models import SiteEvent
@@ -549,9 +550,17 @@ def _apply_page_recipients(form: DetectedForm, form_data: dict) -> None:
         return
     if recipients == form.recipients and form.recipient_source == DetectedForm.RecipientSource.PAGE:
         return
+    old_recipients = form.recipients
+    old_source = form.recipient_source
     form.recipients = recipients
     form.recipient_source = DetectedForm.RecipientSource.PAGE
     form.save(update_fields=["recipients", "recipient_source", "updated_at"])
+    record_recipient_change(
+        form,
+        old_recipients=old_recipients,
+        old_source=old_source,
+        new_source=DetectedForm.RecipientSource.PAGE,
+    )
 
 
 def _update_script_scopes(website: Website) -> None:
@@ -646,3 +655,75 @@ def deliver_form_error_alert(error_id: str) -> bool:
     if error is None:
         return False
     return notifications.notify_form_error(error)
+
+
+def _format_recipients(recipients: dict) -> str:
+    """One line naming every destination, with copies labelled.
+
+    A Bcc that reads identically to a To would hide the most interesting case
+    this alert exists to surface.
+    """
+    recipients = recipients if isinstance(recipients, dict) else {}
+    parts = list(recipients.get("to") or [])
+    parts += [f"{e} (Cc)" for e in recipients.get("cc") or []]
+    parts += [f"{e} (Bcc)" for e in recipients.get("bcc") or []]
+    return ", ".join(parts) if parts else "nobody"
+
+
+@shared_task(name="scripts.deliver_recipient_change_alert")
+def deliver_recipient_change_alert(event_pk: str) -> bool:
+    """Announce a changed form destination in the team's ClickUp channel.
+
+    Queued by `record_recipient_change` on transaction commit, so the HTTP call
+    never happens inside the ingest transaction. Returns whether a message was
+    posted; `False` covers a team with no channel configured, which is the
+    normal case for most teams and not a failure.
+    """
+    from apps.integrations import chat
+    from apps.site_health.models import SiteEvent
+
+    event = (
+        SiteEvent.objects.filter(
+            pk=event_pk,
+            event_type=SiteEvent.EventType.FORM_RECIPIENTS_CHANGED,
+        )
+        .select_related("website", "website__team")
+        .first()
+    )
+    if event is None:
+        # A purge or a manual delete can race the queued task. Not an error.
+        logger.debug("deliver_recipient_change_alert: event %s is gone", event_pk)
+        return False
+
+    details = event.details or {}
+    # The summary already reads "<site> — form “X” <verb>"; the title is the
+    # part after the site name, because build_message prefixes the site itself.
+    verb = (
+        "no longer delivers to anyone"
+        if event.severity == SiteEvent.Severity.CRITICAL
+        else "changed where it delivers"
+    )
+    label = details.get("form_label") or "a form"
+    fields = [
+        ("Form", label),
+        ("Page", details.get("page_url", "")),
+        ("Was", _format_recipients(details.get("old") or {})),
+        ("Now", _format_recipients(details.get("new") or {})),
+        (
+            "Read from",
+            "the site's WordPress form settings"
+            if details.get("source") == "wordpress"
+            else "the page markup",
+        ),
+    ]
+    if details.get("moved_to_bcc"):
+        # Still receiving mail, but no longer a visible destination.
+        fields.append(("Moved to Bcc", ", ".join(details["moved_to_bcc"])))
+
+    return chat.notify_problem(
+        event.website,
+        subject=f"form-recipients:{event.pk}",
+        title=f"has a form that {verb}",
+        fields=fields,
+        emoji="📩",
+    )
