@@ -74,6 +74,28 @@ def describe_recipient_change(old: dict, new: dict) -> dict | None:
     }
 
 
+def _transition_signature(recipients: dict) -> str:
+    """A sorted, order-insensitive fingerprint of one recipient set."""
+    recipients = recipients or {}
+    return "|".join(
+        ",".join(sorted(recipients.get(kind) or [])) for kind in ("to", "cc", "bcc")
+    )
+
+
+def _transition_key(old: dict, new: dict) -> str:
+    """A stable identity for an old→new transition, for cooldown matching only.
+
+    Sorted, unlike the `old`/`new` lists stored in `details` for display. Those
+    keep the source's own order — Task 7 renders them as "Was"/"Now", and a
+    plugin's first `To` is its primary recipient, worth preserving as shown.
+    This key exists purely so that a WordPress poll returning the same address
+    set in a different order still matches as the *same* transition instead of
+    slipping past the cooldown as a new one. Do not sort the display lists to
+    "simplify" this — that would throw away the one thing they're for.
+    """
+    return f"{_transition_signature(old)}=>{_transition_signature(new)}"
+
+
 def form_label(form) -> str:
     """A name a human can find in the Forms tab."""
     return form.form_name or form.form_id or form.provider or "Unnamed form"
@@ -106,18 +128,26 @@ def record_recipient_change(
 
     summary = _summary(form, change)
     since = timezone.now() - RECIPIENT_ALERT_COOLDOWN
-    # Keyed on the actual old/new values, not the summary text: two different
-    # transitions on the same form ("changed where it delivers") would
-    # otherwise share one generic summary and dedupe against each other. The
+    transition_key = _transition_key(old_recipients, form.recipients)
+    # Keyed on the transition (per form), not the rendered summary or the raw
+    # old/new dicts: two different transitions on the same form ("changed
+    # where it delivers") would otherwise share one generic summary and
+    # dedupe against each other, and a WordPress poll that returns the same
+    # addresses in a different order (jsonb equality is array-order-sensitive)
+    # would otherwise fail to match and re-post inside the cooldown. The
     # cooldown is meant to suppress a repeat of the *same* transition only.
     if SiteEvent.objects.filter(
         website_id=form.website_id,
         event_type=SiteEvent.EventType.FORM_RECIPIENTS_CHANGED,
         details__form_id=str(form.pk),
-        details__old=old_recipients,
-        details__new=form.recipients,
+        details__transition_key=transition_key,
         occurred_at__gte=since,
     ).exists():
+        logger.debug(
+            "Suppressing repeat form-recipient-change alert for form %s "
+            "(same transition within the %s cooldown)",
+            form.pk, RECIPIENT_ALERT_COOLDOWN,
+        )
         return None
 
     event = SiteEvent.objects.create(
@@ -135,6 +165,7 @@ def record_recipient_change(
             "added": change["added"],
             "removed": change["removed"],
             "moved_to_bcc": change["moved_to_bcc"],
+            "transition_key": transition_key,
         },
     )
 

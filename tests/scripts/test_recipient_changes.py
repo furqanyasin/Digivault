@@ -132,11 +132,14 @@ class TestRecordRecipientChange:
         assert SiteEvent.objects.count() == 0
 
     def test_a_first_read_with_no_prior_source_is_not_a_change(self, form):
+        """Isolates the `not old_source` clause: both sides falsy (equal), so
+        this cannot be passing because the sources merely differ — that case
+        is `test_a_source_upgrade_is_not_a_change`, above."""
         assert record_recipient_change(
             form,
             old_recipients=build_recipients(),
             old_source="",
-            new_source=DetectedForm.RecipientSource.WORDPRESS,
+            new_source="",
         ) is None
 
     def test_the_same_transition_is_suppressed_inside_the_cooldown(self, form):
@@ -150,6 +153,34 @@ class TestRecordRecipientChange:
         form.save(update_fields=["recipients"])
         assert record_recipient_change(form, **kwargs) is not None
         assert record_recipient_change(form, **kwargs) is None
+        assert SiteEvent.objects.count() == 1
+
+    def test_a_reordered_repeat_of_the_same_transition_is_suppressed(self, form):
+        """A WordPress poll can return the same address set in a different
+        order across requests. jsonb equality on the raw `old`/`new` dicts is
+        array-order-sensitive, so the cooldown match has to go through the
+        sorted `transition_key`, not those dicts directly, or this would slip
+        past as a "new" transition and re-post inside the window."""
+        form.recipients = build_recipients(to="new@site.com, spare@site.com")
+        form.save(update_fields=["recipients"])
+        first = record_recipient_change(
+            form,
+            old_recipients=build_recipients(to="old@site.com, extra@site.com"),
+            old_source=DetectedForm.RecipientSource.WORDPRESS,
+            new_source=DetectedForm.RecipientSource.WORDPRESS,
+        )
+        assert first is not None
+
+        # Same addresses, reordered on both sides.
+        form.recipients = build_recipients(to="spare@site.com, new@site.com")
+        form.save(update_fields=["recipients"])
+        repeat = record_recipient_change(
+            form,
+            old_recipients=build_recipients(to="extra@site.com, old@site.com"),
+            old_source=DetectedForm.RecipientSource.WORDPRESS,
+            new_source=DetectedForm.RecipientSource.WORDPRESS,
+        )
+        assert repeat is None
         assert SiteEvent.objects.count() == 1
 
     def test_a_different_transition_is_not_suppressed(self, form):
