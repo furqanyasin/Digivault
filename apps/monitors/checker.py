@@ -2,26 +2,28 @@
 
 Each check_* function performs one health check and returns a dict:
     {
-        "status": "up" | "down" | "degraded",
+        "status": "up" | "down" | "degraded" | "blocked",
         "response_time_ms": int | None,
         "status_code": int | None,
         "error_message": str,
     }
+
+`blocked` is the status that matters most here. It means a named WAF answered
+instead of the customer's server: we learned nothing about the origin, so the
+result is neither up nor down. Folding it into "down" — which is what this
+module used to do for every firewall except Cloudflare and Sucuri — is what made
+healthy sites page their owners at 3am.
 """
 
 import socket
 import ssl
 import time
 import urllib.error
-import urllib.request
 from datetime import datetime, timezone as dt_timezone
 from urllib.parse import urlsplit
 
-# Edge networks answer clients that fail their bot heuristics with a challenge
-# instead of the page. The edge is healthy and real visitors are being served,
-# so this is not an outage — but the origin behind it was never consulted, so
-# it is not a clean "up" either. Reported as degraded with a fix in the message.
-_CHALLENGE_SERVERS = {"cloudflare", "sucuri/cloudproxy"}
+from apps.common import outbound
+from apps.common.ssrf import BlockedURLError
 
 # Cloudflare's 52x range reports on the origin behind the edge, not on the edge
 # itself — a real outage of the customer's server, worth naming precisely.
@@ -35,25 +37,17 @@ _CLOUDFLARE_ORIGIN_ERRORS = {
     526: "origin server has an invalid certificate",
 }
 
+_ALLOWLIST_PAGE = "https://digivault.digilatics.co/bot"
 
-def _challenge_message(status_code: int, resp_headers) -> str:
-    """Return an operator-actionable message if this looks like a bot challenge."""
-    if status_code not in (401, 403, 429):
-        return ""
 
-    get = getattr(resp_headers, "get", lambda *_: None)
-    mitigated = (get("cf-mitigated") or "").strip().lower()
-    server = (get("server") or "").strip().lower()
-
-    if mitigated == "challenge" or (status_code == 403 and server in _CHALLENGE_SERVERS):
-        edge = server or "the CDN"
-        return (
-            f"Blocked by {edge} bot protection (HTTP {status_code}) — the edge "
-            "responded, so the site is serving visitors, but the origin could not "
-            "be verified. Allowlist the monitor, or set the expected status to "
-            f"{status_code}."
-        )
-    return ""
+def _block_message(vendor: str, status_code: int) -> str:
+    """Say who stopped us and what the operator can do about it."""
+    return (
+        f"Blocked by {vendor} (HTTP {status_code}) — the edge answered, so the "
+        "site is serving visitors, but we could not reach the origin to confirm "
+        f"it. Allowlist our monitor ({_ALLOWLIST_PAGE}), or set this monitor's "
+        f"expected status to {status_code}."
+    )
 
 
 def _transport_message(reason, url: str, timeout: int) -> str:
@@ -79,63 +73,108 @@ def _transport_message(reason, url: str, timeout: int) -> str:
     return str(reason)
 
 
+def _request_shape(method: str, keyword: str, attempt: int) -> tuple[str, dict]:
+    """Pick the method and extra headers for this confirmation attempt.
+
+    Each attempt in a confirmation sequence looks different on the wire. A
+    single WAF rule can otherwise produce three identical failures in a row and
+    manufacture an outage that never happened; three differently-shaped requests
+    are much harder to fail identically by accident.
+
+    Attempt 1 prefers HEAD — roughly 95% less bandwidth on the common path,
+    which is itself a rate-limit reduction across the whole fleet. A keyword
+    monitor always uses GET, because a HEAD has no body to search.
+    """
+    method = (method or "GET").upper()
+    extra: dict[str, str] = {}
+
+    if attempt >= 3:
+        extra["Cache-Control"] = "no-cache"
+
+    if keyword or method not in ("GET", "HEAD"):
+        return method, extra
+    if attempt == 1:
+        return "HEAD", extra
+    return "GET", extra
+
+
 def check_http(url: str, method: str = "GET", expected_status: int = 200,
                timeout: int = 30, headers: dict | None = None,
-               keyword: str = "") -> dict:
-    start = time.monotonic()
+               keyword: str = "", attempt: int = 1) -> dict:
+    """One HTTP health check.
+
+    Routed through `apps.common.outbound` so it inherits the platform's single
+    honest identity, the SSRF guard on every redirect hop, and the per-host
+    backoff bookkeeping. It deliberately bypasses the per-host *budget*: a
+    monitor on a 15-minute interval is already far gentler than the bucket, and
+    a monitoring platform that skipped checks because a burst caller had spent
+    the budget would go blind exactly when it matters.
+    """
+    effective_method, extra = _request_shape(method, keyword, attempt)
+    if headers:
+        extra.update(headers)
+
     try:
-        req = urllib.request.Request(url, method=method)
-        req.add_header("User-Agent", "Digivault-Monitor/1.0")
-        if headers:
-            for k, v in headers.items():
-                req.add_header(k, v)
-
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            elapsed = int((time.monotonic() - start) * 1000)
-            body = resp.read(4096).decode("utf-8", errors="ignore")
-            code = resp.status
-
-        if keyword and keyword not in body:
-            return {
-                "status": "down",
-                "response_time_ms": elapsed,
-                "status_code": code,
-                "error_message": f"Keyword '{keyword}' not found in response",
-            }
-
-        if code == expected_status:
-            return {"status": "up", "response_time_ms": elapsed, "status_code": code, "error_message": ""}
-        elif 200 <= code < 400:
-            return {"status": "degraded", "response_time_ms": elapsed, "status_code": code, "error_message": f"Got {code}, expected {expected_status}"}
-        else:
-            return {"status": "down", "response_time_ms": elapsed, "status_code": code, "error_message": f"HTTP {code}"}
-
-    except urllib.error.HTTPError as e:
-        # urlopen raises on every 4xx/5xx, so expected_status has to be honoured
-        # here too — otherwise a monitor set to expect 401/403/429 can never
-        # report up, and the setting silently does nothing.
-        elapsed = int((time.monotonic() - start) * 1000)
-        if e.code == expected_status:
-            return {"status": "up", "response_time_ms": elapsed, "status_code": e.code, "error_message": ""}
-
-        challenge = _challenge_message(e.code, e.headers)
-        if challenge:
-            return {"status": "degraded", "response_time_ms": elapsed, "status_code": e.code, "error_message": challenge}
-
-        origin_error = _CLOUDFLARE_ORIGIN_ERRORS.get(e.code)
-        if origin_error:
-            message = f"HTTP {e.code}: Cloudflare reached, but the {origin_error}"
-        else:
-            message = f"HTTP {e.code}: {e.reason}" if e.reason else f"HTTP {e.code}"
-
-        return {"status": "down", "response_time_ms": elapsed, "status_code": e.code, "error_message": message[:300]}
-
-    except urllib.error.URLError as e:
+        result = outbound.fetch(
+            url,
+            method=effective_method,
+            timeout=timeout,
+            extra_headers=extra,
+            bypass_budget=True,
+        )
+        # Some origins reject HEAD outright. That is a quirk of the server, not
+        # a fault of the site, so fall back rather than reporting it as one.
+        if effective_method == "HEAD" and result.status_code in (405, 501):
+            result = outbound.fetch(
+                url, method="GET", timeout=timeout,
+                extra_headers=extra, bypass_budget=True,
+            )
+    except BlockedURLError as exc:
         return {"status": "down", "response_time_ms": None, "status_code": None,
-                "error_message": _transport_message(e.reason, url, timeout)[:300]}
-    except Exception as e:
+                "error_message": str(exc)[:300]}
+    except urllib.error.URLError as exc:
         return {"status": "down", "response_time_ms": None, "status_code": None,
-                "error_message": _transport_message(e, url, timeout)[:300]}
+                "error_message": _transport_message(exc.reason, url, timeout)[:300]}
+    except Exception as exc:
+        return {"status": "down", "response_time_ms": None, "status_code": None,
+                "error_message": _transport_message(exc, url, timeout)[:300]}
+
+    code = result.status_code
+    elapsed = result.elapsed_ms
+
+    def _keyword_missing():
+        return keyword and keyword not in result.body
+
+    # Checked before anything else so a monitor deliberately set to expect
+    # 401/403/429 can actually report up, instead of the setting silently doing
+    # nothing because urlopen raised on the way past.
+    if code == expected_status:
+        if _keyword_missing():
+            return {"status": "down", "response_time_ms": elapsed, "status_code": code,
+                    "error_message": f"Keyword '{keyword}' not found in response"}
+        return {"status": "up", "response_time_ms": elapsed, "status_code": code,
+                "error_message": ""}
+
+    vendor = result.blocked_by
+    if vendor:
+        return {"status": "blocked", "response_time_ms": elapsed, "status_code": code,
+                "error_message": _block_message(vendor, code)[:300]}
+
+    if 200 <= code < 400:
+        if _keyword_missing():
+            return {"status": "down", "response_time_ms": elapsed, "status_code": code,
+                    "error_message": f"Keyword '{keyword}' not found in response"}
+        return {"status": "degraded", "response_time_ms": elapsed, "status_code": code,
+                "error_message": f"Got {code}, expected {expected_status}"}
+
+    origin_error = _CLOUDFLARE_ORIGIN_ERRORS.get(code)
+    message = (
+        f"HTTP {code}: Cloudflare reached, but the {origin_error}"
+        if origin_error
+        else f"HTTP {code}"
+    )
+    return {"status": "down", "response_time_ms": elapsed, "status_code": code,
+            "error_message": message[:300]}
 
 
 def check_ping(host: str, timeout: int = 10) -> dict:
@@ -194,7 +233,7 @@ def check_ssl(host: str, timeout: int = 10) -> dict:
         return {"status": "down", "response_time_ms": None, "status_code": None, "error_message": str(e)[:300]}
 
 
-def run_check(monitor) -> dict:
+def run_check(monitor, attempt: int = 1) -> dict:
     """Dispatch to the correct checker based on monitor type."""
     t = monitor.monitor_type
     if t == "http":
@@ -205,6 +244,7 @@ def run_check(monitor) -> dict:
             timeout=monitor.timeout,
             headers=monitor.request_headers or {},
             keyword=monitor.keyword or "",
+            attempt=attempt,
         )
     elif t == "ping":
         return check_ping(monitor.url, timeout=monitor.timeout)
