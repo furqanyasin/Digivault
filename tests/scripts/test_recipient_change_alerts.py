@@ -134,12 +134,57 @@ class TestWritersHookIn:
         assert form.recipients["to"] == ["replacement@site.com"]
 
     def test_a_page_ingest_that_only_confirms_records_nothing(self, form):
+        """A pageview that re-observes the same form must not be able to
+        supersede WordPress's real answer, and declining to must not raise a
+        SiteEvent either.
+
+        `_upsert_form` matches rows by a computed fingerprint, not by the
+        fixture's hand-set "fp1" — without lining the two up, this ingest
+        would create a brand-new sibling row instead of landing on the
+        fixture's, and the test would pass for the wrong reason (a first
+        read with no prior source, not the WORDPRESS early-return).
+        """
+        from apps.scripts.models import DetectedForm
         from apps.scripts.tasks import _upsert_form
 
-        _upsert_form(form.website, PAGE, {
+        payload = {
             "form_name": "New Form", "detection_type": "native",
             "fields": [{"name": "email"}], "recipients": {},
-        })
+        }
+        form.fingerprint = DetectedForm.compute_fingerprint(payload)
+        form.save(update_fields=["fingerprint"])
+
+        _upsert_form(form.website, PAGE, payload)
+
         assert SiteEvent.objects.filter(
             event_type=SiteEvent.EventType.FORM_RECIPIENTS_CHANGED
         ).count() == 0
+        form.refresh_from_db()
+        assert form.recipients["to"] == ["new@site.com"]
+        assert form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
+
+    def test_a_page_ingest_confirming_an_unchanged_value_records_nothing(self, form):
+        """The other guard in `_apply_page_recipients`: once a page-sourced
+        value is on record, re-observing the *same* value is a no-op, not a
+        change to announce — distinct from the WORDPRESS early-return above,
+        which the fixture's row would otherwise always hit first."""
+        from apps.scripts.models import DetectedForm
+        from apps.scripts.tasks import _upsert_form
+
+        payload = {
+            "form_name": "Confirm Form", "detection_type": "native",
+            "fields": [{"name": "email"}],
+            "recipients": {"to": "confirmed@site.com"},
+        }
+        _upsert_form(form.website, PAGE, payload)  # first discovery: not news
+        assert SiteEvent.objects.filter(
+            event_type=SiteEvent.EventType.FORM_RECIPIENTS_CHANGED
+        ).count() == 0
+
+        _upsert_form(form.website, PAGE, payload)  # unchanged: still not news
+
+        assert SiteEvent.objects.filter(
+            event_type=SiteEvent.EventType.FORM_RECIPIENTS_CHANGED
+        ).count() == 0
+        confirmed = DetectedForm.objects.get(website=form.website, form_name="Confirm Form")
+        assert confirmed.recipient_source == DetectedForm.RecipientSource.PAGE

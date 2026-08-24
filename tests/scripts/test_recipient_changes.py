@@ -202,6 +202,38 @@ class TestRecordRecipientChange:
         ) is not None
         assert SiteEvent.objects.count() == 2
 
+    def test_per_page_copies_of_one_form_collapse_to_a_single_event(self, website):
+        """`DetectedForm` is unique on (website, page_url, fingerprint), so a
+        footer/global form is one row *per page it appears on*, and both
+        writers loop over every matching row for a single reported change.
+        Keying the cooldown on the row id (or on `fingerprint`, which resolves
+        to the per-page document URL for an action-less Elementor form) would
+        post once per page for one site-wide edit — the exact failure the
+        ScriptChange dedupe already guards against for scripts. Keying on
+        `form_label` instead collapses them back into one `SiteEvent`."""
+        footer_a = DetectedForm.objects.create(
+            website=website, page_url=f"{PAGE}/a", fingerprint="fp-footer-a",
+            form_name="New Form", fields=[],
+            recipients=build_recipients(to="old@site.com"),
+            recipient_source=DetectedForm.RecipientSource.WORDPRESS,
+        )
+        footer_b = DetectedForm.objects.create(
+            website=website, page_url=f"{PAGE}/b", fingerprint="fp-footer-b",
+            form_name="New Form", fields=[],
+            recipients=build_recipients(to="old@site.com"),
+            recipient_source=DetectedForm.RecipientSource.WORDPRESS,
+        )
+        for copy in (footer_a, footer_b):
+            copy.recipients = build_recipients(to="new@site.com")
+            copy.save(update_fields=["recipients"])
+            record_recipient_change(
+                copy,
+                old_recipients=build_recipients(to="old@site.com"),
+                old_source=DetectedForm.RecipientSource.WORDPRESS,
+                new_source=DetectedForm.RecipientSource.WORDPRESS,
+            )
+        assert SiteEvent.objects.count() == 1
+
     def test_an_expired_cooldown_lets_the_same_transition_through(self, form):
         from datetime import timedelta
 

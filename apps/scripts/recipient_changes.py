@@ -129,17 +129,35 @@ def record_recipient_change(
     summary = _summary(form, change)
     since = timezone.now() - RECIPIENT_ALERT_COOLDOWN
     transition_key = _transition_key(old_recipients, form.recipients)
-    # Keyed on the transition (per form), not the rendered summary or the raw
-    # old/new dicts: two different transitions on the same form ("changed
-    # where it delivers") would otherwise share one generic summary and
-    # dedupe against each other, and a WordPress poll that returns the same
-    # addresses in a different order (jsonb equality is array-order-sensitive)
-    # would otherwise fail to match and re-post inside the cooldown. The
-    # cooldown is meant to suppress a repeat of the *same* transition only.
+    # Keyed on the transition (per form label, not per row, not the rendered
+    # summary, not the raw old/new dicts):
+    #
+    # Per label rather than `form.pk` — the same footer/widget form is one
+    # `DetectedForm` row *per page it appears on* (unique on website, page_url,
+    # fingerprint), and both writers loop over every matching row for a single
+    # reported change. Keying on the row id would post once per page for a
+    # site-wide edit — the exact failure the ScriptChange dedupe in
+    # `apps/scripts/tasks.py` already guards against for scripts. `fingerprint`
+    # is no better: it hashes the normalized action, which for an action-less
+    # Elementor form resolves to the *document* URL and so still differs per
+    # page. `form_label` is the one identity already computed per row that is
+    # actually page-independent.
+    #
+    # Two distinct forms on the same site sharing this key would collapse
+    # together, but only if they also share a label — an edge case, and a much
+    # smaller cost than a post per page.
+    #
+    # Per transition rather than the summary or the raw dicts: two different
+    # transitions on the same form ("changed where it delivers") would
+    # otherwise share one generic summary and dedupe against each other, and a
+    # WordPress poll that returns the same addresses in a different order
+    # (jsonb equality is array-order-sensitive) would otherwise fail to match
+    # and re-post inside the cooldown. The cooldown is meant to suppress a
+    # repeat of the *same* transition only.
     if SiteEvent.objects.filter(
         website_id=form.website_id,
         event_type=SiteEvent.EventType.FORM_RECIPIENTS_CHANGED,
-        details__form_id=str(form.pk),
+        details__form_label=form_label(form),
         details__transition_key=transition_key,
         occurred_at__gte=since,
     ).exists():

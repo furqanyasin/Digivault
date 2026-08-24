@@ -196,6 +196,7 @@ class Command(BaseCommand):
         from apps.scripts.models import (
             DetectedForm, FormSubmissionError, Script, ScriptChange,
         )
+        from apps.scripts.recipients import build_recipients
         from apps.websites.models import Website
 
         now = timezone.now()
@@ -307,7 +308,14 @@ class Command(BaseCommand):
                     "form_name": "Contact form",
                     "form_action": f"https://{domain}/contact",
                     "detection_type": "native",
-                    "recipient_email": f"hello@{domain.replace('www.', '')}",
+                    # recipient_email is derived from `recipients` now (see
+                    # DetectedFormSerializer) — writing only the deprecated
+                    # column left every seeded form's "Goes to" column reading
+                    # "Server-side" instead of an address.
+                    "recipients": build_recipients(
+                        to=f"hello@{domain.replace('www.', '')}"
+                    ),
+                    "recipient_source": DetectedForm.RecipientSource.PAGE,
                     "fields": [
                         {"name": "name", "type": "text", "label": "Name", "required": True},
                         {"name": "email", "type": "email", "label": "Email", "required": True},

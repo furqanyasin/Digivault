@@ -144,12 +144,28 @@ def _extract_script_urls(html: str) -> list[str]:
 
 
 # Hidden-field name classifiers for the recipient bucketer below. Must stay in
-# lockstep with apps/scripts/snippet.js's CC_NAME / BCC_NAME — the two cannot
-# literally share code (one is server-side Python, the other browser JS), so
-# this comment is what keeps the word-boundary-ish rule identical on both
-# sides. A bare `"cc" in name` substring test — the previous version of this
-# module — misclassified any field merely *containing* "cc" (success_url,
-# account_email, occupation) as a Cc address.
+# lockstep with apps/scripts/snippet.js's RECIPIENT_NAME / CC_NAME / BCC_NAME —
+# the two cannot literally share code (one is server-side Python, the other
+# browser JS), so this comment is what keeps the word-boundary-ish rule
+# identical on both sides. A bare `"cc" in name` substring test — the previous
+# version of this module — misclassified any field merely *containing* "cc"
+# (success_url, account_email, occupation) as a Cc address.
+#
+# To used to gate on nothing at all: every hidden email that wasn't Cc/Bcc
+# went straight into `hidden_to`, unconditionally. The snippet, by contrast,
+# only promotes a hidden email to To when its name matches `RECIPIENT_NAME`,
+# and otherwise holds it as a single `fallback` used only when nothing else
+# supplied a To. The two writers feed the same `recipient_source="page"` row,
+# so disagreeing here reads as a same-source *change* and posts a false
+# ClickUp alert on every page that has both a `mailto:` action and an
+# unrelated hidden field (an "admin_email" input alongside a mailto: action,
+# say) — the alert flips back and forth as the snippet and a Scan take turns
+# writing the row.
+_HIDDEN_TO_RE = re.compile(
+    r"(_to|^to$|sendto|send_to|recipient|receiver|notify|mailto|mail_to|"
+    r"admin_email|notification|target_email|forward|destination|deliver|report)",
+    re.IGNORECASE,
+)
 _HIDDEN_CC_RE = re.compile(r"(^cc$|_cc$|carbon)", re.IGNORECASE)
 _HIDDEN_BCC_RE = re.compile(r"(^bcc$|_bcc$|blind)", re.IGNORECASE)
 
@@ -211,6 +227,9 @@ def _extract_forms(html: str) -> list[dict]:
         hidden_to: list[str] = []
         hidden_cc: list[str] = []
         hidden_bcc: list[str] = []
+        # A single held-back guess, used only if nothing else supplies a To —
+        # see the fallback discussion below and in the RE block's comment.
+        hidden_fallback = ""
         for field_match in re.finditer(r"<(input|textarea|select)\b[^>]*>", block, re.IGNORECASE):
             tag = field_match.group(1).lower()
             field_attrs = tag_attrs(field_match.group(0))
@@ -229,8 +248,15 @@ def _extract_forms(html: str) -> list[dict]:
                     hidden_bcc.append(hidden_value)
                 elif _HIDDEN_CC_RE.search(hidden_name):
                     hidden_cc.append(hidden_value)
-                else:
+                elif _HIDDEN_TO_RE.search(hidden_name):
                     hidden_to.append(hidden_value)
+                elif not hidden_fallback:
+                    # A hidden field whose name says nothing about being a
+                    # destination (a multi-step form's carried-over visitor
+                    # email, say) is only a guess — held back rather than
+                    # treated as To, and used below only when nothing else
+                    # supplied one.
+                    hidden_fallback = hidden_value
                 continue
             if not name:
                 continue
@@ -258,6 +284,14 @@ def _extract_forms(html: str) -> list[dict]:
 
         action = form_attrs.get("action", "")
         mailto_to, mailto_cc, mailto_bcc = _parse_mailto(action)
+        # A mailto: action and a hidden recipient field are independent
+        # statements of where the form goes, not alternatives — a mailto: form
+        # can still carry a hidden copy — so To is their union, matching the
+        # snippet's detectRecipients(). The fallback only fills in when
+        # *neither* said anything.
+        form_to = mailto_to + hidden_to
+        if not form_to and hidden_fallback:
+            form_to = [hidden_fallback]
         forms.append({
             "form_id": form_attrs.get("id", ""),
             "form_name": form_attrs.get("name", ""),
@@ -265,10 +299,8 @@ def _extract_forms(html: str) -> list[dict]:
             "form_method": (form_attrs.get("method") or "post").lower(),
             "detection_type": "native",
             "provider": "",
-            # A mailto: action is the form's stated destination and outranks a
-            # hidden field, which is only a guess from an input's name.
             "recipients": build_recipients(
-                to=mailto_to or hidden_to,
+                to=form_to,
                 cc=mailto_cc or hidden_cc,
                 bcc=mailto_bcc or hidden_bcc,
             ),

@@ -38,17 +38,51 @@ class IngestFormFieldSerializer(serializers.Serializer):
     required = serializers.BooleanField(default=False)
 
 
-class IngestRecipientsSerializer(serializers.Serializer):
-    """Where a form delivers, as the snippet read it.
+#: Mirrors the CharField(max_length=2048) each kind used to be validated
+#: against, kept as a truncation limit rather than a rejection one below.
+_RECIPIENT_RAW_MAX_LEN = 2048
+#: Defensive cap on a hostile payload's list length. `build_recipients`
+#: already caps the *valid* addresses it keeps per kind far below this; this
+#: only bounds how much junk this field will bother coercing before that.
+_RECIPIENT_RAW_MAX_ITEMS = 50
 
-    Every field is a free string: the snippet sends a comma-joined list and
-    validation happens in the upsert. A malformed address must not 400 the
-    payload, which would drop the scripts posted alongside it.
+
+class IngestRecipientsField(serializers.Field):
+    """Where a form delivers, as the snippet read it — coerced, not validated.
+
+    This used to be a nested `Serializer` of three `CharField`s, which made
+    `recipients` a *validated* key: `null`, a bare string, a `to` that is a
+    list instead of a string, or any value over 2048 chars all 400 the whole
+    ingest payload and drop the scripts posted alongside it. That is exactly
+    the failure mode `recipient_email` below was written to avoid — the
+    precedent this field follows is "accept anything shaped like an address,
+    let `build_recipients` in the upsert reject what isn't". So every shape
+    is coerced into something `build_recipients` can read rather than
+    rejected outright: a non-dict `recipients` (missing, `null`, a string)
+    becomes "no addresses reported" instead of a 400; a list is kept as a
+    list since `build_recipients` already accepts one; a string is truncated
+    rather than refused for being long.
     """
 
-    to = serializers.CharField(max_length=2048, allow_blank=True, default="")
-    cc = serializers.CharField(max_length=2048, allow_blank=True, default="")
-    bcc = serializers.CharField(max_length=2048, allow_blank=True, default="")
+    def to_internal_value(self, data):
+        if not isinstance(data, dict):
+            return {}
+        out = {}
+        for kind in ("to", "cc", "bcc"):
+            value = data.get(kind)
+            if isinstance(value, (list, tuple)):
+                out[kind] = [
+                    str(v)[:_RECIPIENT_RAW_MAX_LEN]
+                    for v in value[:_RECIPIENT_RAW_MAX_ITEMS]
+                ]
+            elif value in (None, ""):
+                out[kind] = ""
+            else:
+                out[kind] = str(value)[:_RECIPIENT_RAW_MAX_LEN]
+        return out
+
+    def to_representation(self, value):
+        return value
 
 
 class IngestFormSerializer(serializers.Serializer):
@@ -67,7 +101,7 @@ class IngestFormSerializer(serializers.Serializer):
     recipient_email = serializers.CharField(
         max_length=254, allow_blank=True, default=""
     )
-    recipients = IngestRecipientsSerializer(required=False)
+    recipients = IngestRecipientsField(required=False, default=dict, allow_null=True)
     fields = IngestFormFieldSerializer(
         many=True, default=list, max_length=MAX_FIELDS_PER_FORM
     )

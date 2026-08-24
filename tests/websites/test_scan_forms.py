@@ -153,6 +153,39 @@ class TestExtractForms:
             "to": ["owner@example.com"], "cc": [], "bcc": [],
         }
 
+    def test_a_mailto_to_and_a_hidden_recipient_field_are_unioned(self):
+        """Regression: `to=mailto_to or hidden_to` discarded the hidden value
+        entirely whenever a mailto: action was present, while the snippet
+        unions the two. Both writers feed the same recipient_source="page"
+        row, so the disagreement read as a same-source change and posted a
+        false ClickUp alert that flipped back and forth between a Scan and a
+        real pageview on any form with both a mailto: action and an unrelated
+        hidden recipient field."""
+        html = (
+            '<form action="mailto:sales@example.com">'
+            '<input type="hidden" name="admin_email" value="boss@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"]["to"] == [
+            "sales@example.com", "boss@example.com",
+        ]
+
+    def test_a_non_recipient_hidden_field_is_a_fallback_not_a_to(self):
+        """A hidden field whose name says nothing about being a destination
+        must not out-rank a mailto: To by unioning in — it is only used when
+        nothing else supplies one (see test_a_hidden_field_merely_containing_
+        cc_is_not_a_cc for that empty-mailto case)."""
+        html = (
+            '<form action="mailto:sales@example.com">'
+            '<input type="hidden" name="form_step" value="unrelated@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"]["to"] == ["sales@example.com"]
+
 
 @pytest.mark.django_db
 class TestScanQueuesForms:

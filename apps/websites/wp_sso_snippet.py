@@ -120,7 +120,13 @@ if ( ! function_exists( 'dvc_split_emails' ) ) {
 if ( ! function_exists( 'dvc_first_setting' ) ) {
 	function dvc_first_setting( $settings, $keys ) {
 		foreach ( (array) $keys as $key ) {
-			if ( isset( $settings[ $key ] ) && '' !== trim( (string) $settings[ $key ] ) ) {
+			// A plugin can store a setting as an array (a multi-recipient field
+			// saved as a list, say). is_scalar() skips it like an empty value
+			// instead of letting (string) cast it and emit an "Array to string
+			// conversion" notice — on a site with WP_DEBUG_DISPLAY on, that
+			// notice prints inside this REST response and corrupts the JSON.
+			if ( isset( $settings[ $key ] ) && is_scalar( $settings[ $key ] )
+				&& '' !== trim( (string) $settings[ $key ] ) ) {
 				return $settings[ $key ];
 			}
 		}

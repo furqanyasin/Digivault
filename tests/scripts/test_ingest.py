@@ -82,3 +82,64 @@ class TestIngestEndpoint:
                 format="json",
             )
         assert resp.status_code == 202
+
+
+@pytest.mark.django_db
+class TestIngestRecipientsIsLenient:
+    """`recipients` used to be a nested `Serializer` field, which made it a
+    *validated* key: `null`, a bare string, a `to` shaped as a list instead
+    of a string, or an over-length value all 400d the whole payload and
+    dropped the scripts posted alongside it. `build_recipients` in the
+    upsert already rejects a junk address entry-by-entry — this is the same
+    "lenient at the edge, validated in the upsert" precedent `recipient_email`
+    on the same serializer already follows.
+    """
+
+    def _payload(self, site_id, recipients):
+        return {
+            "site_id": site_id,
+            "page_url": "https://ingest.io/contact",
+            "scripts": [
+                {
+                    "src": "https://www.googletagmanager.com/gtm.js?id=GTM-TEST",
+                    "location": "head",
+                    "is_async": True,
+                    "is_defer": False,
+                    "is_inline": False,
+                    "inline_hash": "",
+                    "wp_plugin": "",
+                    "wp_post_id": None,
+                }
+            ],
+            "forms": [{
+                "form_id": "contact", "form_name": "Contact",
+                "form_action": "", "form_method": "post",
+                "detection_type": "native", "provider": "",
+                "recipient_email": "", "recipients": recipients,
+                "fields": [],
+            }],
+            "user_agent": "Mozilla/5.0",
+            "snippet_version": "1.0",
+        }
+
+    @pytest.mark.parametrize("recipients", [
+        None,
+        "garbage",
+        {"to": ["a@site.com", "b@site.com"]},
+        {"to": "x" * 3000 + "@site.com"},
+    ], ids=["null", "bare-string", "to-as-list", "overlong-to"])
+    def test_a_malformed_recipients_value_does_not_400(
+        self, api_client, website, recipients
+    ):
+        from apps.scripts.models import Script
+
+        resp = api_client.post(
+            "/api/ingest/",
+            self._payload(website.site_id, recipients),
+            format="json",
+        )
+        assert resp.status_code == 202
+        # Celery runs eagerly in tests, so the scripts posted alongside the
+        # malformed `recipients` must have actually been stored, not merely
+        # accepted at the HTTP layer.
+        assert Script.objects.filter(website=website).exists()
