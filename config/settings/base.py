@@ -311,6 +311,13 @@ MONITOR_CONFIRM_DELAYS = env.list("MONITOR_CONFIRM_DELAYS", cast=int, default=[1
 OUTBOUND_MIN_INTERVAL_SECONDS = env.int("OUTBOUND_MIN_INTERVAL_SECONDS", default=20)
 OUTBOUND_MAX_PER_HOUR = env.int("OUTBOUND_MAX_PER_HOUR", default=60)
 
+# Before a confirmed failure becomes a down alert, the monitor checks whether
+# real visitors were being served (website.last_seen_at, bumped on every ingest).
+# Recent traffic means we are blocked, not the site down. Capped so a
+# permanently blocked monitor cannot go permanently silent.
+LIVENESS_WINDOW_SECONDS = env.int("LIVENESS_WINDOW_SECONDS", default=600)
+LIVENESS_MAX_SUPPRESSED_CHECKS = env.int("LIVENESS_MAX_SUPPRESSED_CHECKS", default=6)
+
 # ------------------------------------------------------------------
 # Vault
 # ------------------------------------------------------------------

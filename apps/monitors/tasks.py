@@ -145,6 +145,24 @@ def check_single_monitor(self, monitor_id: str, attempt: int = 1):
         )
         return
 
+    # A confirmed failure still has to answer one more question before it can be
+    # called an outage: is the site serving real people right now? If ingest
+    # arrived from a visitor's browser moments ago then the site is up and our
+    # single probe IP is the thing being blocked. Downgrade to `blocked` rather
+    # than paging someone about a site that is working.
+    if new_status == "down":
+        from apps.monitors.liveness import corroborate_liveness
+
+        suppress, reason = corroborate_liveness(monitor)
+        if suppress:
+            logger.warning(
+                "monitor %s (%s): probe failed but visitors are being served — "
+                "recording blocked, not down",
+                monitor.name, monitor.url,
+            )
+            new_status = "blocked"
+            result = dict(result, error_message=reason[:300])
+
     MonitorCheck.objects.create(
         monitor=monitor,
         status=new_status,
