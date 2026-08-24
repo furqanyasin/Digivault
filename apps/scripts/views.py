@@ -151,6 +151,7 @@ class IngestView(APIView):
                         "detection_type": f["detection_type"],
                         "provider": f["provider"],
                         "recipient_email": f["recipient_email"],
+                        "recipients": f.get("recipients") or {},
                         "fields": f["fields"],
                     }
                     for f in data.get("forms", [])

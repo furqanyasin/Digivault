@@ -92,7 +92,7 @@ class TestApplyRecipients:
         }])
         form.refresh_from_db()
         assert written == 1
-        assert form.recipient_email == "website@digilatics.com"
+        assert form.recipients["to"] == ["website@digilatics.com"]
         assert form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
 
     def test_name_match_ignores_case_and_padding(self, website):
@@ -101,7 +101,7 @@ class TestApplyRecipients:
             "name": "  new form  ", "recipients": ["a@b.com"],
         }])
         form.refresh_from_db()
-        assert form.recipient_email == "a@b.com"
+        assert form.recipients["to"] == ["a@b.com"]
 
     def test_cf7_form_matched_by_id_prefix(self, website):
         _upsert_form(website, PAGE, {
@@ -114,7 +114,7 @@ class TestApplyRecipients:
         }])
         assert written == 1
         form = DetectedForm.objects.get(website=website, form_id="wpcf7-f12-p340-o1")
-        assert form.recipient_email == "leads@site.com"
+        assert form.recipients["to"] == ["leads@site.com"]
 
     def test_form_1_does_not_claim_form_12s_row(self, website):
         """`gform_1` is a prefix of `gform_12` — the id number must not run on."""
@@ -127,7 +127,9 @@ class TestApplyRecipients:
             "recipients": ["wrong@site.com"],
         }])
         assert written == 0
-        assert DetectedForm.objects.get(form_id="gform_12").recipient_email == ""
+        assert DetectedForm.objects.get(form_id="gform_12").recipients == {
+            "to": [], "cc": [], "bcc": [],
+        }
 
     def test_wpforms_exact_id_still_matches(self, website):
         _upsert_form(website, PAGE, {
@@ -150,7 +152,7 @@ class TestApplyRecipients:
             "name": "New Form", "recipients": ["first@site.com", "second@site.com"],
         }])
         form.refresh_from_db()
-        assert form.recipient_email == "first@site.com"
+        assert form.recipients["to"] == ["first@site.com"]
 
     def test_malformed_recipients_are_skipped(self, website):
         form = _elementor_form(website)
@@ -160,7 +162,7 @@ class TestApplyRecipients:
                       {"name": "New Form"}):
             assert apply_recipients(website, [entry]) == 0
         form.refresh_from_db()
-        assert form.recipient_email == ""
+        assert form.recipients == {"to": [], "cc": [], "bcc": []}
 
     def test_a_second_identical_report_writes_nothing(self, website):
         _elementor_form(website)
@@ -190,7 +192,7 @@ class TestPrecedence:
         })
 
         form.refresh_from_db()
-        assert form.recipient_email == "website@digilatics.com"
+        assert form.recipients["to"] == ["website@digilatics.com"]
         assert form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
 
     def test_wordpress_outranks_an_address_read_from_the_page(self, website):
@@ -206,7 +208,7 @@ class TestPrecedence:
             "name": "New Form", "recipients": ["real@site.com"],
         }])
         form.refresh_from_db()
-        assert form.recipient_email == "real@site.com"
+        assert form.recipients["to"] == ["real@site.com"]
         assert form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
 
         # And a later pageview still can't take it back.
@@ -216,7 +218,7 @@ class TestPrecedence:
             "fields": [{"name": "email", "type": "email"}],
         })
         form.refresh_from_db()
-        assert form.recipient_email == "real@site.com"
+        assert form.recipients["to"] == ["real@site.com"]
 
     def test_a_page_recipient_still_fills_a_blank_row(self, website):
         _upsert_form(website, PAGE, {
@@ -224,7 +226,7 @@ class TestPrecedence:
             "recipient_email": "Info@Site.com", "fields": [{"name": "email"}],
         })
         form = DetectedForm.objects.get(website=website, form_id="mailto-form")
-        assert form.recipient_email == "info@site.com"  # normalized
+        assert form.recipients["to"] == ["info@site.com"]  # normalized
         assert form.recipient_source == DetectedForm.RecipientSource.PAGE
 
     def test_an_empty_reading_does_not_clear_a_page_recipient(self, website):
@@ -236,7 +238,7 @@ class TestPrecedence:
         _upsert_form(website, PAGE, payload)
         _upsert_form(website, PAGE, {**payload, "recipient_email": ""})
         form = DetectedForm.objects.get(website=website, form_id="mailto-form")
-        assert form.recipient_email == "info@site.com"
+        assert form.recipients["to"] == ["info@site.com"]
 
 
 @pytest.fixture
@@ -296,7 +298,7 @@ class TestFetch:
         with patch("apps.websites.wp_forms.requests.get", return_value=resp):
             assert sync_website(website) == 1
         form.refresh_from_db()
-        assert form.recipient_email == "website@digilatics.com"
+        assert form.recipients["to"] == ["website@digilatics.com"]
 
 
 @pytest.mark.django_db
@@ -357,7 +359,7 @@ class TestEndpoint:
         assert resp.status_code == 200
         assert resp.data["updated"] == 1
         form.refresh_from_db()
-        assert form.recipient_email == "website@digilatics.com"
+        assert form.recipients["to"] == ["website@digilatics.com"]
 
     def test_a_site_that_cannot_answer_reports_zero(self, client_for, website, reachable):
         _elementor_form(website)

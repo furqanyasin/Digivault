@@ -83,7 +83,7 @@ class TestExtractForms:
             '<input type="text" name="q">'
             "</form>"
         )
-        assert forms[0]["recipient_email"] == "info@example.com"
+        assert forms[0]["recipients"]["to"] == ["info@example.com"]
 
     def test_hidden_input_value_yields_recipient_email(self):
         forms = _extract_forms(
@@ -93,7 +93,7 @@ class TestExtractForms:
             '<input type="submit" value="Send">'
             "</form>"
         )
-        assert forms[0]["recipient_email"] == "sales@example.com"
+        assert forms[0]["recipients"]["to"] == ["sales@example.com"]
         # The hidden config field stays out of the visible field list.
         assert [(f["name"], f["type"]) for f in forms[0]["fields"]] == [("name", "text")]
 
@@ -103,7 +103,7 @@ class TestExtractForms:
             '<input type="email" name="your-email" value="visitor@example.com">'
             "</form>"
         )
-        assert forms[0]["recipient_email"] == ""
+        assert forms[0]["recipients"] == {"to": [], "cc": [], "bcc": []}
 
     def test_malformed_hidden_value_yields_no_recipient(self):
         forms = _extract_forms(
@@ -111,11 +111,32 @@ class TestExtractForms:
             '<input type="hidden" name="recipient" value="not-an-email">'
             "</form>"
         )
-        assert forms[0]["recipient_email"] == ""
+        assert forms[0]["recipients"] == {"to": [], "cc": [], "bcc": []}
 
     def test_form_without_recipient_defaults_empty(self):
         forms = _extract_forms('<form action="/submit/"><input name="q"></form>')
-        assert forms[0]["recipient_email"] == ""
+        assert forms[0]["recipients"] == {"to": [], "cc": [], "bcc": []}
+
+    def test_mailto_action_yields_to_cc_and_bcc(self):
+        html = (
+            '<form action="mailto:a@example.com,b@example.com'
+            '?cc=c@example.com&amp;bcc=d@example.com">'
+            '<input name="name"><button type="submit">Go</button></form>'
+        )
+        forms = _extract_forms(html, "https://example.com/")
+        assert forms[0]["recipients"] == {
+            "to": ["a@example.com", "b@example.com"],
+            "cc": ["c@example.com"],
+            "bcc": ["d@example.com"],
+        }
+
+    def test_a_mailto_without_a_query_still_yields_to(self):
+        html = (
+            '<form action="mailto:info@example.com">'
+            '<input name="name"><button type="submit">Go</button></form>'
+        )
+        forms = _extract_forms(html, "https://example.com/")
+        assert forms[0]["recipients"]["to"] == ["info@example.com"]
 
 
 @pytest.mark.django_db
