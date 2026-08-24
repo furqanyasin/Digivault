@@ -256,6 +256,13 @@ class Website(BaseModel):
         elif Monitor.Status.DEGRADED in statuses:
             deductions += 12
             warn = True
+        elif Monitor.Status.BLOCKED in statuses:
+            # A WAF is answering instead of the site. That is a gap in coverage
+            # worth chasing — the fix is one allowlist rule — but it is not
+            # evidence of anything being wrong with the site, so it must stay
+            # far away from the urgent band.
+            deductions += 3
+            warn = True
 
         uptimes = [row[1] for row in monitor_rows if row[1] is not None]
         if uptimes:
