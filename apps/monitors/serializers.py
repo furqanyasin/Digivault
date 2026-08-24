@@ -41,6 +41,7 @@ class MonitorCheckSerializer(BaseModelSerializer):
 
 class MonitorSerializer(BaseModelSerializer):
     recent_statuses = serializers.SerializerMethodField()
+    block_info = serializers.SerializerMethodField()
 
     class Meta:
         model = Monitor
@@ -65,6 +66,7 @@ class MonitorSerializer(BaseModelSerializer):
             "uptime_7d",
             "uptime_30d",
             "recent_statuses",
+            "block_info",
             "tags",
             "notes",
             "website",
@@ -87,3 +89,37 @@ class MonitorSerializer(BaseModelSerializer):
     def get_recent_statuses(self, obj) -> list[str]:
         qs = obj.checks.order_by("-checked_at")[:20]
         return [c.status for c in reversed(list(qs))]
+
+    def get_block_info(self, obj) -> dict | None:
+        """What is blocking us, and where to go to fix it.
+
+        Only present while the monitor is actually blocked. "Blocked" is a state
+        the agency can clear in about thirty seconds — but only if the UI says
+        who is doing the blocking and hands over the allowlist rule, rather than
+        leaving a mystery amber badge on the card.
+        """
+        if obj.status != Monitor.Status.BLOCKED:
+            return None
+
+        latest = (
+            obj.checks.filter(status=MonitorCheck.Status.BLOCKED)
+            .order_by("-checked_at")
+            .first()
+        )
+        if latest is None:
+            return None
+
+        # How long we have been unable to see the site: the oldest blocked check
+        # in the unbroken run of them ending now.
+        since = latest.checked_at
+        for check in obj.checks.order_by("-checked_at")[:50]:
+            if check.status != MonitorCheck.Status.BLOCKED:
+                break
+            since = check.checked_at
+
+        return {
+            "message": latest.error_message,
+            "since": since,
+            "consecutive_blocks": obj.consecutive_blocks,
+            "help_url": "https://digivault.digilatics.co/bot",
+        }

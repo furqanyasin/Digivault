@@ -318,6 +318,11 @@ OUTBOUND_MAX_PER_HOUR = env.int("OUTBOUND_MAX_PER_HOUR", default=60)
 LIVENESS_WINDOW_SECONDS = env.int("LIVENESS_WINDOW_SECONDS", default=600)
 LIVENESS_MAX_SUPPRESSED_CHECKS = env.int("LIVENESS_MAX_SUPPRESSED_CHECKS", default=6)
 
+# Published at /api/monitoring-info/ so a client can allowlist us. UptimeRobot
+# publishes its IPs for the same reason: an unidentifiable prober is one a WAF
+# has no choice but to block.
+MONITOR_EGRESS_IPS = env.list("MONITOR_EGRESS_IPS", default=[])
+
 # ------------------------------------------------------------------
 # Vault
 # ------------------------------------------------------------------
