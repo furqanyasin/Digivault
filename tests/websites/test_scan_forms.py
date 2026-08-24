@@ -186,6 +186,26 @@ class TestExtractForms:
         forms = _extract_forms(html)
         assert forms[0]["recipients"]["to"] == ["sales@example.com"]
 
+    def test_a_non_email_hidden_field_does_not_lock_out_the_fallback(self):
+        """The fallback slot is claimed by the first hidden field that isn't
+        Cc/Bcc/To-named — but only if it's actually shaped like an address.
+        Bucketing before checking email-shape (as an earlier version of this
+        function did) let a `_wpnonce` or CSRF token claim that one slot
+        ahead of a later hidden field that is a genuine unnamed recipient
+        address, permanently losing it — no downstream normalization gets it
+        back once the slot is taken. snippet.js's detectRecipients() skips a
+        non-email hidden value before it can claim any bucket, fallback
+        included; this mirrors that ordering."""
+        html = (
+            '<form action="/submit/">'
+            '<input type="hidden" name="_wpnonce" value="abc123def456">'
+            '<input type="hidden" name="visitor_email" value="jane@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"]["to"] == ["jane@example.com"]
+
 
 @pytest.mark.django_db
 class TestScanQueuesForms:

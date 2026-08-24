@@ -16,6 +16,7 @@ from apps.audit.services import AuditService
 from apps.audit.models import ActivityLog
 from apps.site_health.models import SiteScanState
 from apps.site_health.serializers import SiteScanStateSerializer
+from apps.scripts.normalize import normalize_recipient_email
 from apps.scripts.recipients import build_recipients
 from apps.websites.serializers import (
     SnippetInstructionSerializer,
@@ -244,6 +245,17 @@ def _extract_forms(html: str) -> list[dict]:
             if tag == "input" and ftype == "hidden":
                 hidden_name = (field_attrs.get("name") or "").lower()
                 hidden_value = field_attrs.get("value", "")
+                # A non-email value must be skipped *before* it can claim any
+                # bucket, fallback included — matching the order snippet.js's
+                # detectRecipients() runs `isEmailAddress` in, ahead of every
+                # bucket check. Bucketing first and normalizing later (as
+                # build_recipients does for the to/cc/bcc lists themselves)
+                # would let a `_wpnonce` or CSRF token permanently claim the
+                # one fallback slot ahead of a later hidden field that is a
+                # genuine unnamed recipient address, at which point no amount
+                # of downstream normalization gets the address back.
+                if not normalize_recipient_email(hidden_value):
+                    continue
                 if _HIDDEN_BCC_RE.search(hidden_name):
                     hidden_bcc.append(hidden_value)
                 elif _HIDDEN_CC_RE.search(hidden_name):
