@@ -3,35 +3,39 @@ from __future__ import annotations
 
 import logging
 import re
-import urllib.request
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
-from apps.common.ssrf import assert_public_url
+from apps.common import outbound
 
 logger = logging.getLogger(__name__)
 
 MAX_PAGES = 15
 _SITEMAP_NS = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
 
-_BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-}
+# How long a single page fetch will wait for its slot in the per-host budget
+# before giving up. One full spacing window plus a little slack: an SEO scan
+# walks up to MAX_PAGES pages of one host, and pacing them is the difference
+# between polite traffic and a scanner sweep that gets our IP blocked.
+_PACING_WAIT_SECONDS = 25
 
 
 def fetch(url: str, timeout: int = 15):
-    """Return (status_code, text, headers_dict). Raises on network/SSRF failure."""
-    assert_public_url(url)
-    req = urllib.request.Request(url, headers=_BROWSER_HEADERS)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read(2_000_000).decode("utf-8", "ignore")
-        headers = {k.lower(): v for k, v in resp.headers.items()}
-        return resp.status, body, headers
+    """Return (status_code, text, headers_dict).
+
+    Routed through `apps.common.outbound`, so it shares the platform's single
+    honest identity, the per-host budget, the SSRF guard on every redirect hop,
+    and the backoff bookkeeping. Unlike the old urllib version this does *not*
+    raise on 4xx/5xx — a 404 robots.txt is an answer, and every caller here
+    already branches on `status_code == 200`.
+    """
+    result = outbound.fetch(
+        url,
+        timeout=timeout,
+        wait_up_to=_PACING_WAIT_SECONDS,
+        read_bytes=2_000_000,
+    )
+    return result.status_code, result.body, result.headers
 
 
 def parse_robots(text: str) -> dict:

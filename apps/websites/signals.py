@@ -49,7 +49,11 @@ def _create_uptime_monitor_db_only(website):
                 "monitor_type": Monitor.MonitorType.HTTP,
                 "check_interval": 900,
                 "timeout": 30,
-                "retry_count": 1,
+                # retry_count is deliberately left to the model default (3).
+                # This used to pin it to 1, which silently undid the retry
+                # budget for every website ever added through the UI — one 403
+                # from a WAF, one TCP reset, one slow DNS lookup and the client
+                # got paged about a site that was serving visitors fine.
             },
         )
         if monitor.website_id != website.id:

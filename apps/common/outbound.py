@@ -322,6 +322,28 @@ def _opener() -> urllib.request.OpenerDirector:
     return _OPENER
 
 
+def _acquire(host: str, wait_up_to: int) -> bool:
+    """Take a token, optionally waiting out the spacing window for it.
+
+    Burst callers — the SEO checker walks fifteen pages of one host — must pace
+    rather than fail. Failing fourteen of those fifteen would report a healthy
+    site as having no robots.txt and no sitemap, which is a worse lie than the
+    delay is a cost. Waiting turns the same fifteen requests into polite,
+    spaced-out traffic, which is the whole point of the budget.
+    """
+    if consume_budget(host):
+        return True
+    if wait_up_to <= 0:
+        return False
+
+    deadline = time.monotonic() + wait_up_to
+    while time.monotonic() < deadline:
+        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+        if consume_budget(host):
+            return True
+    return False
+
+
 @dataclass
 class FetchResult:
     status_code: int
@@ -342,6 +364,7 @@ def fetch(
     timeout: int = 30,
     extra_headers: Mapping[str, str] | None = None,
     bypass_budget: bool = False,
+    wait_up_to: int = 0,
     read_bytes: int = 65536,
 ) -> FetchResult:
     """Fetch `url` under the shared identity, budget and backoff rules.
@@ -362,7 +385,7 @@ def fetch(
     if cooling and not bypass_budget:
         raise HostCoolingDownError(f"{host} is in backoff for another {cooling}s")
 
-    if not bypass_budget and not consume_budget(host):
+    if not bypass_budget and not _acquire(host, wait_up_to):
         raise RateLimitedError(f"per-host budget exhausted for {host}")
 
     headers = dict(DEFAULT_HEADERS)

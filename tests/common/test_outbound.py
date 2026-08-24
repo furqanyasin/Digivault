@@ -258,3 +258,41 @@ def test_redirect_to_public_address_is_allowed(monkeypatch):
 class _FakeRequest(urllib.request.Request):
     def __init__(self, url):
         super().__init__(url)
+
+
+# ── pacing ────────────────────────────────────────────────────────────────────
+
+def test_fetch_waits_out_the_budget_when_asked(monkeypatch):
+    """Burst callers pace themselves instead of failing.
+
+    The SEO checker walks fifteen pages of one host. Failing fourteen of them
+    would report a healthy site as having no robots.txt and no sitemap; waiting
+    turns the same fifteen requests into polite, spaced traffic.
+    """
+    monkeypatch.setattr(outbound, "assert_public_url", lambda url: None)
+
+    answers = iter([False, False, True])
+    monkeypatch.setattr(outbound, "consume_budget", lambda host: next(answers))
+    slept = []
+    monkeypatch.setattr(outbound.time, "sleep", slept.append)
+
+    class _FakeOpener:
+        @staticmethod
+        def open(req, timeout=None):
+            raise AssertionError("reached the network")
+
+    monkeypatch.setattr(outbound, "_opener", lambda: _FakeOpener())
+
+    with pytest.raises(AssertionError):
+        outbound.fetch("https://example.com/", wait_up_to=25)
+
+    assert slept, "should have waited rather than raising RateLimitedError"
+
+
+def test_fetch_gives_up_waiting_past_the_cap(monkeypatch):
+    monkeypatch.setattr(outbound, "assert_public_url", lambda url: None)
+    monkeypatch.setattr(outbound, "consume_budget", lambda host: False)
+    monkeypatch.setattr(outbound.time, "sleep", lambda s: None)
+
+    with pytest.raises(outbound.RateLimitedError):
+        outbound.fetch("https://example.com/", wait_up_to=3)

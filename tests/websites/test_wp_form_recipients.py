@@ -11,10 +11,13 @@ import json
 from unittest.mock import patch
 
 import pytest
-import requests
 
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
+import json as _json
+import urllib.error
+
+from apps.common import outbound
 from apps.common.ssrf import BlockedURLError, assert_public_url
 from apps.scripts.models import DetectedForm
 from apps.scripts.tasks import _upsert_form
@@ -49,16 +52,18 @@ def _elementor_form(website, name="New Form"):
     return DetectedForm.objects.get(website=website, form_name=name)
 
 
-class _Resp:
-    def __init__(self, status_code=200, payload=None, text=""):
-        self.status_code = status_code
-        self._payload = payload
-        self.text = text
+def _Resp(status_code=200, payload=None, text=""):
+    """A response from the shared outbound client.
 
-    def json(self):
-        if self._payload is None:
-            raise ValueError("not json")
-        return self._payload
+    wp_forms fetches through `apps.common.outbound` rather than `requests`, so
+    it shares the platform's per-host budget and gets the SSRF guard re-applied
+    on every redirect hop.
+    """
+    body = _json.dumps(payload) if payload is not None else text
+    return outbound.FetchResult(
+        status_code=status_code, body=body, headers={},
+        elapsed_ms=1, final_url="https://example.test/",
+    )
 
 
 @pytest.mark.django_db
@@ -250,7 +255,7 @@ def reachable():
     below passes for the wrong reason. The guard itself is covered separately,
     against its own exception rather than against real DNS.
     """
-    with patch("apps.websites.wp_forms.assert_public_url", return_value=None):
+    with patch("apps.common.outbound.assert_public_url", return_value=None):
         yield
 
 
@@ -259,7 +264,7 @@ def reachable():
 class TestFetch:
     def test_site_without_a_secret_is_not_contacted(self, website):
         website.wp_sso_secret = ""
-        with patch("apps.websites.wp_forms.requests.get") as get:
+        with patch("apps.websites.wp_forms.outbound.fetch") as get:
             assert fetch_recipients(website) == []
         get.assert_not_called()
 
@@ -272,19 +277,19 @@ class TestFetch:
     ])
     def test_a_site_that_cannot_answer_is_not_an_error(self, website, resp):
         """Most sites have never pasted the snippet. That is a normal state."""
-        with patch("apps.websites.wp_forms.requests.get", return_value=resp):
+        with patch("apps.websites.wp_forms.outbound.fetch", return_value=resp):
             assert fetch_recipients(website) == []
 
     def test_a_timeout_is_swallowed(self, website):
         with patch(
-            "apps.websites.wp_forms.requests.get",
-            side_effect=requests.Timeout("too slow"),
+            "apps.websites.wp_forms.outbound.fetch",
+            side_effect=urllib.error.URLError("too slow"),
         ):
             assert fetch_recipients(website) == []
 
     def test_non_dict_entries_are_dropped(self, website):
         resp = _Resp(payload={"forms": [{"name": "ok", "recipients": ["a@b.com"]}, "junk", 7]})
-        with patch("apps.websites.wp_forms.requests.get", return_value=resp):
+        with patch("apps.websites.wp_forms.outbound.fetch", return_value=resp):
             assert fetch_recipients(website) == [
                 {"name": "ok", "recipients": ["a@b.com"]}
             ]
@@ -295,7 +300,7 @@ class TestFetch:
             "plugin": "elementor", "name": "New Form", "id_prefix": "",
             "recipients": ["website@digilatics.com"],
         }]})
-        with patch("apps.websites.wp_forms.requests.get", return_value=resp):
+        with patch("apps.websites.wp_forms.outbound.fetch", return_value=resp):
             assert sync_website(website) == 1
         form.refresh_from_db()
         assert form.recipients["to"] == ["website@digilatics.com"]
@@ -306,11 +311,11 @@ class TestSsrfGuard:
     def test_a_blocked_host_is_never_requested(self, website):
         """A site pointed at localhost or a private range must not be fetched."""
         with patch(
-            "apps.websites.wp_forms.assert_public_url",
+            "apps.common.outbound.assert_public_url",
             side_effect=BlockedURLError("private address"),
-        ), patch("apps.websites.wp_forms.requests.get") as get:
+        ), patch("apps.common.outbound._opener") as opener:
             assert fetch_recipients(website) == []
-        get.assert_not_called()
+        opener.assert_not_called()
 
     def test_the_guard_rejects_a_loopback_domain(self, website):
         """The guard is real, not just called — asserted against it directly."""
@@ -354,7 +359,7 @@ class TestEndpoint:
             "plugin": "elementor", "name": "New Form",
             "recipients": ["website@digilatics.com"],
         }]})
-        with patch("apps.websites.wp_forms.requests.get", return_value=resp_body):
+        with patch("apps.websites.wp_forms.outbound.fetch", return_value=resp_body):
             resp = client_for(website).post(self._url(website))
         assert resp.status_code == 200
         assert resp.data["updated"] == 1
@@ -364,7 +369,7 @@ class TestEndpoint:
     def test_a_site_that_cannot_answer_reports_zero(self, client_for, website, reachable):
         _elementor_form(website)
         with patch(
-            "apps.websites.wp_forms.requests.get", return_value=_Resp(status_code=404)
+            "apps.websites.wp_forms.outbound.fetch", return_value=_Resp(status_code=404)
         ):
             resp = client_for(website).post(self._url(website))
         assert resp.status_code == 200

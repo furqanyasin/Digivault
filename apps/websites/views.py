@@ -18,6 +18,7 @@ from apps.site_health.models import SiteScanState
 from apps.site_health.serializers import SiteScanStateSerializer
 from apps.scripts.normalize import normalize_recipient_email
 from apps.scripts.recipients import build_recipients
+from apps.common import outbound
 from apps.websites.serializers import (
     SnippetInstructionSerializer,
     WebsiteCreateSerializer,
@@ -45,38 +46,9 @@ _VERIFY_HEADERS = {
     "Pragma": "no-cache",
 }
 
-# Bodies a bot-protection edge or WAF serves in place of the real page. Matching
-# any of these means we did not see the customer's HTML, so we cannot conclude
-# anything about whether the snippet is installed.
-_BLOCK_PAGE_MARKERS = (
-    "just a moment",
-    "cf-browser-verification",
-    "cf_chl_opt",
-    "checking your browser",
-    "enable javascript and cookies to continue",
-    "attention required! | cloudflare",
-    "ddos protection by",
-    "403 - forbidden",
-    "403 forbidden",
-    "access denied",
-    "request blocked",
-    "you have been blocked",
-    "web application firewall",
-    "mod_security",
-    "are you a human",
-    "captcha",
-)
-
-# Real pages are bigger than this. Interstitials and error stubs are not.
-_MIN_PLAUSIBLE_PAGE_BYTES = 1024
-
-
-def _looks_like_block_page(html: str) -> bool:
-    """True when the body is an interstitial rather than the site's real page."""
-    head = html[:8192].lower()
-    if any(marker in head for marker in _BLOCK_PAGE_MARKERS):
-        return True
-    return len(html) < _MIN_PLAUSIBLE_PAGE_BYTES
+# Block-page detection lives in the shared outbound client so the monitor and
+# the verifier agree on what "we did not see the real page" looks like.
+_looks_like_block_page = outbound.looks_like_block_page
 
 
 def _extract_script_urls(html: str) -> list[str]:

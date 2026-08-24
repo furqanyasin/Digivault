@@ -20,9 +20,9 @@ import logging
 import time
 import uuid
 
-import requests
-
-from apps.common.ssrf import BlockedURLError, assert_public_url
+from apps.common import outbound
+from apps.common.outbound import OutboundError
+from apps.common.ssrf import BlockedURLError
 
 logger = logging.getLogger(__name__)
 
@@ -74,15 +74,21 @@ def fetch_recipients(website) -> list[dict]:
         return []
 
     url = build_signed_url(website)
+
+    # Through the shared client so this daily sweep draws on the same per-host
+    # budget as the monitor and the SEO scan. It also inherits the SSRF guard on
+    # every redirect hop, which the bare requests.get did not have.
     try:
-        assert_public_url(url)
+        resp = outbound.fetch(
+            url, timeout=_TIMEOUT_SECONDS, wait_up_to=_TIMEOUT_SECONDS
+        )
     except BlockedURLError as exc:
         logger.warning("wp_forms: refusing to fetch %s: %s", website.pk, exc)
         return []
-
-    try:
-        resp = requests.get(url, timeout=_TIMEOUT_SECONDS, allow_redirects=True)
-    except requests.RequestException as exc:
+    except OutboundError as exc:
+        logger.debug("wp_forms: %s deferred by outbound budget: %s", website.domain, exc)
+        return []
+    except Exception as exc:
         logger.debug("wp_forms: %s unreachable: %s", website.domain, exc)
         return []
 
@@ -95,7 +101,7 @@ def fetch_recipients(website) -> list[dict]:
         return []
 
     try:
-        body = resp.json()
+        body = json.loads(resp.body)
     except ValueError:
         logger.debug("wp_forms: %s returned non-JSON", website.domain)
         return []
