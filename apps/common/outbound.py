@@ -298,6 +298,30 @@ def note_success(host: str) -> None:
 
 # ── fetch ─────────────────────────────────────────────────────────────────────
 
+class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-run the SSRF guard on every redirect hop.
+
+    Validating only the URL we were handed is not a guard at all: a perfectly
+    public host can answer 302 with ``Location: http://169.254.169.254/`` (cloud
+    metadata) or ``http://127.0.0.1:8000/`` (this very API), and urllib follows
+    it without asking anyone. The attacker never needs to supply an internal URL
+    — they only need to control a public one that points at an internal one.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        assert_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# Built once. `urlopen`'s default opener has an unguarded redirect handler, so
+# every request in this module goes through ours instead.
+_OPENER = urllib.request.build_opener(_GuardedRedirectHandler)
+
+
+def _opener() -> urllib.request.OpenerDirector:
+    return _OPENER
+
+
 @dataclass
 class FetchResult:
     status_code: int
@@ -351,10 +375,10 @@ def fetch(
 
     start = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _opener().open(req, timeout=timeout) as resp:
             body = resp.read(read_bytes).decode("utf-8", errors="ignore")
             result = FetchResult(
-                status_code=resp.status,
+                status_code=getattr(resp, "status", None) or resp.getcode(),
                 body=body,
                 headers={k.lower(): v for k, v in resp.headers.items()},
                 elapsed_ms=int((time.monotonic() - start) * 1000),

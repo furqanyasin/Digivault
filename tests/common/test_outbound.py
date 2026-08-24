@@ -1,4 +1,6 @@
 """Tests for the shared outbound HTTP client (apps/common/outbound.py)."""
+import urllib.request
+
 import pytest
 from django.core.cache import cache
 
@@ -205,11 +207,54 @@ def test_fetch_bypass_budget_skips_the_bucket(monkeypatch):
 
     calls = {}
 
-    def fake_open(req, timeout):  # pragma: no cover - shape only
+    def fake_open(req, timeout=None):  # pragma: no cover - shape only
         calls["hit"] = True
         raise AssertionError("stop here")
 
-    monkeypatch.setattr(outbound.urllib.request, "urlopen", fake_open)
+    class _FakeOpener:
+        open = staticmethod(fake_open)
+
+    monkeypatch.setattr(outbound, "_opener", lambda: _FakeOpener())
     with pytest.raises(AssertionError):
         outbound.fetch("https://example.com/", bypass_budget=True)
     assert calls.get("hit") is True
+
+
+# ── SSRF via redirect ─────────────────────────────────────────────────────────
+
+def test_redirect_to_internal_address_is_blocked():
+    """The guard must re-run on every hop, not just the URL we were handed.
+
+    A public host that 302s to 127.0.0.1 or the cloud metadata endpoint would
+    otherwise walk straight through a check that only ever saw the first URL.
+    """
+    handler = outbound._GuardedRedirectHandler()
+    with pytest.raises(BlockedURLError):
+        handler.redirect_request(
+            _FakeRequest("https://example.com/"), None, 302, "Found", {},
+            "http://127.0.0.1:8000/admin",
+        )
+
+
+def test_redirect_to_metadata_endpoint_is_blocked():
+    handler = outbound._GuardedRedirectHandler()
+    with pytest.raises(BlockedURLError):
+        handler.redirect_request(
+            _FakeRequest("https://example.com/"), None, 302, "Found", {},
+            "http://169.254.169.254/latest/meta-data/",
+        )
+
+
+def test_redirect_to_public_address_is_allowed(monkeypatch):
+    monkeypatch.setattr(outbound, "assert_public_url", lambda url: None)
+    handler = outbound._GuardedRedirectHandler()
+    # Falls through to urllib's own logic, which returns a Request or None.
+    handler.redirect_request(
+        _FakeRequest("https://example.com/"), None, 302, "Found", {},
+        "https://example.com/moved",
+    )
+
+
+class _FakeRequest(urllib.request.Request):
+    def __init__(self, url):
+        super().__init__(url)
