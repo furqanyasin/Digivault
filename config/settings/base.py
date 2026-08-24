@@ -300,6 +300,17 @@ CELERY_BEAT_SCHEDULE = {
 # challenged or blackholed. Raise only if outbound checks fall behind.
 MONITOR_MAX_CHECKS_PER_TICK = env.int("MONITOR_MAX_CHECKS_PER_TICK", default=8)
 
+# A failing request is confirmed this many times before it counts as an outage,
+# with these gaps (seconds) between attempts. Three requests, one data point.
+MONITOR_CONFIRM_ATTEMPTS = env.int("MONITOR_CONFIRM_ATTEMPTS", default=3)
+MONITOR_CONFIRM_DELAYS = env.list("MONITOR_CONFIRM_DELAYS", cast=int, default=[15, 45])
+
+# Every outbound fetch of a customer origin draws on a per-host budget, keyed on
+# the registrable domain. The monitor bypasses it (its own interval is gentler);
+# the burst callers — SEO checker, scan, verify — do not.
+OUTBOUND_MIN_INTERVAL_SECONDS = env.int("OUTBOUND_MIN_INTERVAL_SECONDS", default=20)
+OUTBOUND_MAX_PER_HOUR = env.int("OUTBOUND_MAX_PER_HOUR", default=60)
+
 # ------------------------------------------------------------------
 # Vault
 # ------------------------------------------------------------------
