@@ -500,7 +500,7 @@ class MonitorNotificationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class MonitoringInfoView(APIView):
-    """GET /api/monitoring-info/ — who we are, so a client can allowlist us.
+    """GET /api/v1/monitoring-info/ — who we are, so a client can allowlist us.
 
     Deliberately unauthenticated. The person who needs this is a site owner
     staring at a firewall log, or an agency staffer pasting a rule into a
