@@ -2,6 +2,9 @@ const STATUS_COLOR: Record<string, string> = {
   up: "#10b981",
   degraded: "#f59e0b",
   down: "#ef4444",
+  // Not an outage — a WAF answered instead of the site, so this slot is an
+  // observation we never got. Slate, like pending, rather than a warning colour.
+  blocked: "#64748b",
   pending: "#94a3b8",
 };
 
