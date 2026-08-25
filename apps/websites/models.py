@@ -73,7 +73,13 @@ class Website(BaseModel):
         (30, "Every 30 days"),
     ]
     seo_scan_interval_days = models.PositiveSmallIntegerField(
-        choices=SEO_INTERVAL_CHOICES, default=0,
+        # Was 0 (off): a freshly added site got no SEO coverage until someone
+        # found the setting and turned it on, which nobody did. A data
+        # migration moves existing 0 rows to 7. That cannot distinguish a
+        # deliberate "Off" from the old default — nothing in the schema records
+        # which it was — so it re-enables both. Acceptable because the scan is
+        # read-only, once a week, and the setting is one click to turn back off.
+        choices=SEO_INTERVAL_CHOICES, default=7,
         help_text="How often to auto-run the SEO health check. 0 = off.",
     )
     # One channel for all of this site's alerts (uptime, domain/SSL/hosting,

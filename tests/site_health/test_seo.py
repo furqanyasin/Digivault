@@ -5,9 +5,11 @@ from apps.websites.models import Website
 
 
 @pytest.mark.django_db
-def test_website_seo_interval_defaults_to_off(team):
+def test_website_seo_interval_defaults_to_weekly(team):
+    """Was 0 (off), so no site ever got SEO coverage unless someone went
+    looking for the setting. A freshly added site should be watched, not idle."""
     w = Website.objects.create(team=team, name="S", domain="seo-test.example")
-    assert w.seo_scan_interval_days == 0
+    assert w.seo_scan_interval_days == 7
 
 
 @pytest.mark.django_db

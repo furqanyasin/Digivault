@@ -239,6 +239,22 @@ CELERY_BEAT_SCHEDULE = {
         "task": "site_health.run_due_seo_checks",
         "schedule": crontab(hour=4, minute=0),
     },
+    # Script detection for sites with no snippet installed. One homepage fetch
+    # per site per day, through the shared per-host budget. Without it the
+    # Scripts tab stayed empty forever and the agency could not tell "no
+    # third-party scripts" from "we have never looked".
+    "run-due-passive-scans": {
+        "task": "websites.run_due_passive_scans",
+        "schedule": crontab(hour=5, minute=0),
+    },
+    # Performance used to be measured once, in the post-save signal, and never
+    # again — a site could regress for months while the dashboard quoted its
+    # day-one score. Calls Google's API, not the customer's origin, so it
+    # carries no blacklist risk.
+    "run-due-performance-checks": {
+        "task": "performance.run_due_checks",
+        "schedule": crontab(hour=5, minute=30, day_of_week="monday"),
+    },
     "purge-old-snapshots-weekly": {
         "task": "scripts.purge_old_snapshots",
         "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),
