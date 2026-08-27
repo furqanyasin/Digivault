@@ -13,7 +13,7 @@ import { RefreshDomainButton } from "@/components/refresh-domain-button";
 import { PerformanceTab } from "@/components/performance-tab";
 import { VerifySnippetButton } from "@/components/verify-snippet-button";
 import { ScriptsTab } from "@/components/scripts-tab";
-import { countScriptDomains } from "@/lib/script-domains";
+import { countScriptGroups } from "@/lib/script-domains";
 import { countManagedForms } from "@/lib/detected-forms";
 import { PluginsTab } from "@/components/plugins-tab";
 import { FormsTab } from "@/components/forms-tab";
@@ -378,11 +378,10 @@ export default async function WebsiteDetailPage({
       <Tabs key={tab} defaultValue={tab}>
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          {/* Counts distinct third-party domains, matching the rows the table
-              renders from the same array — not raw Script records. Three files
-              from googletagmanager.com are one service, and counting files made
-              the badge read 9 next to a 7-row table. */}
-          <TabsTrigger value="scripts">Scripts ({countScriptDomains(scriptsForTab)})</TabsTrigger>
+          {/* Counts the rows the table renders from the same array — not raw
+              Script records. Nine files from one GA4 property are one service,
+              and counting files made the badge read 9 next to a 1-row table. */}
+          <TabsTrigger value="scripts">Scripts ({countScriptGroups(scriptsForTab)})</TabsTrigger>
           {showPlugins && <TabsTrigger value="plugins">Plugins</TabsTrigger>}
           <TabsTrigger value="forms">Forms ({managedFormCount})</TabsTrigger>
           <TabsTrigger value="uptime">Uptime &amp; Downtime {monitors.length > 0 ? `(${monitors.length})` : ""}</TabsTrigger>
@@ -427,8 +426,8 @@ export default async function WebsiteDetailPage({
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                Scripts ({countScriptDomains(scriptsForTab)}
-                {scriptsForTab.length !== countScriptDomains(scriptsForTab) &&
+                Scripts ({countScriptGroups(scriptsForTab)}
+                {scriptsForTab.length !== countScriptGroups(scriptsForTab) &&
                   ` · ${scriptsForTab.length} files`}
                 )
               </CardTitle>

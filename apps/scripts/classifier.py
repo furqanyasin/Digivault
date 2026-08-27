@@ -437,6 +437,12 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"cdn\.brightlocal\.com", "BrightLocal", _C.SOCIAL),
 
     # ---- Google broad catch-all (after all specific google patterns) ---------
+    # Anything else served from the GTM host. `/gtag/destination` is the live
+    # case — the loader GTM injects for an Ads or Floodlight destination. It
+    # matched no pattern, so every site running Google Ads carried an extra
+    # "unknown third party" row on its Scripts tab, flagged for review, beside
+    # the Google rows it plainly belongs with.
+    _e(r"googletagmanager\.com", "Google Tag Manager", _C.TAG_MANAGEMENT),
     _e(r"googleapis\.com", "Google APIs", _C.PERFORMANCE),
     _e(r"gstatic\.com", "Google Static CDN", _C.PERFORMANCE),
     _e(r"google\.com/js", "Google Script", _C.PERFORMANCE),
