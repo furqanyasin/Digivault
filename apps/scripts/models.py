@@ -233,6 +233,7 @@ class DetectedForm(BaseModel):
 
     class RecipientSource(models.TextChoices):
         PAGE = "page", "Read from the page markup"
+        WP_API = "wp_api", "Read over the site's WordPress API"
         WORDPRESS = "wordpress", "Reported by WordPress"
 
     website = models.ForeignKey(
@@ -269,10 +270,12 @@ class DetectedForm(BaseModel):
     # writers until they move over, and dropped once a release has run on the
     # new field. Read through `primary_recipient(form.recipients)`, never here.
     recipient_email = models.CharField(max_length=254, blank=True, default="")
-    # How the recipient above was learned. The page markup is a proxy for the
-    # form's configuration; WordPress is the configuration itself, so it wins
-    # and an ingest must not overwrite it (see _upsert_form). Also lets the UI
-    # state which of the two it is rather than implying equal confidence.
+    # How the recipient above was learned, weakest to strongest: the page markup
+    # is a proxy for the form's configuration, while `wp_api` (the site's own
+    # REST API, read with a vaulted credential) and `wordpress` (WP Connect) are
+    # the configuration itself. Both of the latter win over an ingest, which must
+    # never overwrite them (see _apply_page_recipients). Also lets the UI say
+    # which one answered rather than implying equal confidence.
     recipient_source = models.CharField(
         max_length=10,
         choices=RecipientSource.choices,
