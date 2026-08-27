@@ -111,8 +111,134 @@ def fetch_json(website, path: str, credential: WpCredential, *, read_bytes: int 
         return None, resp.status_code
 
 
-#: Extended as readers land below.
-READERS: tuple = ()
+# ── Elementor ───────────────────────────────────────────────────────────────
+
+#: Post types that can carry an Elementor form. `elementor_library` holds popups
+#: and saved templates, which is where a lot of lead forms actually live. A site
+#: whose CPT is not REST-exposed simply answers 404, which costs one request.
+_ELEMENTOR_POST_TYPES = ("pages", "posts", "elementor_library")
+#: Each row carries a whole builder tree, so a large page size produces
+#: multi-megabyte responses. Small pages, a bounded count, and say out loud what
+#: was skipped rather than truncating in silence.
+_ELEMENTOR_PER_PAGE = 10
+_ELEMENTOR_MAX_PAGES = 10
+
+#: Elementor Pro is not publicly distributed, so unlike everything else in this
+#: module these key names could not be read from source. Both spellings seen in
+#: the wild are listed; a key that is absent costs nothing.
+_TO_KEYS = ("email_to",)
+_CC_KEYS = ("email_cc", "email_to_cc")
+_BCC_KEYS = ("email_bcc", "email_to_bcc")
+
+
+def _first_value(settings: dict, keys: tuple) -> str:
+    for key in keys:
+        value = settings.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _walk_form_widgets(nodes, found: list) -> None:
+    """Collect the settings of every `form` widget in an Elementor tree."""
+    if not isinstance(nodes, list):
+        return
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if node.get("widgetType") == "form":
+            settings = node.get("settings")
+            if isinstance(settings, dict):
+                found.append(settings)
+        _walk_form_widgets(node.get("elements"), found)
+
+
+def _elementor_entries(row) -> list[dict]:
+    """The recipient entries carried by one REST row's `_elementor_data`."""
+    if not isinstance(row, dict):
+        return []
+    meta = row.get("meta")
+    raw = (meta or {}).get("_elementor_data") if isinstance(meta, dict) else None
+    if not raw:
+        return []
+
+    try:
+        tree = json.loads(raw) if isinstance(raw, str) else raw
+    except ValueError:
+        return []
+
+    widgets: list = []
+    _walk_form_widgets(tree, widgets)
+
+    out = []
+    for settings in widgets:
+        to = _first_value(settings, _TO_KEYS)
+        if not to:
+            continue
+        out.append({
+            "plugin": "elementor",
+            "name": str(settings.get("form_name") or "").strip(),
+            "to": to,
+            "cc": _first_value(settings, _CC_KEYS),
+            "bcc": _first_value(settings, _BCC_KEYS),
+        })
+    return out
+
+
+def _read_elementor_post_type(website, credential, fetch, post_type) -> list[dict]:
+    out: list[dict] = []
+    exhausted = False
+
+    for page_number in range(1, _ELEMENTOR_MAX_PAGES + 1):
+        path = (
+            f"wp/v2/{post_type}?context=edit&_fields=id,link,meta"
+            f"&per_page={_ELEMENTOR_PER_PAGE}&page={page_number}"
+        )
+        rows, _status = fetch(website, path, credential)
+        if not isinstance(rows, list) or not rows:
+            exhausted = True
+            break
+
+        for row in rows:
+            out.extend(_elementor_entries(row))
+
+        if len(rows) < _ELEMENTOR_PER_PAGE:
+            exhausted = True
+            break
+
+    if not exhausted:
+        logger.info(
+            "wp_api_forms: %s stopped at %d pages of %s; later pages not read",
+            website.domain,
+            _ELEMENTOR_MAX_PAGES,
+            post_type,
+        )
+
+    return out
+
+
+def read_elementor(website, credential, fetch=None) -> list[dict]:
+    """Elementor form recipients, read from `_elementor_data` post meta.
+
+    Reachable because Elementor registers that meta with `show_in_rest` and an
+    `auth_callback` (`modules/wp-rest/classes/elementor-post-meta.php`, 3.27.0+).
+    Without such a registration WordPress hides underscore-prefixed meta from
+    every API, which is exactly why Contact Form 7 cannot be read this way.
+
+    Joined to detected rows by form name: Elementor renders the name into the
+    form element's `name` attribute, which is what the snippet stores.
+    """
+    fetch = fetch or fetch_json
+
+    entries: list[dict] = []
+    for post_type in _ELEMENTOR_POST_TYPES:
+        entries.extend(
+            _read_elementor_post_type(website, credential, fetch, post_type)
+        )
+    return entries
+
+
+READERS: tuple = (read_elementor,)
 
 
 def sync_website(website) -> int:
