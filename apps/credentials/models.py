@@ -65,6 +65,10 @@ class Credential(BaseModel):
 
     class CredentialType(models.TextChoices):
         WORDPRESS = "wordpress", "WordPress Admin"
+        WORDPRESS_APP_PASSWORD = (
+            "wordpress_app_password",
+            "WordPress Application Password",
+        )
         CPANEL = "cpanel", "cPanel"
         GODADDY = "godaddy", "GoDaddy"
         NAMECHEAP = "namecheap", "Namecheap"
@@ -178,15 +182,20 @@ class CredentialAccessLog(BaseModel):
         VIEWED = "viewed", "Viewed"
         COPIED_PASSWORD = "copied_password", "Copied Password"
         EDITED = "edited", "Edited"
+        SYSTEM_READ = "system_read", "Read by a scheduled task"
 
     credential = models.ForeignKey(
         Credential,
         on_delete=models.CASCADE,
         related_name="access_logs",
     )
+    # Null for a SYSTEM_READ: the scheduled sweep that reads a site's WordPress
+    # API has no actor, and inventing one would be a worse record than none.
     user = models.ForeignKey(
         "accounts.User",
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="credential_access_logs",
     )
     action = models.CharField(max_length=20, choices=Action.choices)
