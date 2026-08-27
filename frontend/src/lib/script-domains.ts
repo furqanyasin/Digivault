@@ -17,15 +17,56 @@ export function shortDomain(url: string): string {
   }
 }
 
-/** The identity a scripts-table row is grouped under: the provider when we can
- *  name it, the domain otherwise.
+/** The vendor name a row is labelled with. `provider_family` collapses the
+ *  classifier's per-product names — Google Analytics 4, Google Tag Manager and
+ *  Google Ads are all "Google", every HubSpot product is "HubSpot" — so a
+ *  vendor reads once instead of four times.
+ *
+ *  Falls back to `provider` when the field is absent: the frontend deploys
+ *  separately from the backend (host-pm2 vs Docker), so a frontend that ships
+ *  first must keep rendering rather than label every row "undefined".
+ */
+export function providerLabel(script: {
+  provider?: string;
+  provider_family?: string;
+}): string {
+  return script.provider_family || script.provider || "unknown";
+}
+
+/** Whether a script belongs on the tracking inventory the Scripts tab shows.
+ *
+ *  The decision is the backend's (`is_tracked`, from apps/scripts/tracked.py)
+ *  so the tab badge, the overview tile and the table can never disagree about
+ *  which rows exist. It keeps analytics, ads, tag managers, session recording,
+ *  call tracking, chat, CRM and payment; it drops JS libraries, CDNs, fonts,
+ *  maps, video players (YouTube, Vimeo, Wistia), share buttons and review
+ *  widgets. A script flagged `is_suspicious` is always kept — injected code
+ *  classifies as `unknown`, and a noise filter must not hide it.
+ *
+ *  `!== false` rather than `=== true`: an older backend omits the field, and
+ *  the safe default there is to show the script, not to blank the whole tab.
+ */
+export function isTrackedScript(script: {
+  is_tracked?: boolean;
+  is_suspicious?: boolean;
+}): boolean {
+  return script.is_tracked !== false || script.is_suspicious === true;
+}
+
+/** The identity a scripts-table row is grouped under: the provider family when
+ *  we can name it, the domain otherwise.
  *
  *  Prefixed so a provider literally named after a host cannot collide with the
  *  domain fallback of some other script.
  */
-export function scriptGroupKey(script: { provider?: string; src_url: string }): string {
-  return script.provider && script.provider !== "unknown"
-    ? `provider:${script.provider}`
+export function scriptGroupKey(script: {
+  provider?: string;
+  provider_family?: string;
+  src_url: string;
+}): string {
+  const label = providerLabel(script);
+  return label !== "unknown"
+    ? `provider:${label}`
     : `domain:${shortDomain(script.src_url)}`;
 }
 
@@ -40,9 +81,13 @@ export function scriptGroupKey(script: { provider?: string; src_url: string }): 
  *  host serves two services (googletagmanager.com serves both GTM and GA4) or
  *  one service serves from two hosts (Hotjar) — the badge read 9 above a table
  *  of 8 rows.
+ *
+ *  Pass it the same filtered list the table renders. It counts groups, not
+ *  tracked-ness, so handing it an unfiltered list makes the badge count the
+ *  jQuery and YouTube rows the table no longer shows.
  */
 export function countScriptGroups(
-  scripts: { provider?: string; src_url: string }[]
+  scripts: { provider?: string; provider_family?: string; src_url: string }[]
 ): number {
   return new Set(scripts.map(scriptGroupKey)).size;
 }

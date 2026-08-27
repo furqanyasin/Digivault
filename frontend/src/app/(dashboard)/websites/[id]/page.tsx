@@ -13,7 +13,7 @@ import { RefreshDomainButton } from "@/components/refresh-domain-button";
 import { PerformanceTab } from "@/components/performance-tab";
 import { VerifySnippetButton } from "@/components/verify-snippet-button";
 import { ScriptsTab } from "@/components/scripts-tab";
-import { countScriptGroups } from "@/lib/script-domains";
+import { countScriptGroups, isTrackedScript } from "@/lib/script-domains";
 import { countManagedForms } from "@/lib/detected-forms";
 import { PluginsTab } from "@/components/plugins-tab";
 import { FormsTab } from "@/components/forms-tab";
@@ -233,18 +233,22 @@ export default async function WebsiteDetailPage({
 
   // Scripts tab / stats: hide internal infrastructure noise
   const activeScripts = scripts.filter((s) => s.is_active && !isInternalStr(s.src_url));
-  // Don't show scripts the classifier never recognised once they've been
-  // triaged — they're resolved noise. Unknowns still pending review stay
-  // visible so they can be actioned.
-  const displayScripts = activeScripts.filter(
-    (s) => s.provider !== "unknown" || s.review_status === "pending"
-  );
+  // The Scripts tab answers "what is tracking this client's visitors", so it
+  // lists the tracking inventory only — analytics, ads, tag managers, session
+  // recording, call tracking, chat, CRM, payment — and drops jQuery, Google
+  // Fonts, the YouTube iframe API and every other library, CDN and widget the
+  // classifier can name. isTrackedScript() defers to the backend's is_tracked
+  // (apps/scripts/tracked.py) so this page's badge and the table agree.
+  //
+  // Unknowns go with them: an unrecognised script is not evidence of tracking,
+  // and one that matters still raises a ScriptChange in the change log. The
+  // exception is is_suspicious, which isTrackedScript() always keeps —
+  // injected code classifies as unknown and must never be filtered away.
+  const displayScripts = activeScripts.filter(isTrackedScript);
   // Scripts tab additionally shows inactive scripts (with an Inactive badge)
   // so a tracking code that stopped loading is visible, not silently gone.
   const scriptsForTab = scripts.filter(
-    (s) =>
-      !isInternalStr(s.src_url) &&
-      (s.provider !== "unknown" || s.review_status === "pending")
+    (s) => !isInternalStr(s.src_url) && isTrackedScript(s)
   );
   // Plugins tab: needs digilaticsvps scripts to detect WP plugins
   const allActiveScripts = scripts.filter((s) => s.is_active);

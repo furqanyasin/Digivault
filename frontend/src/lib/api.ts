@@ -165,6 +165,15 @@ export interface Script {
   src_url: string;
   src_domain: string;
   provider: string;
+  /** The vendor the provider belongs to — "Google" for Google Analytics 4,
+   *  Google Tag Manager and Google Ads alike. Optional: an older backend
+   *  omits it, so read it through providerLabel(). */
+  provider_family?: string;
+  /** Whether this script belongs on the tracking inventory (analytics, ads,
+   *  tag managers, session recording, call tracking, chat, CRM, payment) as
+   *  opposed to JS libraries, CDNs, fonts, players and widgets. Optional for
+   *  the same deploy-skew reason — read it through isTrackedScript(). */
+  is_tracked?: boolean;
   category: string;
   location: string;
   scope: string;
