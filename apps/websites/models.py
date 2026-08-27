@@ -73,7 +73,13 @@ class Website(BaseModel):
         (30, "Every 30 days"),
     ]
     seo_scan_interval_days = models.PositiveSmallIntegerField(
-        choices=SEO_INTERVAL_CHOICES, default=0,
+        # Was 0 (off): a freshly added site got no SEO coverage until someone
+        # found the setting and turned it on, which nobody did. A data
+        # migration moves existing 0 rows to 7. That cannot distinguish a
+        # deliberate "Off" from the old default — nothing in the schema records
+        # which it was — so it re-enables both. Acceptable because the scan is
+        # read-only, once a week, and the setting is one click to turn back off.
+        choices=SEO_INTERVAL_CHOICES, default=7,
         help_text="How often to auto-run the SEO health check. 0 = off.",
     )
     # One channel for all of this site's alerts (uptime, domain/SSL/hosting,
@@ -255,6 +261,13 @@ class Website(BaseModel):
             urgent = True  # a site that is down is the most urgent thing there is
         elif Monitor.Status.DEGRADED in statuses:
             deductions += 12
+            warn = True
+        elif Monitor.Status.BLOCKED in statuses:
+            # A WAF is answering instead of the site. That is a gap in coverage
+            # worth chasing — the fix is one allowlist rule — but it is not
+            # evidence of anything being wrong with the site, so it must stay
+            # far away from the urgent band.
+            deductions += 3
             warn = True
 
         uptimes = [row[1] for row in monitor_rows if row[1] is not None]

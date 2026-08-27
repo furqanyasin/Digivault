@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowUp, ArrowDown, Minus, Pause, Circle,
-  Activity, CheckCircle2, XCircle, ChevronLeft,
+  Activity, CheckCircle2, XCircle, ChevronLeft, ShieldAlert,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,7 @@ function statusIcon(status: Monitor["status"] | MonitorCheck["status"]) {
     case "up": return <ArrowUp className="h-4 w-4 text-emerald-500" />;
     case "down": return <ArrowDown className="h-4 w-4 text-red-500" />;
     case "degraded": return <Minus className="h-4 w-4 text-amber-500" />;
+    case "blocked": return <ShieldAlert className="h-4 w-4 text-slate-500" />;
     case "paused": return <Pause className="h-4 w-4 text-slate-400" />;
     default: return <Circle className="h-4 w-4 text-slate-400" />;
   }
@@ -32,6 +33,8 @@ function statusBadgeVariant(status: string) {
     case "up": return "success";
     case "down": return "destructive";
     case "degraded": return "warning";
+    // Not destructive: the site is serving visitors, our view of it is blocked.
+    case "blocked": return "secondary";
     default: return "secondary";
   }
 }
@@ -94,6 +97,36 @@ export default async function MonitorDetailPage({ params }: Props) {
         </div>
         <p className="font-mono text-sm text-muted-foreground">{monitor.url}</p>
       </div>
+
+      {/* The whole point of the `blocked` status: say who is blocking us and
+          hand over the fix, rather than leaving a mystery grey badge. */}
+      {monitor.block_info && (
+        <div className="rounded-lg border border-slate-300 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
+            <div className="space-y-1">
+              <p className="font-medium">
+                We cannot see this site — but it is serving visitors
+              </p>
+              <p className="text-sm text-muted-foreground">{monitor.block_info.message}</p>
+              <p className="text-sm">
+                <a
+                  href={monitor.block_info.help_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  How to allowlist our monitor
+                </a>
+                <span className="text-muted-foreground">
+                  {" "}— blocked on the last {monitor.block_info.consecutive_blocks} check
+                  {monitor.block_info.consecutive_blocks === 1 ? "" : "s"}
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Uptime stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

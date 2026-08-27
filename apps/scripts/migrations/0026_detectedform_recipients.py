@@ -19,7 +19,9 @@ def to_recipients(apps, schema_editor):
 
 
 def to_recipient_email(apps, schema_editor):
-    """Reverse: keep the first To so a rollback isn't a data loss."""
+    """Reverse: keep only the first To. A rollback still loses data — every
+    additional To, and all of Cc and Bcc, have nowhere to go in the old
+    single-address column and are discarded."""
     DetectedForm = apps.get_model("scripts", "DetectedForm")
     for form in DetectedForm.objects.all().iterator():
         to = (form.recipients or {}).get("to") or []

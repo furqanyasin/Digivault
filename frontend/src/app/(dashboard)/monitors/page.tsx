@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, Plus, ArrowUp, ArrowDown, Minus, Pause, Circle, Bell } from "lucide-react";
+import { Activity, Plus, ArrowUp, ArrowDown, Minus, Pause, Circle, Bell, ShieldAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ function statusIcon(status: Monitor["status"]) {
     case "up": return <ArrowUp className="h-4 w-4 text-emerald-500" />;
     case "down": return <ArrowDown className="h-4 w-4 text-red-500" />;
     case "degraded": return <Minus className="h-4 w-4 text-amber-500" />;
+    case "blocked": return <ShieldAlert className="h-4 w-4 text-slate-500" />;
     case "paused": return <Pause className="h-4 w-4 text-slate-400" />;
     default: return <Circle className="h-4 w-4 text-slate-400" />;
   }
@@ -24,6 +25,8 @@ function statusBadgeVariant(status: Monitor["status"]) {
     case "up": return "success";
     case "down": return "destructive";
     case "degraded": return "warning";
+    // Deliberately not destructive: the site is fine, our view of it is not.
+    case "blocked": return "secondary";
     default: return "secondary";
   }
 }
@@ -51,6 +54,7 @@ export default async function MonitorsPage() {
   const up = monitors.filter((m) => m.status === "up").length;
   const down = monitors.filter((m) => m.status === "down").length;
   const degraded = monitors.filter((m) => m.status === "degraded").length;
+  const blocked = monitors.filter((m) => m.status === "blocked").length;
 
   return (
     <div className="p-8 space-y-8">
@@ -76,7 +80,7 @@ export default async function MonitorsPage() {
       </div>
 
       {/* Summary row */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Monitors</CardTitle>
@@ -97,6 +101,25 @@ export default async function MonitorsPage() {
             <ArrowDown className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent><div className="text-2xl font-bold text-red-600">{down + degraded}</div></CardContent>
+        </Card>
+        {/* Deliberately its own tile rather than folded into Issues: these sites
+            are serving visitors fine, we just cannot see them. Counting them as
+            issues is the false-alarm we set out to remove; hiding them entirely
+            would leave the coverage gap invisible. */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Blocked</CardTitle>
+            <ShieldAlert className="h-4 w-4 text-slate-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-600">{blocked}</div>
+            {blocked > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Serving visitors, but a firewall blocks our checks.{" "}
+                <a href="/bot" className="underline">How to allowlist us</a>
+              </p>
+            )}
+          </CardContent>
         </Card>
       </div>
 

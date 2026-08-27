@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  destinationCount,
   errorsForForm,
   fmtPct,
   formLabel,
@@ -56,7 +57,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  *  detection, so the dialog says which of the two it is.
  */
 function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
-  if (form.recipient_emails.length > 0) {
+  if (destinationCount(form) > 0) {
     const fromWordPress = form.recipient_source === "wordpress";
     return (
       <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
@@ -64,18 +65,27 @@ function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
           <Mail className="h-3.5 w-3.5 text-emerald-600" />
           Submissions are sent to
         </p>
-        <ul className="space-y-0.5">
-          {form.recipient_emails.map((email) => (
-            <li key={email} className="font-mono text-xs break-all">
-              {email}
-            </li>
-          ))}
-        </ul>
+        {(["to", "cc", "bcc"] as const).map((kind) =>
+          form.recipients[kind].length === 0 ? null : (
+            <div key={kind} className="space-y-0.5">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {kind === "to" ? "To" : kind === "cc" ? "Cc" : "Bcc"}
+              </p>
+              <ul className="space-y-0.5">
+                {form.recipients[kind].map((email) => (
+                  <li key={email} className="font-mono text-xs break-all">
+                    {email}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        )}
         <p className="text-xs text-muted-foreground">
           {fromWordPress ? (
             <>
               Read from this site&apos;s WordPress form settings over WP Connect — the
-              address the form plugin will actually send to.
+              addresses the form plugin will actually send to, including copies.
             </>
           ) : (
             <>

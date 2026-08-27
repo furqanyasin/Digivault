@@ -12,9 +12,15 @@ import type { DetectedForm, FormSubmissionError } from "@/lib/api";
 /** A form merged across every page it was found on. */
 export type FormRow = DetectedForm & {
   pages: string[];
-  /** Distinct recipient addresses collected across the pages it appears on. */
-  recipient_emails: string[];
+  /** Distinct destinations collected across the pages it appears on. */
+  recipients: { to: string[]; cc: string[]; bcc: string[] };
 };
+
+/** Every address in one kind, tolerating a row written before the shape existed. */
+function kind(f: DetectedForm, name: "to" | "cc" | "bcc"): string[] {
+  const value = f.recipients?.[name];
+  return Array.isArray(value) ? value : [];
+}
 
 // A structural signature for a form, ignoring which page it appeared on, so the
 // same form across pages collapses into a single row (with summed submissions).
@@ -51,13 +57,21 @@ export function dedupeForms(forms: DetectedForm[]): FormRow[] {
       bySignature.set(sig, {
         ...f,
         pages: [f.page_url],
-        recipient_emails: f.recipient_email ? [f.recipient_email] : [],
+        recipients: {
+          to: [...kind(f, "to")],
+          cc: [...kind(f, "cc")],
+          bcc: [...kind(f, "bcc")],
+        },
       });
     } else {
       existing.submission_count += f.submission_count;
       if (!existing.pages.includes(f.page_url)) existing.pages.push(f.page_url);
-      if (f.recipient_email && !existing.recipient_emails.includes(f.recipient_email)) {
-        existing.recipient_emails.push(f.recipient_email);
+      for (const name of ["to", "cc", "bcc"] as const) {
+        for (const email of kind(f, name)) {
+          if (!existing.recipients[name].includes(email)) {
+            existing.recipients[name].push(email);
+          }
+        }
       }
       // One form's copies across pages share a destination, but not necessarily
       // a source: WordPress fills the rows it can match, and the markup fills
@@ -86,6 +100,21 @@ export function formLabel(f: DetectedForm): string {
 
 export function pagePath(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, "") || "/";
+}
+
+/** How many addresses a form delivers to in total, across To, Cc and Bcc. */
+export function destinationCount(f: FormRow): number {
+  return f.recipients.to.length + f.recipients.cc.length + f.recipients.bcc.length;
+}
+
+/** The one address to show when there is only room for one.
+ *
+ *  Falls back To -> Cc -> Bcc, mirroring the backend's primary_recipient() in
+ *  apps/scripts/recipients.py: a Bcc-only form does have a destination, and
+ *  reporting "" for it would read as "nobody receives this."
+ */
+export function primaryRecipient(f: FormRow): string {
+  return f.recipients.to[0] ?? f.recipients.cc[0] ?? f.recipients.bcc[0] ?? "";
 }
 
 // Errors that belong to a form. The snippet identifies an error's form as

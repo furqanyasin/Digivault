@@ -239,6 +239,22 @@ CELERY_BEAT_SCHEDULE = {
         "task": "site_health.run_due_seo_checks",
         "schedule": crontab(hour=4, minute=0),
     },
+    # Script detection for sites with no snippet installed. One homepage fetch
+    # per site per day, through the shared per-host budget. Without it the
+    # Scripts tab stayed empty forever and the agency could not tell "no
+    # third-party scripts" from "we have never looked".
+    "run-due-passive-scans": {
+        "task": "websites.run_due_passive_scans",
+        "schedule": crontab(hour=5, minute=0),
+    },
+    # Performance used to be measured once, in the post-save signal, and never
+    # again — a site could regress for months while the dashboard quoted its
+    # day-one score. Calls Google's API, not the customer's origin, so it
+    # carries no blacklist risk.
+    "run-due-performance-checks": {
+        "task": "performance.run_due_checks",
+        "schedule": crontab(hour=5, minute=30, day_of_week="monday"),
+    },
     "purge-old-snapshots-weekly": {
         "task": "scripts.purge_old_snapshots",
         "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),
@@ -299,6 +315,29 @@ CELERY_BEAT_SCHEDULE = {
 # reads as a scanner sweep to Cloudflare/Sucuri/AWS WAF and gets that IP
 # challenged or blackholed. Raise only if outbound checks fall behind.
 MONITOR_MAX_CHECKS_PER_TICK = env.int("MONITOR_MAX_CHECKS_PER_TICK", default=8)
+
+# A failing request is confirmed this many times before it counts as an outage,
+# with these gaps (seconds) between attempts. Three requests, one data point.
+MONITOR_CONFIRM_ATTEMPTS = env.int("MONITOR_CONFIRM_ATTEMPTS", default=3)
+MONITOR_CONFIRM_DELAYS = env.list("MONITOR_CONFIRM_DELAYS", cast=int, default=[15, 45])
+
+# Every outbound fetch of a customer origin draws on a per-host budget, keyed on
+# the registrable domain. The monitor bypasses it (its own interval is gentler);
+# the burst callers — SEO checker, scan, verify — do not.
+OUTBOUND_MIN_INTERVAL_SECONDS = env.int("OUTBOUND_MIN_INTERVAL_SECONDS", default=20)
+OUTBOUND_MAX_PER_HOUR = env.int("OUTBOUND_MAX_PER_HOUR", default=60)
+
+# Before a confirmed failure becomes a down alert, the monitor checks whether
+# real visitors were being served (website.last_seen_at, bumped on every ingest).
+# Recent traffic means we are blocked, not the site down. Capped so a
+# permanently blocked monitor cannot go permanently silent.
+LIVENESS_WINDOW_SECONDS = env.int("LIVENESS_WINDOW_SECONDS", default=600)
+LIVENESS_MAX_SUPPRESSED_CHECKS = env.int("LIVENESS_MAX_SUPPRESSED_CHECKS", default=6)
+
+# Published at /api/monitoring-info/ so a client can allowlist us. UptimeRobot
+# publishes its IPs for the same reason: an unidentifiable prober is one a WAF
+# has no choice but to block.
+MONITOR_EGRESS_IPS = env.list("MONITOR_EGRESS_IPS", default=[])
 
 # ------------------------------------------------------------------
 # Vault

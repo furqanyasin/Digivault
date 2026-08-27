@@ -123,7 +123,7 @@ class TestExtractForms:
             '?cc=c@example.com&amp;bcc=d@example.com">'
             '<input name="name"><button type="submit">Go</button></form>'
         )
-        forms = _extract_forms(html, "https://example.com/")
+        forms = _extract_forms(html)
         assert forms[0]["recipients"] == {
             "to": ["a@example.com", "b@example.com"],
             "cc": ["c@example.com"],
@@ -135,8 +135,76 @@ class TestExtractForms:
             '<form action="mailto:info@example.com">'
             '<input name="name"><button type="submit">Go</button></form>'
         )
-        forms = _extract_forms(html, "https://example.com/")
+        forms = _extract_forms(html)
         assert forms[0]["recipients"]["to"] == ["info@example.com"]
+
+    def test_a_hidden_field_merely_containing_cc_is_not_a_cc(self):
+        """success_url, account_email, occupation all contain "cc" as a
+        substring — a bare `"cc" in name` test misfiles them as a Cc address.
+        Only ^cc$ / _cc$ / "carbon" (mirroring snippet.js's CC_NAME) qualify."""
+        html = (
+            '<form action="/submit/">'
+            '<input type="hidden" name="account_email" value="owner@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"] == {
+            "to": ["owner@example.com"], "cc": [], "bcc": [],
+        }
+
+    def test_a_mailto_to_and_a_hidden_recipient_field_are_unioned(self):
+        """Regression: `to=mailto_to or hidden_to` discarded the hidden value
+        entirely whenever a mailto: action was present, while the snippet
+        unions the two. Both writers feed the same recipient_source="page"
+        row, so the disagreement read as a same-source change and posted a
+        false ClickUp alert that flipped back and forth between a Scan and a
+        real pageview on any form with both a mailto: action and an unrelated
+        hidden recipient field."""
+        html = (
+            '<form action="mailto:sales@example.com">'
+            '<input type="hidden" name="admin_email" value="boss@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"]["to"] == [
+            "sales@example.com", "boss@example.com",
+        ]
+
+    def test_a_non_recipient_hidden_field_is_a_fallback_not_a_to(self):
+        """A hidden field whose name says nothing about being a destination
+        must not out-rank a mailto: To by unioning in — it is only used when
+        nothing else supplies one (see test_a_hidden_field_merely_containing_
+        cc_is_not_a_cc for that empty-mailto case)."""
+        html = (
+            '<form action="mailto:sales@example.com">'
+            '<input type="hidden" name="form_step" value="unrelated@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"]["to"] == ["sales@example.com"]
+
+    def test_a_non_email_hidden_field_does_not_lock_out_the_fallback(self):
+        """The fallback slot is claimed by the first hidden field that isn't
+        Cc/Bcc/To-named — but only if it's actually shaped like an address.
+        Bucketing before checking email-shape (as an earlier version of this
+        function did) let a `_wpnonce` or CSRF token claim that one slot
+        ahead of a later hidden field that is a genuine unnamed recipient
+        address, permanently losing it — no downstream normalization gets it
+        back once the slot is taken. snippet.js's detectRecipients() skips a
+        non-email hidden value before it can claim any bucket, fallback
+        included; this mirrors that ordering."""
+        html = (
+            '<form action="/submit/">'
+            '<input type="hidden" name="_wpnonce" value="abc123def456">'
+            '<input type="hidden" name="visitor_email" value="jane@example.com">'
+            '<input name="q">'
+            "</form>"
+        )
+        forms = _extract_forms(html)
+        assert forms[0]["recipients"]["to"] == ["jane@example.com"]
 
 
 @pytest.mark.django_db

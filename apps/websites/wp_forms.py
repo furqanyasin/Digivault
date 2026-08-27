@@ -20,9 +20,9 @@ import logging
 import time
 import uuid
 
-import requests
-
-from apps.common.ssrf import BlockedURLError, assert_public_url
+from apps.common import outbound
+from apps.common.outbound import OutboundError
+from apps.common.ssrf import BlockedURLError
 
 logger = logging.getLogger(__name__)
 
@@ -74,15 +74,21 @@ def fetch_recipients(website) -> list[dict]:
         return []
 
     url = build_signed_url(website)
+
+    # Through the shared client so this daily sweep draws on the same per-host
+    # budget as the monitor and the SEO scan. It also inherits the SSRF guard on
+    # every redirect hop, which the bare requests.get did not have.
     try:
-        assert_public_url(url)
+        resp = outbound.fetch(
+            url, timeout=_TIMEOUT_SECONDS, wait_up_to=_TIMEOUT_SECONDS
+        )
     except BlockedURLError as exc:
         logger.warning("wp_forms: refusing to fetch %s: %s", website.pk, exc)
         return []
-
-    try:
-        resp = requests.get(url, timeout=_TIMEOUT_SECONDS, allow_redirects=True)
-    except requests.RequestException as exc:
+    except OutboundError as exc:
+        logger.debug("wp_forms: %s deferred by outbound budget: %s", website.domain, exc)
+        return []
+    except Exception as exc:
         logger.debug("wp_forms: %s unreachable: %s", website.domain, exc)
         return []
 
@@ -95,7 +101,7 @@ def fetch_recipients(website) -> list[dict]:
         return []
 
     try:
-        body = resp.json()
+        body = json.loads(resp.body)
     except ValueError:
         logger.debug("wp_forms: %s returned non-JSON", website.domain)
         return []
@@ -144,16 +150,9 @@ def _match(entry: dict, forms: list) -> list:
 
 
 def apply_recipients(website, entries: list[dict]) -> int:
-    """Fill in `recipients` from what WordPress reported. Returns rows written.
-
-    Only the first address is stored, as a single-entry `to` — this module's
-    own Cc/Bcc support lands in a later task. Writing through `build_recipients`
-    and comparing with `recipients_equal` here (rather than the deprecated
-    `recipient_email` column) is only so this stays comparable with the page
-    path's shape now that `_upsert_form` writes `recipients` too; the route's
-    payload keys and this function's single-address behavior are unchanged.
-    """
+    """Fill in `recipients` from what WordPress reported. Returns rows written."""
     from apps.scripts.models import DetectedForm
+    from apps.scripts.recipient_changes import record_recipient_change
     from apps.scripts.recipients import build_recipients, recipients_equal
 
     forms = list(website.detected_forms.all())
@@ -162,11 +161,15 @@ def apply_recipients(website, entries: list[dict]) -> int:
 
     written = 0
     for entry in entries:
-        raw = entry.get("recipients")
-        if not isinstance(raw, list) or not raw:
-            continue
-        recipients = build_recipients(to=str(raw[0]))
-        if not recipients["to"]:
+        # "recipients" is the pre-Cc/Bcc key name: a site pasted with the
+        # previous snippet still answers with it.
+        reported_to = entry.get("to")
+        if reported_to is None:
+            reported_to = entry.get("recipients")
+        recipients = build_recipients(
+            to=reported_to, cc=entry.get("cc"), bcc=entry.get("bcc")
+        )
+        if not any(recipients.values()):
             continue
 
         matched = _match(entry, forms)
@@ -185,10 +188,18 @@ def apply_recipients(website, entries: list[dict]) -> int:
                 and form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
             ):
                 continue
+            old_recipients = form.recipients
+            old_source = form.recipient_source
             form.recipients = recipients
             form.recipient_source = DetectedForm.RecipientSource.WORDPRESS
             form.save(
                 update_fields=["recipients", "recipient_source", "updated_at"]
+            )
+            record_recipient_change(
+                form,
+                old_recipients=old_recipients,
+                old_source=old_source,
+                new_source=DetectedForm.RecipientSource.WORDPRESS,
             )
             written += 1
 

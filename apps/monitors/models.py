@@ -25,6 +25,10 @@ class Monitor(models.Model):
         UP = "up", "Up"
         DOWN = "down", "Down"
         DEGRADED = "degraded", "Degraded"
+        # A named WAF answered instead of the site. We learned nothing about the
+        # origin, so this is neither up nor down — reporting it as down is what
+        # made healthy sites page their owners.
+        BLOCKED = "blocked", "Blocked"
         PAUSED = "paused", "Paused"
         PENDING = "pending", "Pending"
 
@@ -87,6 +91,9 @@ class Monitor(models.Model):
     )
     is_active = models.BooleanField(default=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    # Blocks are suppressed rather than alerted, so they need their own counter:
+    # without it a permanently blocked monitor would go permanently silent.
+    consecutive_blocks = models.PositiveIntegerField(default=0)
     is_alerting = models.BooleanField(default=False)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     last_response_time = models.PositiveIntegerField(
@@ -113,7 +120,14 @@ class Monitor(models.Model):
         return f"{self.name} ({self.url})"
 
     def recalculate_uptime(self):
-        """Recompute and cache uptime percentages from check history."""
+        """Recompute and cache uptime percentages from check history.
+
+        Blocked checks are excluded from both sides of the ratio. A WAF answered
+        instead of the origin, so we never observed that period at all — scoring
+        it as downtime invents an outage, and scoring it as uptime invents
+        health. A window of nothing but blocks reports None, which is the
+        truthful answer: we do not know.
+        """
         now = timezone.now()
         windows = {
             "uptime_24h": now - timezone.timedelta(hours=24),
@@ -121,15 +135,14 @@ class Monitor(models.Model):
             "uptime_30d": now - timezone.timedelta(days=30),
         }
         for field, since in windows.items():
-            total = MonitorCheck.objects.filter(
+            observable = MonitorCheck.objects.filter(
                 monitor=self, checked_at__gte=since
-            ).count()
+            ).exclude(status=MonitorCheck.Status.BLOCKED)
+            total = observable.count()
             if total == 0:
                 setattr(self, field, None)
             else:
-                up = MonitorCheck.objects.filter(
-                    monitor=self, checked_at__gte=since, status=MonitorCheck.Status.UP
-                ).count()
+                up = observable.filter(status=MonitorCheck.Status.UP).count()
                 setattr(self, field, round((up / total) * 100, 2))
         Monitor.objects.filter(pk=self.pk).update(
             uptime_24h=self.uptime_24h,
@@ -143,6 +156,7 @@ class MonitorCheck(models.Model):
         UP = "up", "Up"
         DOWN = "down", "Down"
         DEGRADED = "degraded", "Degraded"
+        BLOCKED = "blocked", "Blocked"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     monitor = models.ForeignKey(

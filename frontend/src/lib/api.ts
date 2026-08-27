@@ -334,7 +334,12 @@ export interface Monitor {
   check_interval: number;
   timeout: number;
   retry_count: number;
-  status: "up" | "down" | "degraded" | "paused" | "pending";
+  /**
+   * "blocked" means a named WAF answered instead of the site: we learned
+   * nothing about the origin, so it is neither up nor down. Treat it as a
+   * coverage gap to fix (see block_info), never as an outage.
+   */
+  status: "up" | "down" | "degraded" | "blocked" | "paused" | "pending";
   is_active: boolean;
   last_checked_at: string | null;
   last_response_time: number | null;
@@ -344,6 +349,13 @@ export interface Monitor {
   uptime_30d: number | null;
   tags: string[];
   notes: string;
+  /** Present only while status === "blocked": who is blocking us, and the fix. */
+  block_info: {
+    message: string;
+    since: string;
+    consecutive_blocks: number;
+    help_url: string;
+  } | null;
   /** Set for auto-provisioned monitors; null for standalone ones. */
   website: string | null;
   created_at: string;
@@ -409,6 +421,11 @@ export interface DetectedForm {
   form_method: string;
   detection_type: "native" | "dom" | "embedded";
   provider: string;
+  /** Where this form delivers. Read from the page markup or reported by the
+   *  site's own form plugin over WP Connect — see recipient_source. */
+  recipients: { to: string[]; cc: string[]; bcc: string[] };
+  /** Derived server-side from recipients.to[0]. Kept for compatibility with a
+   *  frontend deployed ahead of the backend; prefer recipients. */
   recipient_email: string;
   /** How the recipient was learned. WordPress is the form's real config; the
    *  page markup is only a proxy for it. Blank when there is no recipient. */

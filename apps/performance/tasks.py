@@ -77,3 +77,38 @@ def purge_old_reports(days: int = 365) -> int:
 
     logger.info("performance.purge_old_reports: removed %d rows", total)
     return total
+
+
+# PageSpeed scores move with the site, not with the hour, and this calls
+# Google's API rather than the customer's origin — so it carries no blacklist
+# risk and the interval is chosen purely for signal.
+_PERFORMANCE_INTERVAL = timezone.timedelta(days=7)
+
+
+@shared_task(name="performance.run_due_checks")
+def run_due_checks() -> int:
+    """Re-run PageSpeed for sites whose last report has gone stale.
+
+    Performance used to be measured exactly once, in the post-save signal when
+    the website was created, and never again. A site could regress for months
+    and the dashboard would still be quoting the score it had on day one.
+    """
+    from apps.performance.models import PerformanceReport
+    from apps.websites.models import Website
+
+    cutoff = timezone.now() - _PERFORMANCE_INTERVAL
+    enqueued = 0
+    for website in Website.objects.exclude(status=Website.Status.INACTIVE).iterator():
+        latest = (
+            PerformanceReport.objects.filter(website=website)
+            .order_by("-checked_at")
+            .values_list("checked_at", flat=True)
+            .first()
+        )
+        if latest and latest > cutoff:
+            continue
+        check_website_performance.delay(str(website.pk))
+        enqueued += 1
+
+    logger.info("performance.run_due_checks: queued %d site(s)", enqueued)
+    return enqueued

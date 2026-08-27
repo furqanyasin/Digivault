@@ -19,6 +19,25 @@ logger = logging.getLogger(__name__)
 # monitor stops being due, the fleet also self-declusters after one full cycle.
 DEFAULT_MAX_CHECKS_PER_TICK = 8
 
+# A failing request is a suspicion, not evidence. UptimeRobot re-checks up to
+# three times, 10-20s apart, before marking a monitor down; Digivault checked
+# once, and auto-provisioned monitors alerted on that single result. Waiting a
+# whole check_interval to see the failure again is useless — 15 minutes of
+# silence before confirming an outage is worse than a false alarm — so the
+# re-checks are scheduled in seconds rather than deferred to the next tick.
+DEFAULT_CONFIRM_ATTEMPTS = 3
+DEFAULT_CONFIRM_DELAYS = [15, 45]
+
+
+def _confirm_attempts() -> int:
+    return getattr(settings, "MONITOR_CONFIRM_ATTEMPTS", DEFAULT_CONFIRM_ATTEMPTS)
+
+
+def _confirm_delays() -> list[int]:
+    return list(
+        getattr(settings, "MONITOR_CONFIRM_DELAYS", DEFAULT_CONFIRM_DELAYS)
+    ) or DEFAULT_CONFIRM_DELAYS
+
 
 @shared_task(name="monitors.run_due_checks")
 def run_due_checks():
@@ -74,12 +93,18 @@ def run_due_checks():
     max_retries=0,
     name="monitors.check_single_monitor",
 )
-def check_single_monitor(self, monitor_id: str):
-    """Run one health check and apply retry + dedup logic.
+def check_single_monitor(self, monitor_id: str, attempt: int = 1):
+    """Run one health check and apply confirmation + retry + dedup logic.
 
-    Only fires a down alert after consecutive_failures reaches retry_count.
-    Only fires a recovery alert when transitioning from is_alerting=True back to up.
-    No duplicate alerts while a monitor stays down.
+    A failing request is a suspicion, not evidence. `attempt` walks a
+    confirmation sequence: a `down` result on any attempt before the last
+    records nothing at all and re-queues itself a few seconds later. Only the
+    final consecutive failure becomes a MonitorCheck row and moves
+    consecutive_failures. Three requests produce one data point, never three.
+
+    Beyond that the existing contract is unchanged: a down alert fires only once
+    consecutive_failures reaches retry_count, a recovery alert only on the
+    transition out of is_alerting, and no duplicates while a monitor stays down.
     """
     from apps.monitors.checker import run_check
     from apps.monitors.models import Monitor, MonitorCheck
@@ -93,7 +118,7 @@ def check_single_monitor(self, monitor_id: str):
         return
 
     try:
-        result = run_check(monitor)
+        result = run_check(monitor, attempt=attempt)
     except Exception as exc:
         logger.exception("check_single_monitor: checker raised for %s", monitor_id)
         result = {
@@ -105,6 +130,38 @@ def check_single_monitor(self, monitor_id: str):
 
     previous_status = monitor.status
     new_status = result["status"]
+
+    # Confirmation gate. Only `down` earns a re-check — `blocked` is already a
+    # definite answer (about us, not the site), and up/degraded are answers too.
+    if new_status == "down" and attempt < _confirm_attempts():
+        delays = _confirm_delays()
+        countdown = delays[min(attempt - 1, len(delays) - 1)]
+        logger.info(
+            "monitor %s (%s) failed attempt %d/%d — confirming in %ds, nothing recorded",
+            monitor.name, monitor.url, attempt, _confirm_attempts(), countdown,
+        )
+        check_single_monitor.apply_async(
+            args=[str(monitor_id), attempt + 1], countdown=countdown
+        )
+        return
+
+    # A confirmed failure still has to answer one more question before it can be
+    # called an outage: is the site serving real people right now? If ingest
+    # arrived from a visitor's browser moments ago then the site is up and our
+    # single probe IP is the thing being blocked. Downgrade to `blocked` rather
+    # than paging someone about a site that is working.
+    if new_status == "down":
+        from apps.monitors.liveness import corroborate_liveness
+
+        suppress, reason = corroborate_liveness(monitor)
+        if suppress:
+            logger.warning(
+                "monitor %s (%s): probe failed but visitors are being served — "
+                "recording blocked, not down",
+                monitor.name, monitor.url,
+            )
+            new_status = "blocked"
+            result = dict(result, error_message=reason[:300])
 
     MonitorCheck.objects.create(
         monitor=monitor,
@@ -121,7 +178,21 @@ def check_single_monitor(self, monitor_id: str):
             last_checked_at=timezone.now(),
             last_response_time=result.get("response_time_ms"),
             consecutive_failures=0,
+            consecutive_blocks=0,
             is_alerting=False,
+        )
+    elif new_status == "blocked":
+        # A WAF answered instead of the site. That tells us nothing about the
+        # origin, so it must not touch consecutive_failures and must not alert.
+        # is_alerting is left exactly as it was: if the monitor was already
+        # alerting we have no evidence it recovered, and if it was not we have
+        # no evidence it broke.
+        should_notify = False
+        Monitor.objects.filter(pk=monitor.pk).update(
+            status=new_status,
+            last_checked_at=timezone.now(),
+            last_response_time=result.get("response_time_ms"),
+            consecutive_blocks=monitor.consecutive_blocks + 1,
         )
     else:
         new_failures = monitor.consecutive_failures + 1
@@ -132,6 +203,7 @@ def check_single_monitor(self, monitor_id: str):
             last_checked_at=timezone.now(),
             last_response_time=result.get("response_time_ms"),
             consecutive_failures=new_failures,
+            consecutive_blocks=0,
             is_alerting=monitor.is_alerting or fires_alert,
         )
 

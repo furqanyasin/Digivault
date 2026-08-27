@@ -6,6 +6,8 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 
+from apps.common import outbound
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,3 +155,118 @@ def _run_performance_check(website) -> None:
         logger.info("Performance check completed for %s", website.domain)
     except Exception:
         logger.exception("Performance check failed for %s", website.domain)
+
+
+# How stale a server-side scan may get before we look again. Daily: script tags
+# change when someone edits the site, which is not an hourly event, and one
+# request per site per day is a rounding error next to the uptime monitor.
+_PASSIVE_SCAN_MAX_AGE = timezone.timedelta(hours=20)
+
+
+@shared_task(name="websites.run_due_passive_scans")
+def run_due_passive_scans() -> int:
+    """Queue a server-side script scan for every site that has not had one today.
+
+    Without this, script detection only ever happened for sites carrying the
+    tracking snippet — a site added yesterday showed an empty Scripts tab
+    indefinitely, and the agency had no way to tell "no third-party scripts"
+    apart from "we have never looked". One homepage fetch per site per day is
+    enough to tell them apart.
+
+    It does not replace the snippet, which sees scripts GTM injects at runtime
+    and sees every page rather than just the homepage. It is the floor.
+    """
+    from apps.site_health.models import SiteScanState
+    from apps.websites.models import Website
+
+    cutoff = timezone.now() - _PASSIVE_SCAN_MAX_AGE
+    enqueued = 0
+    for website in Website.objects.exclude(status=Website.Status.INACTIVE).iterator():
+        state = SiteScanState.objects.filter(website=website).first()
+        if state and state.last_scanned_at and state.last_scanned_at > cutoff:
+            continue
+        passive_scan_website.delay(str(website.pk))
+        enqueued += 1
+
+    logger.info("run_due_passive_scans: queued %d site(s)", enqueued)
+    return enqueued
+
+
+@shared_task(name="websites.passive_scan_website")
+def passive_scan_website(website_pk: str) -> None:
+    """Fetch one homepage server-side and feed it to the normal ingest pipeline."""
+    from apps.scripts.tasks import process_ingest_payload
+    from apps.site_health.models import SiteScanState
+    from apps.websites.models import Website
+    from apps.websites.platform_detect import detect_platform
+    from apps.websites.views import _extract_forms, _extract_script_urls
+
+    try:
+        website = Website.objects.get(pk=website_pk)
+    except Website.DoesNotExist:
+        return
+
+    url = website.domain
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+
+    state, _ = SiteScanState.objects.get_or_create(website=website)
+
+    # No cache-buster here, unlike the human-triggered scan. A random query
+    # string forces an origin hit on every request and is exactly what reads as
+    # scanning to a WAF; for a daily background sweep a CDN-cached copy of the
+    # homepage tells us everything we need about its script tags.
+    try:
+        result = outbound.fetch(url, timeout=20, wait_up_to=30, read_bytes=2_000_000)
+    except Exception as exc:
+        logger.info("passive scan: %s unreachable: %s", website.domain, exc)
+        state.error = str(exc)[:500]
+        state.save(update_fields=["error"])
+        return
+
+    vendor = result.blocked_by
+    if vendor or result.status_code >= 400:
+        # Critically, this does NOT write an empty script list. A block page
+        # contains no <script src> tags, and treating that as an observation
+        # would report the client's entire third-party stack as removed.
+        reason = (
+            f"Blocked by {vendor} (HTTP {result.status_code})"
+            if vendor
+            else f"HTTP {result.status_code}"
+        )
+        logger.info("passive scan: %s → %s", website.domain, reason)
+        state.error = reason[:500]
+        state.save(update_fields=["error"])
+        return
+
+    detected = detect_platform(result.body, result.headers)
+    if detected and detected != website.platform:
+        website.platform = detected
+        website.save(update_fields=["platform"])
+
+    script_urls = _extract_script_urls(result.body)
+    forms = _extract_forms(result.body)
+
+    state.last_scanned_at = timezone.now()
+    state.error = ""
+    state.save(update_fields=["last_scanned_at", "error"])
+
+    if not script_urls and not forms:
+        logger.info("passive scan: %s has no external scripts or forms", website.domain)
+        return
+
+    process_ingest_payload.delay(website.site_id, {
+        "page_url": result.final_url,
+        "scripts": [
+            {"src": src, "location": "unknown", "async": False,
+             "defer": False, "inline": False}
+            for src in script_urls
+        ],
+        "forms": forms,
+        "user_agent": "Digivault-Scanner/1.0",
+        "snippet_version": "server-scan",
+    })
+    logger.info(
+        "passive scan: %s → %d scripts, %d forms",
+        website.domain, len(script_urls), len(forms),
+    )

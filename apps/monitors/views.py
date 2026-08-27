@@ -497,3 +497,63 @@ class MonitorNotificationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
             metadata=site_meta(instance.monitor),
         )
         instance.delete()
+
+
+class MonitoringInfoView(APIView):
+    """GET /api/v1/monitoring-info/ — who we are, so a client can allowlist us.
+
+    Deliberately unauthenticated. The person who needs this is a site owner
+    staring at a firewall log, or an agency staffer pasting a rule into a
+    client's Cloudflare dashboard — neither is signed into Digivault at that
+    moment. There is nothing secret here: the user-agent is already in every
+    request we send, and the egress IP is already in the client's access log.
+
+    This is the page the `+URL` in our user-agent points at, and the thing that
+    makes "monitoring blocked" a thirty-second fix instead of a dead end.
+    """
+
+    permission_classes = [permissions.AllowAny]
+    authentication_classes: list = []
+
+    def get(self, request):
+        from apps.common import outbound
+
+        ips = list(getattr(settings, "MONITOR_EGRESS_IPS", []) or [])
+        ip_list = ", ".join(ips) if ips else "(contact your agency for the current IP)"
+        first_ip = ips[0] if ips else "<monitor-ip>"
+
+        return Response({
+            "user_agent": outbound.USER_AGENT,
+            "egress_ips": ips,
+            "allowlist": {
+                "cloudflare": (
+                    "Security → WAF → Custom rules → Create rule.\n"
+                    f'Expression:  (http.user_agent contains "Digivault-Monitor")'
+                    f'{" or (ip.src in {" + " ".join(ips) + "})" if ips else ""}\n'
+                    "Action: Skip → All remaining custom rules, plus Bot Fight Mode."
+                ),
+                "wordfence": (
+                    "Wordfence → Firewall → Blocking → Whitelisted IP addresses.\n"
+                    f"Add: {ip_list}\n"
+                    "Also add 'Digivault-Monitor' under Tools → Whitelisted URLs if "
+                    "rate limiting is set to block unknown crawlers."
+                ),
+                "sucuri": (
+                    "Sucuri Firewall dashboard → Security → Access Control → "
+                    f"Whitelist IP addresses.\nAdd: {ip_list}"
+                ),
+                "htaccess": (
+                    "# Digivault uptime monitor\n"
+                    "<RequireAny>\n"
+                    "  Require all granted\n"
+                    f"  Require ip {first_ip}\n"
+                    "</RequireAny>"
+                ),
+            },
+            "docs": (
+                "Digivault checks your site from a single IP and identifies itself "
+                "honestly on every request. If your firewall blocks it, the "
+                "dashboard reports 'blocked' rather than 'down' — your site is "
+                "fine, we just cannot see it. Allowlisting restores coverage."
+            ),
+        })
