@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ScriptDetailDialog } from "@/components/script-detail-dialog";
 import type { Script } from "@/lib/api";
 import { fmtDate } from "@/lib/utils";
-import { shortDomain } from "@/lib/script-domains";
+import { scriptGroupKey, shortDomain } from "@/lib/script-domains";
 
 interface Props {
   scripts: Script[];
@@ -137,12 +137,9 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
   const groups = useMemo(() => {
     const map = new Map<string, Script[]>();
     for (const s of scripts) {
-      // Prefixed so a provider literally named after a host cannot collide
-      // with the domain fallback of some other script.
-      const key =
-        s.provider && s.provider !== "unknown"
-          ? `provider:${s.provider}`
-          : `domain:${shortDomain(s.src_url)}`;
+      // Shared with countScriptGroups() so the tab badge and this table can
+      // never disagree about how many rows there are.
+      const key = scriptGroupKey(s);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(s);
     }

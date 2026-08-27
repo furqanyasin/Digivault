@@ -98,10 +98,20 @@ class TestGoogleTagRuntimeParams:
         real = normalize_script_url("https://www.googletagmanager.com/gtm.js?id=GTM-N32TK6DJ")
         assert blank != real
 
-    def test_the_datalayer_name_is_kept(self):
-        """`l=` is a stable site config choice, not runtime state."""
-        url = "https://www.googletagmanager.com/gtm.js?id=GTM-ABC&l=myDataLayer"
-        assert normalize_script_url(url) == url
+    def test_the_datalayer_name_is_not_identity(self):
+        """`l=` names the dataLayer variable; the container is `id=`.
+
+        It was kept once, as "a stable site config choice". In the field it is
+        the opposite of stable: one property is loaded both by a hardcoded
+        snippet (`?id=G-X`) and by GTM's own injection (`?id=G-X&l=dataLayer`),
+        so keeping it listed a single tag twice. Renaming a dataLayer is also
+        not an event anyone wants an added/removed alert pair for.
+        """
+        assert normalize_script_url(
+            "https://www.googletagmanager.com/gtm.js?id=GTM-ABC&l=myDataLayer"
+        ) == normalize_script_url(
+            "https://www.googletagmanager.com/gtm.js?id=GTM-ABC"
+        )
 
 
 class TestHashedFilenames:
@@ -135,9 +145,15 @@ class TestHashedFilenames:
         )
 
     def test_a_site_container_id_in_the_filename_is_kept(self):
-        """hotjar-3065386.js identifies the account — that is not a hash."""
-        url = "https://static.hotjar.com/c/hotjar-3065386.js?sv=6"
-        assert normalize_script_url(url) == url
+        """hotjar-3065386.js identifies the account — that is not a hash.
+
+        `?sv=6` is dropped separately, by the identity allowlist: it is the
+        recorder version and bumps on every Hotjar release.
+        """
+        assert (
+            normalize_script_url("https://static.hotjar.com/c/hotjar-3065386.js?sv=6")
+            == "https://static.hotjar.com/c/hotjar-3065386.js"
+        )
 
     def test_a_version_number_in_the_filename_is_kept(self):
         url = "https://cdn.example.com/jquery-3.6.0.min.js"

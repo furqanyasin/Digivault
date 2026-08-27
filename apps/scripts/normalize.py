@@ -20,8 +20,9 @@ _VOLATILE_PARAMS = frozenset({
     # per-request consent flags to the src, so the same container arrives under a
     # different URL after every publish or consent change. `gtm=4e6840` is the
     # usual culprit and is too short for the hex-value heuristic below to catch.
-    # `id` and `l` (the dataLayer name) are deliberately NOT here — those are
-    # what tell two containers apart.
+    # Superseded for the Google tag hosts by the `_IDENTITY_PARAMS` allowlist
+    # below, which drops these and everything else Google adds later; kept
+    # because the same names show up on other vendors' scripts.
     "gtm", "cx", "tag_exp", "gcs", "gcd", "dma", "dma_cps", "npa",
     "_p", "_z", "gtm_preview", "gtm_cookies_win", "gbraid", "wbraid",
     # Meta pixel runtime state. `v` is the library version (moves every Meta
@@ -126,6 +127,51 @@ def _strip_timestamp_segments(path: str) -> str:
     return "/".join(kept)
 
 
+# Hosts whose scripts are identified entirely by a container / account / site
+# key. Listed as the params that ARE identity, rather than the ones that are not.
+#
+# The rest of this module works by denylist, which is the right shape for the
+# open world of WordPress cache-busters. It is the wrong shape for a tag
+# platform. Google ships new runtime params on its own schedule — `cst`, `_slc`,
+# `sst`, `pscdl`, `_ip`, `sess`, `num`, `frm`, `z` have all appeared on
+# `gtag/js` since this module was written — and under a denylist every unlisted
+# one becomes part of the script's identity. Two symptoms, one cause: a single
+# GA4 property listed as nine "files" on the Scripts tab, and an added/removed
+# ScriptChange pair (so an alert pair) on every site the moment Google rotates a
+# param. Chasing that with more denylist entries loses the race by design.
+#
+# For these hosts the identity params are a genuinely closed set, so the rule is
+# inverted and a param invented next quarter can no longer split a tag.
+_IDENTITY_PARAMS: tuple[tuple[str, frozenset[str]], ...] = (
+    ("googletagmanager.com", frozenset({"id"})),
+    ("google-analytics.com", frozenset({"id"})),
+    ("googleadservices.com", frozenset({"id"})),
+    ("googleads.g.doubleclick.net", frozenset({"id"})),
+    # reCAPTCHA is keyed by its site key. `hl` (locale) and `badge` (placement)
+    # describe how one widget renders, not which widget it is — a bilingual site
+    # was listing the same reCAPTCHA once per language.
+    ("google.com", frozenset({"render"})),
+    # Hotjar's account id is in the path (`/c/hotjar-3065386.js`); `sv=` is the
+    # recorder version and bumps on every Hotjar release.
+    ("hotjar.com", frozenset()),
+    # Clarity's project id is likewise in the path.
+    ("clarity.ms", frozenset()),
+)
+
+
+def _identity_params(host: str) -> frozenset[str] | None:
+    """The closed set of identity params for a tag host, or None if not one.
+
+    Matched on the registrable suffix so `www.`, regional and shard hosts
+    (`static.hotjar.com`, `script.hotjar.com`) share one rule.
+    """
+    bare = host.rsplit(":", 1)[0] if ":" in host else host
+    for suffix, params in _IDENTITY_PARAMS:
+        if bare == suffix or bare.endswith("." + suffix):
+            return params
+    return None
+
+
 def normalize_script_url(url: str) -> str:
     """Return a stable identity URL for a script src.
 
@@ -142,13 +188,21 @@ def normalize_script_url(url: str) -> str:
         return url
     if not parts.netloc:
         return url
-    kept = [
-        (k, v)
-        # A blank value identifies nothing — `?id=` is a misconfigured tag, and
-        # keeping it would list that tag separately from every real container.
-        for k, v in parse_qsl(parts.query, keep_blank_values=True)
-        if v and k.lower() not in _VOLATILE_PARAMS and not _is_volatile_value(v)
-    ]
+    identity = _identity_params(parts.netloc.lower())
+    params = parse_qsl(parts.query, keep_blank_values=True)
+    # A blank value identifies nothing either way — `?id=` is a misconfigured
+    # tag, and keeping it would list that tag separately from every real
+    # container.
+    if identity is None:
+        kept = [
+            (k, v)
+            for k, v in params
+            if v and k.lower() not in _VOLATILE_PARAMS and not _is_volatile_value(v)
+        ]
+    else:
+        # Allowlist host: everything outside the closed identity set is runtime
+        # state, whether or not this module has heard of it.
+        kept = [(k, v) for k, v in params if v and k.lower() in identity]
     kept.sort()
     return urlunsplit((
         parts.scheme.lower() or "https",
