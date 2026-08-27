@@ -149,11 +149,21 @@ def _match(entry: dict, forms: list) -> list:
     return []
 
 
-def apply_recipients(website, entries: list[dict]) -> int:
-    """Fill in `recipients` from what WordPress reported. Returns rows written."""
+def apply_recipients(website, entries: list[dict], source=None) -> int:
+    """Fill in `recipients` from what the site reported. Returns rows written.
+
+    `source` says which path answered, and defaults to WP Connect so the caller
+    below stays unchanged. WP Connect reads the database directly through a
+    signature-gated route; the REST readers in `wp_api_forms` see only what a
+    plugin chose to expose. So a WP Connect answer outranks theirs and is never
+    overwritten by one.
+    """
     from apps.scripts.models import DetectedForm
     from apps.scripts.recipient_changes import record_recipient_change
     from apps.scripts.recipients import build_recipients, recipients_equal
+
+    if source is None:
+        source = DetectedForm.RecipientSource.WORDPRESS
 
     forms = list(website.detected_forms.all())
     if not forms:
@@ -183,15 +193,22 @@ def apply_recipients(website, entries: list[dict]) -> int:
             continue
 
         for form in matched:
+            # WP Connect read the site's database; the REST readers read what a
+            # plugin chose to publish. The weaker source never displaces it.
+            if (
+                source == DetectedForm.RecipientSource.WP_API
+                and form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
+            ):
+                continue
             if (
                 recipients_equal(form.recipients, recipients)
-                and form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
+                and form.recipient_source == source
             ):
                 continue
             old_recipients = form.recipients
             old_source = form.recipient_source
             form.recipients = recipients
-            form.recipient_source = DetectedForm.RecipientSource.WORDPRESS
+            form.recipient_source = source
             form.save(
                 update_fields=["recipients", "recipient_source", "updated_at"]
             )
@@ -199,7 +216,7 @@ def apply_recipients(website, entries: list[dict]) -> int:
                 form,
                 old_recipients=old_recipients,
                 old_source=old_source,
-                new_source=DetectedForm.RecipientSource.WORDPRESS,
+                new_source=source,
             )
             written += 1
 
