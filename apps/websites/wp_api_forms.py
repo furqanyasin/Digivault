@@ -238,7 +238,66 @@ def read_elementor(website, credential, fetch=None) -> list[dict]:
     return entries
 
 
-READERS: tuple = (read_elementor,)
+# ── Gravity Forms ───────────────────────────────────────────────────────────
+
+#: A site with more forms than this is pathological; the cap bounds how many
+#: per-form requests one sweep can aim at a client origin.
+_GRAVITY_MAX_FORMS = 100
+
+
+def read_gravity(website, credential, fetch=None) -> list[dict]:
+    """Gravity Forms notification recipients, over its own REST API v2.
+
+    Gravity keeps forms in its own tables rather than `wp_posts`, so the post
+    meta route cannot see them. Its REST API has accepted WordPress Application
+    Passwords over Basic auth since 2.4.21.4 and runs with the authenticated
+    user's Gravity capabilities.
+
+    Joined to detected rows by id prefix (`gform_<id>`), which is the strong key
+    `_match` prefers — and whose digit rule is what stops form 1 claiming form
+    12's row.
+    """
+    fetch = fetch or fetch_json
+
+    listing, _status = fetch(website, "gf/v2/forms", credential)
+    if not isinstance(listing, dict):
+        return []
+
+    entries: list[dict] = []
+    for form_id in list(listing.keys())[:_GRAVITY_MAX_FORMS]:
+        detail, _ = fetch(website, f"gf/v2/forms/{form_id}", credential)
+        if not isinstance(detail, dict):
+            continue
+
+        notifications = detail.get("notifications")
+        if isinstance(notifications, dict):
+            notifications = list(notifications.values())
+        if not isinstance(notifications, list):
+            continue
+
+        for notification in notifications:
+            if not isinstance(notification, dict):
+                continue
+            # "field" and "routing" resolve against the submission, so there is
+            # no fixed destination to record — and the raw value is a field id,
+            # which would display as a nonsense address.
+            if str(notification.get("toType") or "email").lower() != "email":
+                continue
+            to = str(notification.get("to") or "").strip()
+            if not to:
+                continue
+            entries.append({
+                "plugin": "gravityforms",
+                "id_prefix": f"gform_{form_id}",
+                "to": to,
+                "cc": str(notification.get("cc") or "").strip(),
+                "bcc": str(notification.get("bcc") or "").strip(),
+            })
+
+    return entries
+
+
+READERS: tuple = (read_elementor, read_gravity)
 
 
 def sync_website(website) -> int:
