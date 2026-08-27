@@ -8,6 +8,10 @@ from apps.scripts.models import (
     Script,
     ScriptChange,
 )
+# Aliased: `is_tracked` is also the name of a serializer field below, so a
+# bare import would read as if get_is_tracked() were calling itself.
+from apps.scripts.tracked import is_tracked as _is_tracked
+from apps.scripts.tracked import provider_family as _provider_family
 
 # Hard caps on ingest payload list lengths — a single page should never
 # legitimately exceed these, and they bound the work queued into Celery.
@@ -180,6 +184,14 @@ class IngestPayloadSerializer(serializers.Serializer):
 
 
 class ScriptSerializer(BaseModelSerializer):
+    # The vendor a reader recognises: "Google" rather than one row each for
+    # Google Analytics 4, Google Tag Manager and Google Ads.
+    provider_family = serializers.SerializerMethodField()
+    # Whether this script belongs on the tracking inventory at all. Derived
+    # server-side so the tab badge, the overview tile and the table cannot
+    # disagree about which rows exist.
+    is_tracked = serializers.SerializerMethodField()
+
     class Meta:
         model = Script
         fields = (
@@ -187,6 +199,8 @@ class ScriptSerializer(BaseModelSerializer):
             "src_url",
             "src_domain",
             "provider",
+            "provider_family",
+            "is_tracked",
             "category",
             "location",
             "scope",
@@ -205,10 +219,17 @@ class ScriptSerializer(BaseModelSerializer):
             "created_at",
         )
         read_only_fields = (
-            "id", "src_url", "src_domain", "provider", "category", "location",
+            "id", "src_url", "src_domain", "provider", "provider_family",
+            "is_tracked", "category", "location",
             "scope", "is_async", "is_defer", "is_inline", "wp_plugin",
             "seen_on_pages", "is_active", "first_seen_at", "last_seen_at", "created_at",
         )
+
+    def get_provider_family(self, obj) -> str:
+        return _provider_family(obj.provider)
+
+    def get_is_tracked(self, obj) -> bool:
+        return _is_tracked(obj.category, obj.is_suspicious)
 
 
 class DetectedFormSerializer(BaseModelSerializer):

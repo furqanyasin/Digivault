@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ScriptDetailDialog } from "@/components/script-detail-dialog";
 import type { Script } from "@/lib/api";
 import { fmtDate } from "@/lib/utils";
-import { scriptGroupKey, shortDomain } from "@/lib/script-domains";
+import { providerLabel, scriptGroupKey, shortDomain } from "@/lib/script-domains";
 
 interface Props {
   scripts: Script[];
@@ -20,10 +20,27 @@ type ReviewFilter = "all" | "pending" | "approved" | "blocked";
 
 function providerVariant(p: string): "default" | "secondary" | "destructive" | "outline" {
   if (!p || p === "unknown") return "outline";
-  if (p === "google-analytics" || p === "google-tag-manager") return "secondary";
   return "default";
 }
 
+/** Every category present in the group, deduplicated and human-readable.
+ *
+ *  A vendor family spans categories — HubSpot is analytics, chat and CRM at
+ *  once, Google is analytics plus tag management — so naming one and hiding the
+ *  rest would misdescribe the row. Underscores out, so `tag_management` reads
+ *  as "tag management" under the cell's `capitalize`.
+ */
+function categoryLabel(group: Script[]): string {
+  const cats = Array.from(
+    new Set(
+      group
+        .map((s) => s.category)
+        .filter((c) => c && c !== "unknown")
+        .map((c) => c.replace(/_/g, " "))
+    )
+  );
+  return cats.length ? cats.join(", ") : "—";
+}
 
 // One provider entry can span several files; the row shows the aggregate.
 function groupReviewStatus(group: Script[]): "pending" | "approved" | "blocked" | "ignored" {
@@ -128,12 +145,16 @@ function GroupReviewActions({
 export function ScriptsTab({ scripts, websiteId }: Props) {
   const [filter, setFilter] = useState<ReviewFilter>("all");
 
-  // One row per provider, falling back to the domain when we cannot name the
-  // provider. Keying on the domain alone listed Hotjar twice, because it serves
-  // from both static.hotjar.com and script.hotjar.com and the row was labelled
-  // by provider — two rows, same heading, no way to tell them apart. Unknown
-  // scripts stay split by domain: with no provider to group under, merging them
-  // would pile unrelated third parties into one row.
+  // One row per vendor, falling back to the domain when we cannot name one.
+  // Keying on the domain alone listed Hotjar twice, because it serves from both
+  // static.hotjar.com and script.hotjar.com and the row was labelled by
+  // provider — two rows, same heading, no way to tell them apart. Keying on the
+  // classifier's provider name instead split one vendor across its products:
+  // Google appeared as Google Analytics 4, Google Tag Manager and Google Ads,
+  // HubSpot as six rows. scriptGroupKey() keys on the provider *family*, so a
+  // vendor reads once. Unknown scripts stay split by domain: with no provider
+  // to group under, merging them would pile unrelated third parties into one
+  // row.
   const groups = useMemo(() => {
     const map = new Map<string, Script[]>();
     for (const s of scripts) {
@@ -145,8 +166,8 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
     }
     // Sort: known providers first, then by domain
     return Array.from(map.entries()).sort(([, a], [, b]) => {
-      const aKnown = a[0].provider !== "unknown" ? 0 : 1;
-      const bKnown = b[0].provider !== "unknown" ? 0 : 1;
+      const aKnown = providerLabel(a[0]) !== "unknown" ? 0 : 1;
+      const bKnown = providerLabel(b[0]) !== "unknown" ? 0 : 1;
       return aKnown - bKnown;
     });
   }, [scripts]);
@@ -170,9 +191,11 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
     return (
       <div className="p-10 flex flex-col items-center gap-3 text-center">
         <Code className="h-10 w-10 text-muted-foreground" />
-        <p className="font-medium">No scripts detected yet</p>
+        <p className="font-medium">No tracking scripts detected yet</p>
         <p className="text-sm text-muted-foreground">
-          Install the snippet and visit a page — data appears within seconds.
+          This tab lists analytics, advertising, tag managers, session recording,
+          call tracking, chat and CRM tags — not JS libraries or embeds. Install
+          the snippet and visit a page; data appears within seconds.
         </p>
       </div>
     );
@@ -241,8 +264,8 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col items-start gap-1">
-                    <Badge variant={providerVariant(rep.provider)} className="capitalize">
-                      {rep.provider === "unknown" ? "—" : rep.provider}
+                    <Badge variant={providerVariant(providerLabel(rep))} className="capitalize">
+                      {providerLabel(rep) === "unknown" ? "—" : providerLabel(rep)}
                     </Badge>
                     {/* Injected-code flag. Advisory, so the reason is always
                         attached rather than shown as a bare verdict. */}
@@ -259,7 +282,7 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
                   </div>
                 </TableCell>
                 <TableCell className="text-sm capitalize text-muted-foreground">
-                  {rep.category === "unknown" ? "—" : rep.category}
+                  {categoryLabel(group)}
                 </TableCell>
                 <TableCell>
                   <StatusDot active={anyActive} />
@@ -274,7 +297,7 @@ export function ScriptsTab({ scripts, websiteId }: Props) {
                   <ScriptDetailDialog
                     scripts={group}
                     websiteId={websiteId}
-                    label={`${rep.provider !== "unknown" ? rep.provider : domainLabel} — ${group.length} file${group.length > 1 ? "s" : ""}`}
+                    label={`${providerLabel(rep) !== "unknown" ? providerLabel(rep) : domainLabel} — ${group.length} file${group.length > 1 ? "s" : ""}`}
                   />
                 </TableCell>
               </TableRow>
