@@ -300,25 +300,53 @@ def read_gravity(website, credential, fetch=None) -> list[dict]:
 READERS: tuple = (read_elementor, read_gravity)
 
 
+#: Statuses meaning "this credential will not work", as opposed to "this plugin
+#: is not installed" (404) or "this site is busy" (5xx).
+_AUTH_FAILURE_STATUSES = (401, 403)
+
+
 def sync_website(website) -> int:
-    """Read every reader this site answers to, and record what they found."""
+    """Read every reader this site answers to, and record what they found.
+
+    A site that rejects our credential is disarmed rather than retried nightly:
+    repeated 401s from a single egress IP are how that IP earns a ban, and the
+    ban would cost uptime monitoring for the same client.
+    """
+    from django.utils import timezone
+
     from apps.scripts.models import DetectedForm
     from apps.websites.wp_forms import apply_recipients
+
+    if website.wp_api_auth_failed_at is not None:
+        return 0
 
     credential = resolve_wp_credential(website)
     if credential is None:
         return 0
 
+    seen_statuses: list[int] = []
+
+    def _tracking_fetch(site, path, cred, **kwargs):
+        parsed, status = fetch_json(site, path, cred, **kwargs)
+        seen_statuses.append(status)
+        return parsed, status
+
     entries: list[dict] = []
     for reader in READERS:
         try:
-            entries.extend(reader(website, credential))
+            entries.extend(reader(website, credential, fetch=_tracking_fetch))
         except Exception:
             logger.debug(
                 "wp_api_forms: reader %s failed for %s",
                 getattr(reader, "__name__", reader),
                 website.domain,
             )
+
+    if any(status in _AUTH_FAILURE_STATUSES for status in seen_statuses):
+        website.wp_api_auth_failed_at = timezone.now()
+        website.save(update_fields=["wp_api_auth_failed_at", "updated_at"])
+        logger.debug("wp_api_forms: %s rejected our credential", website.domain)
+        return 0
 
     if not entries:
         return 0

@@ -103,6 +103,12 @@ class Website(BaseModel):
     # WordPress plugin. Empty = SSO not set up for this site. Rotating it
     # invalidates all previously issued links.
     wp_sso_secret = models.CharField(max_length=64, blank=True, default="")
+    # When this site's WordPress API last rejected our stored credential. Set,
+    # the daily recipient sweep skips the site: repeated 401s from our single
+    # egress IP are how that IP gets banned, and a ban costs uptime monitoring,
+    # which is worth far more than a recipient address. Cleared when someone
+    # corrects the credential (see Credential.set_password).
+    wp_api_auth_failed_at = models.DateTimeField(null=True, blank=True)
 
     objects = TeamScopedQuerySet.as_manager()
 

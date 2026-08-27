@@ -153,6 +153,24 @@ class Credential(BaseModel):
         self._password = encryption.encrypt(plaintext)
         self.last_password_changed_at = timezone.now()
         self.password_strength = score_password_strength(plaintext)
+        self._rearm_wp_api_reads()
+
+    def _rearm_wp_api_reads(self) -> None:
+        """A corrected WordPress credential deserves another try.
+
+        `Website.wp_api_auth_failed_at` disarms the nightly recipient sweep once
+        a site rejects us, so nothing would ever retry it again without this —
+        the user would fix the password and see no change.
+        """
+        if not self.website_id or self.credential_type not in (
+            self.CredentialType.WORDPRESS,
+            self.CredentialType.WORDPRESS_APP_PASSWORD,
+        ):
+            return
+
+        from apps.websites.models import Website
+
+        Website.objects.filter(pk=self.website_id).update(wp_api_auth_failed_at=None)
 
     @property
     def password_age_days(self) -> int | None:
