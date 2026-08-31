@@ -199,6 +199,10 @@ function SetupPageInner() {
         <CardContent className="space-y-4">
           {setup?.qr_code && (
             <div className="flex justify-center">
+              {/* A `data:image/png;base64,...` URI minted per request by the TOTP
+                  endpoint — next/image has nothing to optimize and would need
+                  `unoptimized` anyway, so a plain <img> is correct here. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={setup.qr_code} alt="QR code" className="w-48 h-48 border rounded-md" />
             </div>
           )}

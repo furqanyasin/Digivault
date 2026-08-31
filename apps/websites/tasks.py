@@ -80,6 +80,36 @@ def sync_wp_form_recipients(website_pk: str | None = None) -> int:
     return written
 
 
+@shared_task(name="websites.sync_wp_api_form_recipients")
+def sync_wp_api_form_recipients(website_pk: str | None = None) -> int:
+    """Read form recipients from sites' own WordPress APIs. Returns rows written.
+
+    The WP-Connect-free path, covering Elementor and Gravity Forms only — see
+    `apps.websites.wp_api_forms` for why the other two plugins cannot be read.
+
+    Skips sites with no detected forms (nothing to join an answer onto) and
+    sites whose credential was already rejected (`wp_api_auth_failed_at`).
+    """
+    from apps.websites.models import Website
+    from apps.websites.wp_api_forms import sync_website
+
+    sites = Website.objects.exclude(status=Website.Status.INACTIVE).filter(
+        wp_api_auth_failed_at__isnull=True
+    )
+    if website_pk:
+        sites = sites.filter(pk=website_pk)
+    sites = sites.filter(detected_forms__isnull=False).distinct()
+
+    written = 0
+    for website in sites.iterator():
+        try:
+            written += sync_website(website)
+        except Exception:
+            logger.exception("sync_wp_api_form_recipients failed for %s", website.pk)
+    logger.info("sync_wp_api_form_recipients: updated %d form(s)", written)
+    return written
+
+
 def _run_uptime_check(website) -> None:
     try:
         from apps.monitors.models import Monitor, MonitorCheck

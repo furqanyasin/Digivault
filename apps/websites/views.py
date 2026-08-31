@@ -407,29 +407,48 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="sync-form-recipients")
     def sync_form_recipients(self, request, pk=None):
-        """Ask this site's WP Connect snippet where its forms deliver, now.
+        """Ask this site where its forms deliver, now.
 
-        The nightly task does the same sweep; this exists so pasting the snippet
+        The nightly tasks do the same sweep; this exists so setting a site up
         and seeing the Forms tab fill in are the same minute rather than a day
         apart.
+
+        Two paths, strongest first. WP Connect reads the site's database through
+        a signature-gated route and covers every form plugin. The REST readers
+        need only a vaulted WordPress credential, but reach Elementor and
+        Gravity Forms only — Contact Form 7 and WPForms publish nothing to any
+        API, so those sites still need the snippet.
         """
+        from apps.credentials.wp_access import resolve_wp_credential
+        from apps.websites import wp_api_forms
         from apps.websites.wp_forms import sync_website
 
         website = self.get_object()
-        if not website.wp_sso_secret:
+
+        if website.wp_sso_secret:
+            source, runner = "wordpress", sync_website
+        elif resolve_wp_credential(website) is not None:
+            source, runner = "wp_api", wp_api_forms.sync_website
+        else:
             return Response(
-                {"detail": "Set up WP Connect for this website first."},
+                {
+                    "detail": (
+                        "Add WordPress credentials for this website, or set up "
+                        "WP Connect, so Digivault can read where its forms deliver."
+                    )
+                },
                 status=status.HTTP_409_CONFLICT,
             )
+
         try:
-            updated = sync_website(website)
+            updated = runner(website)
         except Exception:
             logger.exception("sync_form_recipients failed for website %s", website.pk)
             return Response(
                 {"detail": "Could not read the site's form settings."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        return Response({"updated": updated})
+        return Response({"updated": updated, "source": source})
 
     @action(detail=True, methods=["post"], url_path="wp-login")
     def wp_login(self, request, pk=None):

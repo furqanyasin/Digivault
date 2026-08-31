@@ -351,6 +351,11 @@ class FetchResult:
     headers: dict[str, str]
     elapsed_ms: int
     final_url: str
+    #: The response was longer than `read_bytes`, so `body` is a prefix of it.
+    #: A caller parsing JSON must treat this as a failed read: a half-read
+    #: Elementor payload is indistinguishable from a page with no form unless
+    #: it is flagged here.
+    truncated: bool = False
 
     @property
     def blocked_by(self) -> str:
@@ -399,26 +404,30 @@ def fetch(
     start = time.monotonic()
     try:
         with _opener().open(req, timeout=timeout) as resp:
-            body = resp.read(read_bytes).decode("utf-8", errors="ignore")
+            # One byte past the cap, so a body sitting exactly on the limit is
+            # not misreported as truncated.
+            raw = resp.read(read_bytes + 1)
             result = FetchResult(
                 status_code=getattr(resp, "status", None) or resp.getcode(),
-                body=body,
+                body=raw[:read_bytes].decode("utf-8", errors="ignore"),
                 headers={k.lower(): v for k, v in resp.headers.items()},
                 elapsed_ms=int((time.monotonic() - start) * 1000),
                 final_url=resp.geturl(),
+                truncated=len(raw) > read_bytes,
             )
     except urllib.error.HTTPError as exc:
-        body = ""
+        raw = b""
         try:
-            body = exc.read(read_bytes).decode("utf-8", errors="ignore")
+            raw = exc.read(read_bytes + 1)
         except Exception:
             pass
         result = FetchResult(
             status_code=exc.code,
-            body=body,
+            body=raw[:read_bytes].decode("utf-8", errors="ignore"),
             headers={k.lower(): v for k, v in (exc.headers or {}).items()},
             elapsed_ms=int((time.monotonic() - start) * 1000),
             final_url=url,
+            truncated=len(raw) > read_bytes,
         )
 
     _record_outcome(host, result)

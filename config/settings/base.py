@@ -50,6 +50,7 @@ LOCAL_APPS = [
     "apps.audit",
     "apps.reports",
     "apps.integrations",
+    "apps.heatmap",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -234,6 +235,13 @@ CELERY_BEAT_SCHEDULE = {
     "sync-wp-form-recipients-daily": {
         "task": "websites.sync_wp_form_recipients",
         "schedule": crontab(hour=6, minute=45),
+    },
+    # The same question for sites with no WP Connect snippet, answered from the
+    # site's own REST API with a vaulted credential. An hour after the WP
+    # Connect sweep so the two do not contend for the same per-host budget.
+    "sync-wp-api-form-recipients-daily": {
+        "task": "websites.sync_wp_api_form_recipients",
+        "schedule": crontab(hour=7, minute=45),
     },
     "run-due-seo-checks": {
         "task": "site_health.run_due_seo_checks",

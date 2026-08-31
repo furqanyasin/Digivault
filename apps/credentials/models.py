@@ -65,6 +65,10 @@ class Credential(BaseModel):
 
     class CredentialType(models.TextChoices):
         WORDPRESS = "wordpress", "WordPress Admin"
+        WORDPRESS_APP_PASSWORD = (
+            "wordpress_app_password",
+            "WordPress Application Password",
+        )
         CPANEL = "cpanel", "cPanel"
         GODADDY = "godaddy", "GoDaddy"
         NAMECHEAP = "namecheap", "Namecheap"
@@ -149,6 +153,24 @@ class Credential(BaseModel):
         self._password = encryption.encrypt(plaintext)
         self.last_password_changed_at = timezone.now()
         self.password_strength = score_password_strength(plaintext)
+        self._rearm_wp_api_reads()
+
+    def _rearm_wp_api_reads(self) -> None:
+        """A corrected WordPress credential deserves another try.
+
+        `Website.wp_api_auth_failed_at` disarms the nightly recipient sweep once
+        a site rejects us, so nothing would ever retry it again without this —
+        the user would fix the password and see no change.
+        """
+        if not self.website_id or self.credential_type not in (
+            self.CredentialType.WORDPRESS,
+            self.CredentialType.WORDPRESS_APP_PASSWORD,
+        ):
+            return
+
+        from apps.websites.models import Website
+
+        Website.objects.filter(pk=self.website_id).update(wp_api_auth_failed_at=None)
 
     @property
     def password_age_days(self) -> int | None:
@@ -178,15 +200,20 @@ class CredentialAccessLog(BaseModel):
         VIEWED = "viewed", "Viewed"
         COPIED_PASSWORD = "copied_password", "Copied Password"
         EDITED = "edited", "Edited"
+        SYSTEM_READ = "system_read", "Read by a scheduled task"
 
     credential = models.ForeignKey(
         Credential,
         on_delete=models.CASCADE,
         related_name="access_logs",
     )
+    # Null for a SYSTEM_READ: the scheduled sweep that reads a site's WordPress
+    # API has no actor, and inventing one would be a worse record than none.
     user = models.ForeignKey(
         "accounts.User",
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="credential_access_logs",
     )
     action = models.CharField(max_length=20, choices=Action.choices)

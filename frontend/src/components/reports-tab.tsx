@@ -90,8 +90,13 @@ export function ReportsTab({ websiteId }: { websiteId: string }) {
     setLoading(false);
   }, [websiteId]);
 
+  // `fetchReports` flips `loading` on entry, so awaiting a microtask first keeps
+  // that setState out of the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
-    fetchReports();
+    (async () => {
+      await Promise.resolve();
+      await fetchReports();
+    })();
   }, [fetchReports]);
 
   function toggleSection(key: string) {

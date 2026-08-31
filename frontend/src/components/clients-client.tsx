@@ -289,8 +289,13 @@ export function ClientsClient({ initialClients }: Props) {
     }
   }, []);
 
+  // `fetchClients` flips `loading` on entry, so awaiting a microtask first keeps
+  // that setState out of the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
-    fetchClients(page, pageSize, "", statusFilter);
+    (async () => {
+      await Promise.resolve();
+      await fetchClients(page, pageSize, "", statusFilter);
+    })();
   }, [page, pageSize, statusFilter, fetchClients]);
 
   const filtered = useMemo(() => {

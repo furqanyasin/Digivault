@@ -524,8 +524,9 @@ def _apply_page_recipients(form: DetectedForm, form_data: dict) -> None:
 
     Deliberately not part of the upsert's `defaults`, for two reasons.
 
-    A WordPress-reported set is the form's actual configuration, while the
-    markup is only a proxy for it — so an ingest must never overwrite one.
+    A set reported by WordPress — over WP Connect, or read from the site's own
+    REST API — is the form's actual configuration, while the markup is only a
+    proxy for it, so an ingest must never overwrite one.
     Written through `defaults`, every pageview wiped what the WP Connect route
     had filled in (page-invisible for Elementor/CF7 forms, so the markup reads
     nothing).
@@ -544,7 +545,13 @@ def _apply_page_recipients(form: DetectedForm, form_data: dict) -> None:
         cc=raw.get("cc"),
         bcc=raw.get("bcc"),
     )
-    if form.recipient_source == DetectedForm.RecipientSource.WORDPRESS:
+    # Both of these are the form's actual configuration, read out of the site's
+    # own database. The markup is only a proxy for it, and on the plugins that
+    # matter it reads nothing at all — so an ingest must never overwrite either.
+    if form.recipient_source in (
+        DetectedForm.RecipientSource.WORDPRESS,
+        DetectedForm.RecipientSource.WP_API,
+    ):
         return
     if not any(recipients.values()) and any(all_recipients(form.recipients)):
         return

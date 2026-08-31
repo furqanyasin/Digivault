@@ -293,9 +293,14 @@ export default function LogsPage() {
     })();
   }, []);
 
+  // `fetchLogs` flips `loading` on entry, so awaiting a microtask first keeps
+  // that setState out of the effect body (react-hooks/set-state-in-effect).
   useEffect(() => {
     if (!roleResolved) return;
-    fetchLogs(selectedUser, page, debouncedSearch, view, selectedClient, selectedWebsite, pageSize, since);
+    (async () => {
+      await Promise.resolve();
+      await fetchLogs(selectedUser, page, debouncedSearch, view, selectedClient, selectedWebsite, pageSize, since);
+    })();
   }, [fetchLogs, selectedUser, page, debouncedSearch, view, roleResolved,
       selectedClient, selectedWebsite, pageSize, since]);
 
