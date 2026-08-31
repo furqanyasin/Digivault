@@ -8,7 +8,16 @@ import { useEffect, useState } from "react";
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // The theme is unknown until next-themes has read localStorage, so the first
+  // paint has to render nothing or it hydrates against the wrong icon. The
+  // microtask defers the flag out of the effect body — setting it synchronously
+  // there cascades a second render pass (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    (async () => {
+      await Promise.resolve();
+      setMounted(true);
+    })();
+  }, []);
   if (!mounted) return null;
 
   const next = theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
