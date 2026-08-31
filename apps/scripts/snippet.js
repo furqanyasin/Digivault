@@ -632,4 +632,231 @@
     } catch (_) {}
   });
 
+  // ── Heatmap interaction tracking ─────────────────────────────────────────
+  // Passive collection of click / mouse-move / scroll behaviour, aggregated
+  // client-side. Every raw position is normalised to a fraction of the page
+  // (x = % of viewport width, y = % of full page height including scroll) and
+  // binned into a 100x100 percentage grid, so a busy page becomes a handful of
+  // cell rows instead of tens of thousands of events. Cells are buffered and
+  // flushed to /ingest/heatmap/ on a timer and on page unload. Every handler
+  // is wrapped so a failure here can never break the host page.
+
+  var heatmapUrl = ingestUrl.replace(/\/ingest\/?$/, '/ingest/heatmap/');
+  var heatmapCells = {};
+  var heatmapCellEls = {};        // cell key -> best-effort element descriptor
+  var heatmapTotalClicks = 0;
+  var heatmapMaxVisible = 0;      // deepest page-fraction revealed, 0..1
+  var heatmapLastMove = 0;
+  var heatmapLastScroll = 0;
+  // Rage-click burst tracker: rapid, repeated clicks on the same cell signal a
+  // frustrated user or a broken element, so we surface them as their own map.
+  // Keyed by cell, value { count, last } of clicks within RAGE_WINDOW_MS.
+  var heatmapRageBurst = {};
+  var RAGE_WINDOW_MS = 2000;
+  var RAGE_THRESHOLD = 3;         // identical-cell clicks inside the window
+  var RAGE_MAX_TRACKED = 500;     // guard against pathological bursting pages
+
+  function heatmapDevice() {
+    var touch = ('ontouchstart' in window) ||
+      (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+    return (touch && (window.innerWidth || 1024) < 1025) ? 'mobile' : 'desktop';
+  }
+
+  function heatmapCoords(clientX, clientY) {
+    var vw = window.innerWidth || 1;
+    var docH = Math.max(
+      (document.documentElement ? document.documentElement.scrollHeight : 0),
+      (document.body ? document.body.scrollHeight : 0),
+      vw
+    );
+    var sc = window.scrollY || window.pageYOffset ||
+      (document.documentElement ? document.documentElement.scrollTop : 0);
+    var x = Math.min(100, Math.max(0, Math.round(clientX / vw * 100)));
+    var y = Math.min(100, Math.max(0, Math.round((clientY + sc) / docH * 100)));
+    return { x: x, y: y };
+  }
+
+  function heatmapVisibleFraction() {
+    var docH = window.document && document.documentElement ?
+      document.documentElement.scrollHeight : document.body ? document.body.scrollHeight : 1;
+    if (docH <= 0) return 0;
+    var sc = window.scrollY || window.pageYOffset ||
+      (document.documentElement ? document.documentElement.scrollTop : 0);
+    var visibleBottom = sc + (window.innerHeight || 1);
+    return Math.min(1, visibleBottom / docH);
+  }
+
+  function heatmapAdd(kind, x, y, el) {
+    var k = kind + '|' + x + '|' + y;
+    heatmapCells[k] = (heatmapCells[k] || 0) + 1;
+    if (el) heatmapCellEls[k] = el;
+  }
+
+  // A short, stable-ish descriptor for the element at a clicked position, so a
+  // hotspot can be attributed to e.g. `button#add-to-cart "Buy now"`. Prefer an
+  // explicit id over tag/classes; body-level clicks are noise and return ''.
+  function heatmapElementText(el) {
+    try {
+      var t;
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+        t = el.getAttribute('placeholder') || el.getAttribute('aria-label') || '';
+      } else if (el.tagName === 'IMG') {
+        t = el.getAttribute('alt') || '';
+      } else {
+        t = (el.textContent || '').trim().replace(/\s+/g, ' ');
+      }
+      return t ? t.slice(0, 28) : '';
+    } catch (err) { return ''; }
+  }
+
+  function heatmapElementTag(el) {
+    try {
+      if (!el || !el.tagName) return '';
+      if (el === document || el === document.body || el === document.documentElement) return '';
+      var out = el.tagName.toLowerCase();
+      if (el.id) out += '#' + el.id;
+      if (el.className && typeof el.className === 'string') {
+        var cls = el.className.trim().split(/\s+/).slice(0, 2).join('.');
+        if (cls) out += '.' + cls;
+      }
+      var txt = heatmapElementText(el);
+      if (txt) out += ' "' + txt + '"';
+      return out.length > 120 ? out.slice(0, 117) + '...' : out;
+    } catch (err) { return ''; }
+  }
+
+  function heatmapBuildHistogram(maxVisible) {
+    var h = {};
+    for (var b = 5; b <= 100; b += 5) {
+      if (maxVisible >= b / 100) h['' + b] = Math.round(maxVisible * 1000) / 1000;
+    }
+    return h;
+  }
+
+  function heatmapSend(final) {
+    var keys = Object.keys(heatmapCells);
+    var cells = [];
+    // Cap the number of cells per payload defensively — the 100x100 grid means
+    // a page can never legitimately fill more than a few thousand.
+    var cap = Math.min(keys.length, 3000);
+    for (var i = 0; i < cap; i++) {
+      var parts = keys[i].split('|');
+      cells.push({
+        kind: parts[0],
+        x: parseInt(parts[1], 10),
+        y: parseInt(parts[2], 10),
+        count: heatmapCells[keys[i]],
+        element: heatmapCellEls[keys[i]] || ''
+      });
+    }
+    // On the final flush of a silent page (no clicks/moves/scroll) still send,
+    // so the page appears in the dashboard and counts one visit + scroll depth.
+    if (!final && cells.length === 0 && heatmapTotalClicks === 0 && heatmapMaxVisible <= 0) {
+      heatmapSchedule();
+      return;
+    }
+    var payload = JSON.stringify({
+      site_id: siteId,
+      page_url: window.location.href,
+      device: heatmapDevice(),
+      user_agent: navigator.userAgent,
+      viewport_width: window.innerWidth || 0,
+      final: !!final,
+      total_clicks: heatmapTotalClicks,
+      max_scroll_percent: Math.round(heatmapMaxVisible * 100),
+      scroll_histogram: heatmapBuildHistogram(heatmapMaxVisible),
+      cells: cells
+    });
+    // Reset the per-flush counters that are incremental: cells and clicks are
+    // handed off per flush. Scroll depth is monotonic within a session, so
+    // heatmapMaxVisible is kept so the final flush reports the true peak.
+    heatmapTotalClicks = 0;
+    heatmapCells = {};
+    heatmapCellEls = {};
+    try {
+      post(heatmapUrl, payload);
+    } catch (err) { /* never break the host page */ }
+  }
+
+  function heatmapSchedule() {
+    // Periodic flush keeps near-real-time data flowing without waiting for page
+    // unload. Rescheduled from heatmapSend when there was nothing to send yet.
+    setTimeout(function () { heatmapSend(false); }, 15000);
+  }
+
+  // Clicks (also covers taps on touch devices). Beyond counting every click,
+  // we watch for rage bursts — the same cell hit RAGE_THRESHOLD+ times inside
+  // RAGE_WINDOW_MS — and record those as their own 'rage' cells so the map can
+  // spotlight the spots where visitors clearly got stuck or frustrated.
+  document.addEventListener('click', function (e) {
+    try {
+      heatmapTotalClicks++;
+      var c = heatmapCoords(e.clientX, e.clientY);
+      var elTag = heatmapElementTag(e.target);
+      heatmapAdd('click', c.x, c.y, elTag);
+      var key = c.x + '|' + c.y;
+      var now = Date.now();
+      var burst = heatmapRageBurst[key];
+      if (burst && (now - burst.last <= RAGE_WINDOW_MS)) {
+        burst.count++;
+        burst.last = now;
+        if (burst.count >= RAGE_THRESHOLD) {
+          heatmapAdd('rage', c.x, c.y, elTag);
+          // Reset the burst so sustained clicking counts bursts, not clicks.
+          heatmapRageBurst[key] = { count: 0, last: now };
+        }
+      } else {
+        heatmapRageBurst[key] = { count: 1, last: now };
+      }
+      // Bound the tracker: on a pathological page drop the whole state rather
+      // than risk unbounded growth (a burst lost here is harmless).
+      var tracked = 0;
+      for (var k in heatmapRageBurst) { tracked++; if (tracked > RAGE_MAX_TRACKED) break; }
+      if (tracked > RAGE_MAX_TRACKED) heatmapRageBurst = {};
+    } catch (err) {}
+  }, true);
+
+  // Mouse movement, sampled ~every 120ms (Hotjar samples at 100ms). Desktop
+  // only in practice — touch devices have no mousemove.
+  document.addEventListener('mousemove', function (e) {
+    try {
+      var now = Date.now();
+      if (now - heatmapLastMove < 120) return;
+      heatmapLastMove = now;
+      var c = heatmapCoords(e.clientX, e.clientY);
+      heatmapAdd('move', c.x, c.y);
+    } catch (err) {}
+  }, true);
+
+  // Scroll: keep the deepest page-fraction revealed.
+  function heatmapOnScroll() {
+    try {
+      var now = Date.now();
+      if (now - heatmapLastScroll < 300) return;
+      heatmapLastScroll = now;
+      var vf = heatmapVisibleFraction();
+      if (vf > heatmapMaxVisible) heatmapMaxVisible = vf;
+    } catch (err) {}
+  }
+  window.addEventListener('scroll', heatmapOnScroll, true);
+  window.addEventListener('resize', heatmapOnScroll, true);
+  // One immediate sample in case the page loads pre-scrolled (e.g. deep links).
+  setTimeout(function () { heatmapOnScroll(); }, 2500);
+
+  // Periodic flush for freshness.
+  heatmapSchedule();
+
+  // Final flush on unload / backgrounding, carrying remaining cells and the
+  // visit count. bfcache-safe: reload after a back/forward does not lose data.
+  var heatmapFlushedPagehide = false;
+  function heatmapFlushFinal() {
+    if (heatmapFlushedPagehide) return;
+    heatmapFlushedPagehide = true;
+    heatmapSend(true);
+  }
+  window.addEventListener('pagehide', heatmapFlushFinal);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') heatmapFlushFinal();
+  });
+
 })();

@@ -6,6 +6,8 @@ from apps.scripts.urls import ingest_urlpatterns, script_urlpatterns
 from apps.site_health.urls import urlpatterns as site_health_urlpatterns
 from apps.site_health.urls import website_urlpatterns as site_health_website_urlpatterns
 from apps.websites.urls import urlpatterns as website_urlpatterns
+from apps.heatmap.urls import urlpatterns as heatmap_urlpatterns
+from apps.heatmap.urls import ingest_urlpatterns as heatmap_ingest_urlpatterns
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -32,7 +34,9 @@ urlpatterns = [
     # Client management (hosting sheet + ClickUp sync)
     path("api/v1/clients/", include("apps.clients.urls")),
     # Ingest — version-free URL; snippet embeds this permanently
-    path("api/", include(ingest_urlpatterns)),
+    path("api/", include(ingest_urlpatterns + heatmap_ingest_urlpatterns)),
+    # Heatmaps (versioned dashboard endpoints)
+    path("api/v1/", include(heatmap_urlpatterns)),
     # Dashboard chatbot
     path("api/v1/", include("apps.chat.urls")),
     # Activity audit log
