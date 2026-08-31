@@ -29,6 +29,23 @@ if [ -z "$EMAIL_LINE" ] || echo "$EMAIL_LINE" | grep -qE 'consolemail|REPLACE_';
 fi
 
 echo "==> Pulling latest main"
+# frontend/package-lock.json is generated. A stray `npm install` on the server
+# rewrites it, and the next pull then aborts on "local changes would be
+# overwritten". It is canonical in git and `npm ci` below reinstalls from the
+# pulled copy, so a local edit to it is never worth keeping.
+if ! git diff --quiet -- frontend/package-lock.json; then
+  echo "    frontend/package-lock.json was modified locally — restoring it from git."
+  git checkout -- frontend/package-lock.json
+fi
+
+# Anything else dirty is not ours to discard. Fail loudly instead of guessing.
+if ! git diff --quiet; then
+  echo "ERROR: the working tree has local changes that would block the pull:" >&2
+  git diff --name-only >&2
+  echo "Commit, stash or revert them, then re-run ./deploy.sh." >&2
+  exit 1
+fi
+
 git pull origin main
 
 echo "==> Rebuilding backend (production settings)"
@@ -36,6 +53,12 @@ docker compose -f "$COMPOSE_FILE" up -d --build api celery celery-beat
 
 echo "==> Building frontend"
 cd frontend
+# Install before building: the script used to go straight to `npm run build`, so
+# a commit that added a dependency broke the deploy with "Module not found"
+# (heatmap.js was the first). `npm ci` installs exactly what the lockfile pins
+# and, unlike `npm install`, never rewrites it — which is what kept dirtying the
+# tree and aborting the pull above.
+npm ci
 npm run build
 pm2 restart digivault-frontend
 cd ..
