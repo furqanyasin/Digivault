@@ -4,7 +4,9 @@ import type { NextRequest } from "next/server";
 // /api/password-reset is public at the proxy layer because the anonymous
 // forgot-password and reset-password pages call it; its authenticated
 // sub-routes (list/approve/reject) each enforce the token themselves.
-const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/2fa/", "/status/", "/api/auth", "/api/public", "/api/password-reset"];
+// /bot is the allowlist page our User-Agent links to; the client's firewall
+// admin who opens it has no login here.
+const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/2fa/", "/status/", "/bot", "/api/auth", "/api/public", "/api/password-reset"];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
