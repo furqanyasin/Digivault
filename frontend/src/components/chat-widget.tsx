@@ -69,7 +69,7 @@ const FALLBACK_SUGGESTIONS = SUGGESTED_QUESTIONS.slice(0, 4);
 const WELCOME: Message = {
   id: 0,
   role: "bot",
-  text: "Hi! I'm your Digivault assistant 👋\n\nI can check website statuses, show script alerts, monitor uptime, look up client details, and more.\n\nTry one of the quick questions below, or type **help** to see everything I can do.",
+  text: "Hi! I'm your Stacks Monitor assistant 👋\n\nI can check website statuses, show script alerts, monitor uptime, look up client details, and more.\n\nTry one of the quick questions below, or type **help** to see everything I can do.",
   suggestions: SUGGESTED_QUESTIONS,
 };
 
@@ -185,7 +185,7 @@ export function ChatWidget() {
               <Bot className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="font-semibold text-sm leading-none">Digivault Assistant</p>
+              <p className="font-semibold text-sm leading-none">Stacks Monitor Assistant</p>
               <p className="text-xs text-emerald-600 mt-0.5">● Online</p>
             </div>
             <div className="ml-auto flex items-center gap-1">

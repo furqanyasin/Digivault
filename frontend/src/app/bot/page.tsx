@@ -11,9 +11,9 @@ type MonitoringInfo = {
 };
 
 export const metadata: Metadata = {
-  title: "Digivault Monitor — Allowlist Information",
+  title: "Stacks Monitor Bot — Allowlist Information",
   description:
-    "The IP addresses and user-agent Digivault's uptime monitor uses, with copy-paste firewall rules.",
+    "The IP addresses and user-agent Stacks Monitor's uptime monitor uses, with copy-paste firewall rules.",
   robots: "index, follow",
 };
 
@@ -48,7 +48,7 @@ export default async function BotInfoPage() {
   if (!info) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-16">
-        <h1 className="text-2xl font-semibold">Digivault Monitor</h1>
+        <h1 className="text-2xl font-semibold">Stacks Monitor Bot</h1>
         <p className="mt-4 text-muted-foreground">
           Monitoring details are temporarily unavailable. Please contact the
           agency that manages your website.
@@ -61,7 +61,7 @@ export default async function BotInfoPage() {
     <main className="mx-auto max-w-3xl px-6 py-16">
       <div className="flex items-center gap-3">
         <ShieldCheck className="h-7 w-7 text-emerald-600" aria-hidden />
-        <h1 className="text-2xl font-semibold">Digivault Monitor</h1>
+        <h1 className="text-2xl font-semibold">Stacks Monitor Bot</h1>
       </div>
 
       <p className="mt-4 text-muted-foreground">{info.docs}</p>

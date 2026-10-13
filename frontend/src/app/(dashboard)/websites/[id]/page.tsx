@@ -31,6 +31,7 @@ import { VipToggleButton } from "@/components/vip-toggle-button";
 import { SiteOverviewGrid, type OverviewMetrics } from "@/components/site-overview-grid";
 import { SiteLoginButton } from "@/components/site-login-card";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
+import { INTERNAL_DOMAINS } from "@/lib/brand";
 
 interface SiteActivityEntry {
   id: string;
@@ -235,8 +236,6 @@ export default async function WebsiteDetailPage({
   // for other platforms (detected via the site scan).
   const isWordPress = website.platform === "wordpress";
 
-  const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
-
   function isInternalStr(s: string | undefined): boolean {
     if (!s) return false;
     return INTERNAL_DOMAINS.some((d) => s.includes(d));
@@ -261,7 +260,7 @@ export default async function WebsiteDetailPage({
   const scriptsForTab = scripts.filter(
     (s) => !isInternalStr(s.src_url) && isTrackedScript(s)
   );
-  // Plugins tab: needs digilaticsvps scripts to detect WP plugins
+  // Plugins tab: uses every active script, internal ones too, to detect WP plugins
   const allActiveScripts = scripts.filter((s) => s.is_active);
 
   // WP-only tabs appear only when they actually have something to show —
@@ -655,7 +654,7 @@ export default async function WebsiteDetailPage({
                   <p className="text-sm text-muted-foreground">
                     {category || q
                       ? "Try clearing a filter, or widening the search."
-                      : "Digivault will alert you when scripts are added, removed or modified, when a plugin, theme or WordPress core is updated, when someone changes something in wp-admin, and when a new page appears."}
+                      : "Stacks Monitor will alert you when scripts are added, removed or modified, when a plugin, theme or WordPress core is updated, when someone changes something in wp-admin, and when a new page appears."}
                   </p>
                 </div>
               ) : (

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-// Syncs the web session into the Digivault browser extension: on load of an
+// Syncs the web session into the Stacks Monitor browser extension: on load of an
 // authenticated page it fetches the current tokens and posts them to the page,
 // where the extension's content script picks them up (DIGIVAULT_EXTENSION_AUTH)
 // and stores them. This means logging into the portal also logs into the

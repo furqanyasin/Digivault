@@ -25,7 +25,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Digivault",
+  title: "Stacks Monitor",
   description: "Monitor third-party scripts on your websites",
 };
 
