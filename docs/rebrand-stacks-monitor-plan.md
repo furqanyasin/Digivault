@@ -7,7 +7,27 @@
 | Company / owner | Digilatics (office) | Independent (own launch) |
 | GitHub repo | furqanyasin/Digivault | furqanyasin/stacks-monitor (proposed) |
 
-Status: **plan only, nothing changed yet.** Created 2026-10-14.
+Created 2026-10-14. Work happens on branch `rebrand/stacks-monitor`; `main` is untouched until merge. Rollback point: tag `pre-rebrand`.
+
+## Progress
+
+| Phase | Status | Commit |
+|---|---|---|
+| 0. Prep (tag, branch, baseline) | ✅ Fixed | tag `pre-rebrand` |
+| 1. Central brand constants | ✅ Fixed | `1a80978`, `624215d` |
+| 2. Backend user-facing text | ✅ Fixed | `1a80978` |
+| 3. Frontend UI | ✅ Fixed | `624215d` |
+| 4. Domain and URLs | ✅ Fixed | `1a80978`, `624215d` |
+| 5. Protocol identifiers | ✅ Fixed | `f36f658` |
+| 6. Browser extension | ✅ Fixed | `15bd8a4` |
+| 7. Infrastructure identifiers | ✅ Fixed | `b90d6b8` |
+| 8. Office-specific content | ✅ Fixed | `818d1c1`, `44f8f70` |
+| 9. Documentation | ✅ Fixed | `a8ee4cd` |
+| 10. Repo and local folder | ⏳ Needs you (GitHub rename, folder rename) | |
+| 11. Launch on stacksmonitor.com | ⏳ Needs you (server, DNS, keys) | |
+| 12. Final verification | see section 4, Phase 12 | |
+
+Decisions taken (section 7): Track A fresh launch; `digivault-extension/` was the shipped extension; client fields renamed to `_by_us`; placeholder logo until a real one exists; repo name `stacks-monitor`.
 
 ---
 
@@ -93,7 +113,7 @@ The rest of this plan assumes **Track A**. Track B extra steps are marked **[Tra
 
 ## 4. Phases
 
-### Phase 0: Prep
+### Phase 0: Prep ✅
 
 | Step | Action |
 |---|---|
@@ -103,7 +123,7 @@ The rest of this plan assumes **Track A**. Track B extra steps are marked **[Tra
 | 0.4 | Run the full gate once, save the result as the baseline. |
 | 0.5 | Decide which extension folder is current (see Phase 6). |
 
-### Phase 1: Central brand constants
+### Phase 1: Central brand constants ✅
 
 Today the name and domain are hardcoded in ~60 code places. Put them in one place first, so the rename becomes a one-line change and stays that way.
 
@@ -115,7 +135,7 @@ Today the name and domain are hardcoded in ~60 code places. Put them in one plac
 
 Tests to update: anything asserting the literal `"Digivault"` string.
 
-### Phase 2: Backend user-facing text
+### Phase 2: Backend user-facing text ✅
 
 Emails, alerts, PDF, 2FA. Low risk, all display text.
 
@@ -136,7 +156,7 @@ Emails, alerts, PDF, 2FA. Low risk, all display text.
 
 **2FA note:** changing the TOTP issuer only affects new enrollments. Fine for Track A. **[Track B]** existing users keep seeing "Digivault" in their authenticator app until they re-enroll; that is harmless.
 
-### Phase 3: Frontend UI
+### Phase 3: Frontend UI ✅
 
 | File | What changes |
 |---|---|
@@ -153,7 +173,7 @@ Emails, alerts, PDF, 2FA. Low risk, all display text.
 | `frontend/package.json` | `"name": "frontend"` can stay, or `stacksmonitor-frontend` |
 | Favicon / OG image | add new brand assets |
 
-### Phase 4: Domain and URLs
+### Phase 4: Domain and URLs ✅
 
 | File | Change |
 |---|---|
@@ -171,7 +191,9 @@ Emails, alerts, PDF, 2FA. Low risk, all display text.
 
 **[Track B]** keep the old hosts in the internal-host lists too, or the old snippet shows up as a third-party script.
 
-### Phase 5: Protocol identifiers (most sensitive)
+### Phase 5: Protocol identifiers (most sensitive) ✅
+
+Done as a clean rename (Track A). The firewall allowlist token is now `StacksMonitor-Bot`, defined once as `apps.common.outbound.ALLOWLIST_TOKEN`.
 
 These are contracts between your server and code running elsewhere (WordPress sites, browsers, client firewalls).
 
@@ -187,7 +209,7 @@ These are contracts between your server and code running elsewhere (WordPress si
 
 Tip: before this phase, add one test per contract that asserts producer and consumer use the same constant (for example, import the header name from one module in both PHP builder and view).
 
-### Phase 6: Browser extension
+### Phase 6: Browser extension ✅
 
 Two copies exist: `extension/` and `digivault-extension/` (they differ), plus `digivault-extension.zip` and `digivault-extension-old.zip` committed.
 
@@ -203,7 +225,7 @@ Two copies exist: `extension/` and `digivault-extension/` (they differ), plus `d
 | 6.8 | Build the zip in CI or a script, do not commit it. Add `*.zip` to `.gitignore`. |
 | 6.9 | Publish as a **new** Chrome Web Store item under your own developer account. |
 
-### Phase 7: Infrastructure identifiers
+### Phase 7: Infrastructure identifiers ✅
 
 | File | Change |
 |---|---|
@@ -222,7 +244,7 @@ Two copies exist: `extension/` and `digivault-extension/` (they differ), plus `d
 - Changing the cache prefix drops all cache: throttle counters, cached egress IP, and any cache locks reset once. Deploy at a quiet time.
 - The pm2 process must be re-created under the new name, or `deploy.sh` fails at `pm2 restart`.
 
-### Phase 8: Remove office-specific content
+### Phase 8: Remove office-specific content ✅
 
 | Item | Where | Change |
 |---|---|---|
@@ -235,7 +257,7 @@ Two copies exist: `extension/` and `digivault-extension/` (they differ), plus `d
 | `.gitignore:55,63` | office file names | remove |
 | `WordPress_Security_Checklist.md` (root) | check content for office references | keep or move to `docs/` |
 
-### Phase 9: Documentation
+### Phase 9: Documentation ✅
 
 | Group | Files | Action |
 |---|---|---|
