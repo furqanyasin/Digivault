@@ -10,7 +10,7 @@ export const HOSTING_OPTIONS = [
 
 export const HOSTING_TOOLTIP =
   "Where the site is hosted — pick the provider, or “Other” to type one that isn't " +
-  "listed. Applies whether Digilatics provides the hosting or the client owns it; " +
+  "listed. Applies whether we provide the hosting or the client owns it; " +
   "record how we get in under “Website access level” (e.g. Delegate access when the " +
   "client grants us access through the provider). Drives renewal reminders and the " +
   "hosting column across the app.";

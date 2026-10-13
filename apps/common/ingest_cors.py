@@ -6,7 +6,7 @@ opposite. Every client website that embeds the snippet posts to them from its
 own origin, so an allowlist can never be complete — and worse, it fails
 silently: a newly onboarded site reports nothing at all until somebody
 remembers to edit an env var and redeploy. That is what happened to
-digilatics.com, whose snippet POSTs were rejected at the preflight with
+a live client site, whose snippet POSTs were rejected at the preflight with
 "No 'Access-Control-Allow-Origin' header is present".
 
 `Access-Control-Allow-Origin: *` here is a description of the trust model, not

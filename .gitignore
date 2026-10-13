@@ -52,15 +52,12 @@ Thumbs.db
 CLAUDE.md
 
 # Misc plan files
-Digivault_CompletePlan.md
 dashboard-feature-plan.md
-ScriptSentry_CompletePlan.md
-ScriptSentry_ProductPlan.md.pdf
 skills-lock.json
 
 # Private / agent files
 .agents/
-"Digilatics - Web - Web Sheets - Hosting Internal Sheet.csv"
+*Hosting Internal Sheet*.csv
 
 # Node / Next.js
 frontend/node_modules/

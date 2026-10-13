@@ -281,7 +281,7 @@ class TestMetaPixelRuntimeParams:
         """
         out = normalize_script_url(
             "https://connect.facebook.net/signals/config/7847387958713764"
-            "?v=2.9.370&r=stable&domain=digilatics.com"
+            "?v=2.9.370&r=stable&domain=acme-agency.com"
             "&hme=589ca7d2e122c6385be4e33d0bc38dace8e88b62db3f4bee0e6f01d386858e70"
             "&ex_m=108%2C210%2C160%2C22%2C73"
         )

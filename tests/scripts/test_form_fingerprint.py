@@ -69,7 +69,7 @@ class TestFingerprintFieldChurn:
             "detection_type": "native",
             "form_id": "multiStepForm",
             "form_name": "",
-            "form_action": "https://digilatics.com/",
+            "form_action": "https://acme-agency.com/",
             "fields": [{"name": "name"}, {"name": "email"}],
             **over,
         })
@@ -124,23 +124,23 @@ class TestFingerprintActionStability:
     """
 
     def test_utm_params_do_not_change_identity(self):
-        assert _fp_action("https://digilatics.com/") == _fp_action(
-            "https://digilatics.com/?utm_source=newsletter&gclid=abc"
+        assert _fp_action("https://acme-agency.com/") == _fp_action(
+            "https://acme-agency.com/?utm_source=newsletter&gclid=abc"
         )
 
     def test_fragment_and_trailing_slash_do_not_change_identity(self):
-        assert _fp_action("https://digilatics.com/") == _fp_action(
-            "https://digilatics.com#quote-form"
+        assert _fp_action("https://acme-agency.com/") == _fp_action(
+            "https://acme-agency.com#quote-form"
         )
 
     def test_www_prefix_does_not_change_identity(self):
-        assert _fp_action("https://digilatics.com/contact-us") == _fp_action(
-            "https://www.digilatics.com/contact-us/"
+        assert _fp_action("https://acme-agency.com/contact-us") == _fp_action(
+            "https://www.acme-agency.com/contact-us/"
         )
 
     def test_genuinely_different_actions_still_differ(self):
-        assert _fp_action("https://digilatics.com/a") != _fp_action(
-            "https://digilatics.com/b"
+        assert _fp_action("https://acme-agency.com/a") != _fp_action(
+            "https://acme-agency.com/b"
         )
 
     def test_relative_action_is_left_alone(self):

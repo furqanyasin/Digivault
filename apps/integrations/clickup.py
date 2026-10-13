@@ -22,7 +22,7 @@ BASE_URL = "https://api.clickup.com/api"
 DEFAULT_TIMEOUT = 10
 
 # Matches a ClickUp Chat channel link, e.g.
-# https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438
+# https://acme.clickup.com/25658037/chat/r/rf0nn-49438
 _CHAT_URL_RE = re.compile(r"clickup\.com/(\d+)/chat/(?:r/)?([^/?#]+)", re.I)
 
 

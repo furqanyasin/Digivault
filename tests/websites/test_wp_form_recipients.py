@@ -94,11 +94,11 @@ class TestApplyRecipients:
         form = _elementor_form(website, "New Form")
         written = apply_recipients(website, [{
             "plugin": "elementor", "name": "New Form", "id_prefix": "",
-            "recipients": ["website@digilatics.com"],
+            "recipients": ["website@acme-agency.com"],
         }])
         form.refresh_from_db()
         assert written == 1
-        assert form.recipients["to"] == ["website@digilatics.com"]
+        assert form.recipients["to"] == ["website@acme-agency.com"]
         assert form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
 
     def test_name_match_ignores_case_and_padding(self, website):
@@ -172,7 +172,7 @@ class TestApplyRecipients:
 
     def test_a_second_identical_report_writes_nothing(self, website):
         _elementor_form(website)
-        entry = {"name": "New Form", "recipients": ["website@digilatics.com"]}
+        entry = {"name": "New Form", "recipients": ["website@acme-agency.com"]}
         assert apply_recipients(website, [entry]) == 1
         assert apply_recipients(website, [entry]) == 0
 
@@ -188,7 +188,7 @@ class TestPrecedence:
         """
         form = _elementor_form(website)
         apply_recipients(website, [{
-            "name": "New Form", "recipients": ["website@digilatics.com"],
+            "name": "New Form", "recipients": ["website@acme-agency.com"],
         }])
 
         _upsert_form(website, PAGE, {
@@ -198,7 +198,7 @@ class TestPrecedence:
         })
 
         form.refresh_from_db()
-        assert form.recipients["to"] == ["website@digilatics.com"]
+        assert form.recipients["to"] == ["website@acme-agency.com"]
         assert form.recipient_source == DetectedForm.RecipientSource.WORDPRESS
 
     def test_wordpress_outranks_an_address_read_from_the_page(self, website):
@@ -299,12 +299,12 @@ class TestFetch:
         form = _elementor_form(website)
         resp = _Resp(payload={"forms": [{
             "plugin": "elementor", "name": "New Form", "id_prefix": "",
-            "recipients": ["website@digilatics.com"],
+            "recipients": ["website@acme-agency.com"],
         }]})
         with patch("apps.websites.wp_forms.outbound.fetch", return_value=resp):
             assert sync_website(website) == 1
         form.refresh_from_db()
-        assert form.recipients["to"] == ["website@digilatics.com"]
+        assert form.recipients["to"] == ["website@acme-agency.com"]
 
 
 @pytest.mark.django_db
@@ -409,15 +409,15 @@ class TestReportedCopies:
         form = _elementor_form(website)
         apply_recipients(website, [{
             "plugin": "elementor", "name": "New Form",
-            "to": ["website@digilatics.com"],
-            "cc": ["manager@digilatics.com"],
-            "bcc": ["archive@digilatics.com"],
+            "to": ["website@acme-agency.com"],
+            "cc": ["manager@acme-agency.com"],
+            "bcc": ["archive@acme-agency.com"],
         }])
         form.refresh_from_db()
         assert form.recipients == {
-            "to": ["website@digilatics.com"],
-            "cc": ["manager@digilatics.com"],
-            "bcc": ["archive@digilatics.com"],
+            "to": ["website@acme-agency.com"],
+            "cc": ["manager@acme-agency.com"],
+            "bcc": ["archive@acme-agency.com"],
         }
 
     def test_every_to_address_is_stored_not_just_the_first(self, website):
@@ -432,10 +432,10 @@ class TestReportedCopies:
         """A site pasted with the previous snippet answers with `recipients`."""
         form = _elementor_form(website)
         assert apply_recipients(website, [{
-            "name": "New Form", "recipients": ["website@digilatics.com"],
+            "name": "New Form", "recipients": ["website@acme-agency.com"],
         }]) == 1
         form.refresh_from_db()
-        assert form.recipients["to"] == ["website@digilatics.com"]
+        assert form.recipients["to"] == ["website@acme-agency.com"]
 
     def test_a_reordered_report_is_not_a_write(self, website):
         _elementor_form(website)

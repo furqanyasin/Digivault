@@ -16,7 +16,7 @@ from apps.scripts.dedup import merge_duplicate_forms
 from apps.scripts.models import DetectedForm
 from apps.websites.models import Website
 
-PAGE = "https://digilatics.com"
+PAGE = "https://acme-agency.com"
 FIELDS = [{"name": "email", "type": "email", "label": "Email", "required": True}]
 
 
@@ -24,7 +24,7 @@ FIELDS = [{"name": "email", "type": "email", "label": "Email", "required": True}
 def site(db):
     owner = User.objects.create_user(email="formdedupe@x.io", password="Pass123!")
     team = TeamService.create(name="Form Dedupe Co", owner=owner)
-    return Website.objects.create(team=team, name="Digilatics", domain="digilatics.com")
+    return Website.objects.create(team=team, name="Acme Agency", domain="acme-agency.com")
 
 
 def _form(site, action, *, submissions=0, days_ago=0, submitted_days_ago=None):

@@ -26,7 +26,7 @@ GTAG = "https://www.googletagmanager.com/gtag/js"
 def site(db):
     owner = User.objects.create_user(email="dedupe@x.io", password="Pass123!")
     team = TeamService.create(name="Dedupe Co", owner=owner)
-    return Website.objects.create(team=team, name="Digilatics", domain="digilatics.com")
+    return Website.objects.create(team=team, name="Acme Agency", domain="acme-agency.com")
 
 
 def _script(site, src_url, *, normalized=None, pages=None, review="pending", days_ago=0, active=True):
@@ -103,16 +103,16 @@ def test_the_oldest_row_survives_so_first_seen_keeps_meaning(site):
 
 
 def test_pages_are_unioned_across_the_merged_rows(site):
-    _script(site, f"{GTAG}?id=G-ABC&gtm=aaa", pages=["https://digilatics.com/"], days_ago=5)
+    _script(site, f"{GTAG}?id=G-ABC&gtm=aaa", pages=["https://acme-agency.com/"], days_ago=5)
     _script(
         site, f"{GTAG}?id=G-ABC&gtm=bbb",
-        pages=["https://digilatics.com/", "https://digilatics.com/open-positions"], days_ago=1,
+        pages=["https://acme-agency.com/", "https://acme-agency.com/open-positions"], days_ago=1,
     )
 
     _merge()
 
     pages = Script.objects.filter(website=site).get().seen_on_pages
-    assert sorted(pages) == ["https://digilatics.com/", "https://digilatics.com/open-positions"]
+    assert sorted(pages) == ["https://acme-agency.com/", "https://acme-agency.com/open-positions"]
 
 
 def test_an_approval_survives_even_when_the_kept_row_was_pending(site):

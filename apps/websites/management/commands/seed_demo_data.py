@@ -220,7 +220,7 @@ class Command(BaseCommand):
                     "hosting_platform": ["wpengine", "siteground", "cloudways", "godaddy"][idx % 4],
                     "hosting_renewal_date": (now + timedelta(days=[18, 40, 75, 120][idx % 4])).date(),
                     "domain_renewal_date": (now + timedelta(days=[25, 58, 88, 200][idx % 4])).date(),
-                    "domain_access_location": "Digilatics GoDaddy account",
+                    "domain_access_location": "Agency GoDaddy account",
                     "website_access_level": ["full_admin", "delegate", "none", "not_working"][idx % 4],
                     "website_built_by_us": "YES" if idx % 3 else "NO",
                     "website_maintained_by_us": "YES" if idx % 2 else "NO",

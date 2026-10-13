@@ -33,11 +33,11 @@ class TestOneTagOneIdentity:
         # then took turns going missing and reported each other as URL changes.
         assert len(_ids([
             "https://connect.facebook.net/signals/config/7847387958713764"
-            "?domain=digilatics.com&im=1&r=stable",
+            "?domain=acme-agency.com&im=1&r=stable",
             "https://connect.facebook.net/signals/config/7847387958713764"
-            "?domain=digilatics.com&r=c2",
+            "?domain=acme-agency.com&r=c2",
             "https://connect.facebook.net/signals/config/7847387958713764"
-            "?domain=digilatics.com&r=stable",
+            "?domain=acme-agency.com&r=stable",
         ])) == 1
 
     def test_distinct_meta_pixels_stay_distinct(self):
@@ -290,7 +290,7 @@ class TestKnownInfrastructureLeavesTheInventory:
         "https://code.jquery.com/jquery-3.6.0.min.js",
     ])
     def test_dropped(self, url):
-        assert _should_track_script(url, "digilatics.com") is False
+        assert _should_track_script(url, "acme-agency.com") is False
 
     @pytest.mark.parametrize("url", [
         # Not a monitored vendor: unknown third parties and other vendors alike.
@@ -301,7 +301,7 @@ class TestKnownInfrastructureLeavesTheInventory:
         "https://connect.facebook.net/en_US/fbevents.js",
     ])
     def test_unmonitored_vendors_are_dropped(self, url):
-        assert _should_track_script(url, "digilatics.com") is False
+        assert _should_track_script(url, "acme-agency.com") is False
 
     @pytest.mark.parametrize("url", [
         "https://app-cdn.clickup.com/assets/js/forms-embed/v1.js",
@@ -309,11 +309,11 @@ class TestKnownInfrastructureLeavesTheInventory:
         "https://static.hotjar.com/c/hotjar-3065386.js",
     ])
     def test_kept(self, url):
-        assert _should_track_script(url, "digilatics.com") is True
+        assert _should_track_script(url, "acme-agency.com") is True
 
     def test_injected_code_overrides_the_vendor_rule(self):
         # The invariant that keeps this a noise filter rather than a blind spot.
-        assert _should_track_script("https://45.12.9.1/wp.js", "digilatics.com") is True
+        assert _should_track_script("https://45.12.9.1/wp.js", "acme-agency.com") is True
         assert is_tracked("https://45.12.9.1/wp.js", "high") is True
 
     @pytest.mark.parametrize("url,provider", [

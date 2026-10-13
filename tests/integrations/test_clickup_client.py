@@ -126,7 +126,7 @@ def test_a_client_without_a_token_refuses_to_call_out():
 def test_parse_clickup_chat_lives_on_the_clickup_module():
     from apps.integrations.clickup import parse_clickup_chat
 
-    ws, ch = parse_clickup_chat("https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438")
+    ws, ch = parse_clickup_chat("https://acme.clickup.com/25658037/chat/r/rf0nn-49438")
     assert (ws, ch) == ("25658037", "rf0nn-49438")
     assert parse_clickup_chat("") == (None, None)
     assert parse_clickup_chat("https://example.com/x") == (None, None)
@@ -152,7 +152,7 @@ def test_monitors_still_re_exports_parse_clickup_chat():
 
 def test_workspaces_reads_the_v2_team_endpoint():
     session = RecordingSession(
-        FakeResponse(200, {"teams": [{"id": "9001", "name": "Digilatics", "members": []}]})
+        FakeResponse(200, {"teams": [{"id": "9001", "name": "Acme Agency", "members": []}]})
     )
     client = ClickUpClient("pk_test", session=session)
 

@@ -32,7 +32,7 @@ HS = "https://js.hs-analytics.net/analytics/46377927.js"
 def site(db):
     owner = User.objects.create_user(email="chdedupe@x.io", password="Pass123!")
     team = TeamService.create(name="Change Dedupe Co", owner=owner)
-    return Website.objects.create(team=team, name="Digilatics", domain="digilatics.com")
+    return Website.objects.create(team=team, name="Acme Agency", domain="acme-agency.com")
 
 
 @pytest.fixture
