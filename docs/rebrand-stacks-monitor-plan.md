@@ -25,7 +25,18 @@ Created 2026-10-14. Work happens on branch `rebrand/stacks-monitor`; `main` is u
 | 9. Documentation | ✅ Fixed | `a8ee4cd` |
 | 10. Repo and local folder | ⏳ Needs you (GitHub rename, folder rename) | |
 | 11. Launch on stacksmonitor.com | ⏳ Needs you (server, DNS, keys) | |
-| 12. Final verification | see section 4, Phase 12 | |
+| 12. Final verification (local) | ✅ Done, see results below | |
+
+Local verification results (2026-10-14):
+
+| Check | Result |
+|---|---|
+| Old name in code, config, live docs | 0 hits (one historical migration comment kept on purpose) |
+| Backend tests (SQLite) | 2132 passed, 62 failed. The same 62 fail on `pre-rebrand`: they need PostgreSQL (interval math, partitions). CI on Postgres is the real gate. |
+| `manage.py check` / `makemigrations --check` | clean (only the planned `0007` RenameField) |
+| Frontend `npm run lint` + `npm run build` | pass |
+
+Security follow-up: the old `docs/deploy.md` held the office server's CloudPanel site-user password and a Google PageSpeed API key. They are gone from the files but remain in git history since the first commit. Before making any repo public, start a fresh repo or rewrite history, and tell the office to rotate both.
 
 Decisions taken (section 7): Track A fresh launch; `digivault-extension/` was the shipped extension; client fields renamed to `_by_us`; placeholder logo until a real one exists; repo name `stacks-monitor`.
 
