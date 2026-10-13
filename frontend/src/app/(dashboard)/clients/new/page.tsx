@@ -34,7 +34,7 @@ export default function NewClientPage() {
     name: "", website_url: "", hosting_platform: "", hosting_platform_other: "",
     hosting_renewal_date: "", domain_renewal_date: "", domain_access_location: "",
     website_access_level: "", tier: "",
-    running_ppc_ads: "", website_built_by_digi: "", website_maintained_by_digi: "",
+    running_ppc_ads: "", website_built_by_us: "", website_maintained_by_us: "",
     notes: "",
   });
   const [departments, setDepartments] = useState<string[]>([]);
@@ -153,8 +153,8 @@ export default function NewClientPage() {
                 <Input type="date" value={form.domain_renewal_date} onChange={(e) => set("domain_renewal_date", e.target.value)} />
               </div>
               <div className="space-y-1.5">
-                <Label>Website built by Digilatics</Label>
-                <Select value={form.website_built_by_digi} onValueChange={(v) => set("website_built_by_digi", v)}>
+                <Label>Website built by us</Label>
+                <Select value={form.website_built_by_us} onValueChange={(v) => set("website_built_by_us", v)}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="unknown">Unknown</SelectItem>
@@ -165,8 +165,8 @@ export default function NewClientPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label>Website maintained by Digilatics</Label>
-                <Select value={form.website_maintained_by_digi} onValueChange={(v) => set("website_maintained_by_digi", v)}>
+                <Label>Website maintained by us</Label>
+                <Select value={form.website_maintained_by_us} onValueChange={(v) => set("website_maintained_by_us", v)}>
                   <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="unknown">Unknown</SelectItem>

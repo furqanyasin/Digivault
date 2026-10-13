@@ -81,8 +81,8 @@ class Client(BaseModel):
     # Subset of DEPARTMENTS, e.g. ["seo", "ads"].
     departments = models.JSONField(default=list, blank=True)
     running_ppc_ads = models.CharField(max_length=10, blank=True, default="")
-    website_built_by_digi = models.CharField(max_length=50, blank=True, default="")
-    website_maintained_by_digi = models.CharField(max_length=50, blank=True, default="")
+    website_built_by_us = models.CharField(max_length=50, blank=True, default="")
+    website_maintained_by_us = models.CharField(max_length=50, blank=True, default="")
     notes = models.TextField(blank=True)
 
     # Per-client notification toggles, honored by alert delivery.

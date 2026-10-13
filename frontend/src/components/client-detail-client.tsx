@@ -23,7 +23,7 @@ import {
   HOSTING_OPTIONS, HOSTING_TOOLTIP, STATUS_OPTIONS, TIER_OPTIONS,
 } from "@/lib/client-fields";
 
-const DIGI_OPTIONS = [
+const YES_NO_OPTIONS = [
   { value: "unknown", label: "Unknown" },
   { value: "YES", label: "Yes" },
   { value: "NO", label: "No" },
@@ -61,8 +61,8 @@ export function ClientDetailClient({ client: initial, websites }: Props) {
     domain_access_location: initial.domain_access_location,
     website_access_level: toSelect(initial.website_access_level ?? ""),
     running_ppc_ads: initial.running_ppc_ads,
-    website_built_by_digi: initial.website_built_by_digi || "unknown",
-    website_maintained_by_digi: initial.website_maintained_by_digi || "unknown",
+    website_built_by_us: initial.website_built_by_us || "unknown",
+    website_maintained_by_us: initial.website_maintained_by_us || "unknown",
     notes: initial.notes,
   });
   const [departments, setDepartments] = useState<string[]>(initial.departments ?? []);
@@ -102,8 +102,8 @@ export function ClientDetailClient({ client: initial, websites }: Props) {
         // send null so it clears the field instead of erroring.
         hosting_renewal_date: form.hosting_renewal_date || null,
         domain_renewal_date: form.domain_renewal_date || null,
-        website_built_by_digi: form.website_built_by_digi === "unknown" ? "" : form.website_built_by_digi,
-        website_maintained_by_digi: form.website_maintained_by_digi === "unknown" ? "" : form.website_maintained_by_digi,
+        website_built_by_us: form.website_built_by_us === "unknown" ? "" : form.website_built_by_us,
+        website_maintained_by_us: form.website_maintained_by_us === "unknown" ? "" : form.website_maintained_by_us,
         departments,
         notify_desktop: notifyDesktop,
         notify_email: notifyEmail,
@@ -208,11 +208,11 @@ export function ClientDetailClient({ client: initial, websites }: Props) {
                   placeholder="e.g. Khurram GoDaddy Account"
                 />
               </Field>
-              <Field label="Website built by Digilatics">
-                <SelectField value={form.website_built_by_digi} onChange={(v) => set("website_built_by_digi", v)} options={DIGI_OPTIONS} />
+              <Field label="Website built by us">
+                <SelectField value={form.website_built_by_us} onChange={(v) => set("website_built_by_us", v)} options={YES_NO_OPTIONS} />
               </Field>
-              <Field label="Website maintained by Digilatics">
-                <SelectField value={form.website_maintained_by_digi} onChange={(v) => set("website_maintained_by_digi", v)} options={DIGI_OPTIONS} />
+              <Field label="Website maintained by us">
+                <SelectField value={form.website_maintained_by_us} onChange={(v) => set("website_maintained_by_us", v)} options={YES_NO_OPTIONS} />
               </Field>
             </div>
 

@@ -17,8 +17,8 @@ export interface ClientRecord {
   website_access_level: string;
   departments: string[];
   running_ppc_ads: string;
-  website_built_by_digi: string;
-  website_maintained_by_digi: string;
+  website_built_by_us: string;
+  website_maintained_by_us: string;
   notes: string;
   notify_desktop: boolean;
   notify_email: boolean;

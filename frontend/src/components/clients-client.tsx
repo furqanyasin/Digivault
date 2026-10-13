@@ -358,7 +358,7 @@ export function ClientsClient({ initialClients }: Props) {
       "Hosting Platform (drop down)", "Hosting Platform (Other)",
       "Website Access Level", "Domain Access",
       "Hosting Renewal Date", "Domain Renewal Date",
-      "Website Built by Digi", "Website Maintained by Digi", "Departments",
+      "Website Built by Us", "Website Maintained by Us", "Departments",
       "Desktop Notifications", "Email Notifications", "Notes",
     ];
     const example = [
@@ -694,10 +694,10 @@ export function ClientsClient({ initialClients }: Props) {
                   </TableCell>
 
                   <TableCell className="px-4 py-2.5">
-                    <YesNo value={c.website_built_by_digi} />
+                    <YesNo value={c.website_built_by_us} />
                   </TableCell>
                   <TableCell className="px-4 py-2.5">
-                    <YesNo value={c.website_maintained_by_digi} />
+                    <YesNo value={c.website_maintained_by_us} />
                   </TableCell>
 
                   <TableCell className="px-4 py-2.5">
