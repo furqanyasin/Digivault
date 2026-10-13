@@ -165,7 +165,7 @@ CACHES = {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": CACHE_URL,
         "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-        "KEY_PREFIX": "digivault_hub",
+        "KEY_PREFIX": "stacksmonitor",
     }
 }
 

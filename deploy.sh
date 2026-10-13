@@ -10,9 +10,9 @@ COMPOSE_FILE=docker-compose.production.cloudpanel.yml
 if [ ! -f .env.production ]; then
   echo "ERROR: .env.production is missing — create it before deploying." >&2
   echo "It needs everything from .env plus:" >&2
-  echo "  ALLOWED_HOSTS=digivault.digilatics.co" >&2
-  echo "  CORS_ALLOWED_ORIGINS=https://digivault.digilatics.co" >&2
-  echo "  SNIPPET_CDN_URL=https://digivault.digilatics.co/api" >&2
+  echo "  ALLOWED_HOSTS=stacksmonitor.com" >&2
+  echo "  CORS_ALLOWED_ORIGINS=https://stacksmonitor.com" >&2
+  echo "  SNIPPET_CDN_URL=https://stacksmonitor.com/api" >&2
   echo "  DB_PASSWORD=<postgres password>" >&2
   exit 1
 fi
@@ -96,7 +96,7 @@ cd frontend
 # tree and aborting the pull above.
 npm ci
 npm run build
-pm2 restart digivault-frontend
+pm2 restart stacksmonitor-frontend
 cd ..
 
 echo "==> Verifying snippet endpoint"
@@ -106,7 +106,7 @@ echo "==> Verifying snippet endpoint"
 # Retried because the api container may still be migrating or binding.
 snippet_ok=0
 for attempt in 1 2 3 4 5 6; do
-  body=$(curl -sf --max-time 10 https://digivault.digilatics.co/api/s.js || true)
+  body=$(curl -sf --max-time 10 https://stacksmonitor.com/api/s.js || true)
   if grep -q snippet_version <<<"$body"; then
     snippet_ok=1
     break

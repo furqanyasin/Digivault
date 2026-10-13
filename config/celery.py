@@ -7,7 +7,7 @@ from celery.signals import task_failure, task_postrun, task_prerun
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
 
-app = Celery("digivault_hub")
+app = Celery("stacksmonitor")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 

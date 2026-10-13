@@ -10,11 +10,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: digivault
-      POSTGRES_USER: digivault
+      POSTGRES_DB: stacksmonitor
+      POSTGRES_USER: stacksmonitor
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U digivault"]
+      test: ["CMD-SHELL", "pg_isready -U stacksmonitor"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -122,7 +122,7 @@ services:
     # ingest endpoint client sites post to. It exists so that traffic cannot
     # starve the dashboard. Both used to share the api's four uvicorn workers,
     # so a spike on one client's site — six or more posts per pageview — slowed
-    # every page of Digivault for the whole team, and a slow dashboard query
+    # every page of Stacks Monitor for the whole team, and a slow dashboard query
     # held up ingest in return. Separate processes, separate queues.
     #
     # Traffic reaches it only once the CloudPanel nginx vhost routes the public

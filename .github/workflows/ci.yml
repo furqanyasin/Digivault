@@ -39,12 +39,12 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: digivault
-          POSTGRES_USER: digivault
-          POSTGRES_PASSWORD: digivault
+          POSTGRES_DB: stacksmonitor
+          POSTGRES_USER: stacksmonitor
+          POSTGRES_PASSWORD: stacksmonitor
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U digivault"
+          --health-cmd "pg_isready -U stacksmonitor"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -61,7 +61,7 @@ jobs:
     env:
       DJANGO_SETTINGS_MODULE: config.settings.test
       DJANGO_SECRET_KEY: ci-secret-key-not-used-for-anything-real-0000000
-      DATABASE_URL: postgres://digivault:digivault@localhost:5432/digivault
+      DATABASE_URL: postgres://stacksmonitor:stacksmonitor@localhost:5432/stacksmonitor
       REDIS_URL: redis://localhost:6379/0
       # A throwaway Fernet key. The vault refuses to start without one, and
       # generating it here keeps a real key out of the workflow file.

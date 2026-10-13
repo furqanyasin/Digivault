@@ -12,9 +12,9 @@
 # for every key that was primary at any point in the retention window.
 #
 # Settings (environment, or a BACKUP_*= line in .env.production):
-#   BACKUP_DIR              local directory              (/var/backups/digivault)
+#   BACKUP_DIR              local directory              (/var/backups/stacksmonitor)
 #   BACKUP_KEEP_LOCAL_DAYS  local retention              (7)
-#   BACKUP_RCLONE_REMOTE    rclone target, e.g. b2:digivault-backups  (unset = local only)
+#   BACKUP_RCLONE_REMOTE    rclone target, e.g. b2:stacksmonitor-backups  (unset = local only)
 #   BACKUP_KEEP_DAILY_DAYS  remote daily retention       (14)
 #   BACKUP_KEEP_WEEKLY_DAYS remote weekly retention      (56)
 #   BACKUP_PING_URL         healthchecks.io-style URL pinged on success, so a
@@ -38,7 +38,7 @@ setting() {
   echo "${value:-$default}"
 }
 
-BACKUP_DIR=$(setting BACKUP_DIR /var/backups/digivault)
+BACKUP_DIR=$(setting BACKUP_DIR /var/backups/stacksmonitor)
 KEEP_LOCAL_DAYS=$(setting BACKUP_KEEP_LOCAL_DAYS 7)
 REMOTE=$(setting BACKUP_RCLONE_REMOTE "")
 KEEP_DAILY_DAYS=$(setting BACKUP_KEEP_DAILY_DAYS 14)
@@ -57,7 +57,7 @@ if ! flock -n 9; then
 fi
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-FILE="$BACKUP_DIR/digivault-$STAMP.dump"
+FILE="$BACKUP_DIR/stacksmonitor-$STAMP.dump"
 PARTIAL="$FILE.partial"
 trap 'rm -f "$PARTIAL"' EXIT
 
@@ -66,7 +66,7 @@ echo "==> Dumping Postgres to $FILE"
 # from it. `exec -T` because cron has no TTY. Written to .partial and renamed
 # only once verified, so a crash never leaves a truncated file that looks good.
 umask 077
-$C exec -T db pg_dump -U digivault -Fc --no-owner digivault > "$PARTIAL"
+$C exec -T db pg_dump -U stacksmonitor -Fc --no-owner stacksmonitor > "$PARTIAL"
 
 # pg_restore --list reads the archive's table of contents end to end; a
 # truncated or corrupt dump fails here instead of on the day it is needed.
@@ -91,7 +91,7 @@ else
   echo "this server and will not survive losing it. See docs/runbooks/backups.md." >&2
 fi
 
-find "$BACKUP_DIR" -maxdepth 1 -name 'digivault-*.dump' -mtime "+$KEEP_LOCAL_DAYS" -delete
+find "$BACKUP_DIR" -maxdepth 1 -name 'stacksmonitor-*.dump' -mtime "+$KEEP_LOCAL_DAYS" -delete
 
 # Only a backup that reached off-server storage counts as a success worth
 # reporting; a local-only run deliberately does not ping, so the external check

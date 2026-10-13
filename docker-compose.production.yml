@@ -7,11 +7,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: digivault
-      POSTGRES_USER: digivault
+      POSTGRES_DB: stacksmonitor
+      POSTGRES_USER: stacksmonitor
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U digivault"]
+      test: ["CMD-SHELL", "pg_isready -U stacksmonitor"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -210,7 +210,7 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: https://digivault.digilatics.co
+        NEXT_PUBLIC_API_URL: https://stacksmonitor.com
     restart: always
     expose:
       - "3000"
@@ -218,7 +218,7 @@ services:
       - .env.production
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=https://digivault.digilatics.co
+      - NEXT_PUBLIC_API_URL=https://stacksmonitor.com
 
   nginx:
     image: nginx:alpine
