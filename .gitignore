@@ -76,7 +76,7 @@ dump.rdb
 /security.pdf
 
 # Build artifacts
-extension.zip
+*.zip
 
 # Client data exports — never commit
 *clients-import*.csv

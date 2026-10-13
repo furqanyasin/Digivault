@@ -4,6 +4,11 @@
   if (window.__ssAutofillInit) return;
   window.__ssAutofillInit = true;
 
+  // The script runs in every frame (manifest all_frames) so a login form inside
+  // an iframe can be filled. Page-level work — the script ingest, the dashboard
+  // hand-over, the save bar — happens in the top frame only.
+  const IS_TOP = window.top === window;
+
   // ----------------------------------------------------------------
   // Shadow DOM host — one div in body, all UI lives inside its shadow
   // ----------------------------------------------------------------
@@ -13,7 +18,7 @@
   function getOrCreateShadowRoot() {
     if (shadowRoot) return shadowRoot;
     const host = document.createElement('div');
-    host.setAttribute('data-digivault-ui', '');
+    host.setAttribute('data-stacksmonitor-ui', '');
     Object.assign(host.style, {
       all: 'initial',
       position: 'fixed',
@@ -107,19 +112,61 @@
   // Field detection helpers
   // ----------------------------------------------------------------
 
+  // Every visible password field, with the username field before it when the
+  // page shows one. `username` is null on the second step of a username-first
+  // sign-in (Google, Microsoft, many hosting panels), where the page asks for
+  // the password alone.
   function findLoginPairs() {
     const pairs = [];
     document.querySelectorAll('input[type="password"]').forEach((pwField) => {
       if (!isVisible(pwField)) return;
-      const username = findUsernameField(pwField);
-      if (username) pairs.push({ username, password: pwField });
+      pairs.push({ username: findUsernameField(pwField), password: pwField });
     });
     return pairs;
   }
 
+  const USERNAME_HINT = /(user|email|e-mail|login|account|identifier|signin)/i;
+
+  // The first step of a username-first sign-in: a lone identifier field and no
+  // password field yet. Recognised by what the field declares itself to be,
+  // not by being the only input — a newsletter box is also a lone email field,
+  // which is why an icon there only ever fills on a click.
+  function findUsernameOnlyField() {
+    if (document.querySelector('input[type="password"]') &&
+        Array.from(document.querySelectorAll('input[type="password"]')).some(isVisible)) {
+      return null;
+    }
+    const inputs = Array.from(document.querySelectorAll(
+      'input[type="email"], input[type="text"], input:not([type])'
+    )).filter(isVisible);
+    return inputs.find((inp) => {
+      const ac = (inp.getAttribute('autocomplete') || '').toLowerCase();
+      if (ac.includes('username') || ac === 'email' || ac.includes('webauthn')) return true;
+      const hint = [inp.name, inp.id, inp.getAttribute('aria-label'), inp.placeholder]
+        .filter(Boolean).join(' ');
+      return USERNAME_HINT.test(hint);
+    }) || null;
+  }
+
+  // A field the user can actually see. Size alone is not enough: a page can
+  // park an input at opacity 0, or 1x1 px, or behind visibility:hidden, and
+  // collect whatever gets filled into it without the user ever seeing a form.
   function isVisible(el) {
     const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    if (rect.width < 8 || rect.height < 8) return false;
+    for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
+      const cs = getComputedStyle(node);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse') return false;
+      if (parseFloat(cs.opacity) < 0.1) return false;
+    }
+    return true;
+  }
+
+  // Never fill over plain http: anything on the wire or a network attacker can
+  // inject a form. localhost is exempt for development.
+  function fillAllowedHere() {
+    return location.protocol === 'https:' ||
+      location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   }
 
   function findUsernameField(pwField) {
@@ -143,6 +190,7 @@
   // ----------------------------------------------------------------
 
   function fillField(field, value) {
+    if (!fillAllowedHere() || !field.isConnected || !isVisible(field)) return;
     const nativeInputValue = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
       'value'
@@ -157,31 +205,63 @@
   // ----------------------------------------------------------------
 
   const injected = new WeakSet();
+  // anchor field -> { btn, reposition }. The button is position:fixed in our
+  // own shadow root, so it outlives the field it points at: an SPA sign-in
+  // (the dashboard's own among them) swaps the form out without a page load,
+  // and the icon used to stay floating where the field had been.
+  const icons = new Map();
   let activeDropdown = null;
   let handoffAttempted = false;
 
+  function removeIcon(anchor) {
+    const entry = icons.get(anchor);
+    if (!entry) return;
+    entry.btn.remove();
+    window.removeEventListener('scroll', entry.reposition);
+    window.removeEventListener('resize', entry.reposition);
+    if (activeDropdown && entry.btn === activeDropdown.__dvIcon) {
+      activeDropdown.remove();
+      activeDropdown = null;
+    }
+    icons.delete(anchor);
+    injected.delete(anchor);
+  }
+
+  // Drop icons whose field has left the page or been hidden; re-place the rest,
+  // since a layout change moves a field without any scroll or resize.
+  function pruneIcons() {
+    icons.forEach((entry, anchor) => {
+      if (!anchor.isConnected || !isVisible(anchor)) removeIcon(anchor);
+      else entry.reposition();
+    });
+  }
+
   function injectIcon(pair, credentials) {
-    if (injected.has(pair.username)) return;
-    injected.add(pair.username);
+    const anchor = pair.username || pair.password;
+    if (!anchor || injected.has(anchor)) return;
+    // The credential lookup is async; the field may be gone by its answer.
+    if (!anchor.isConnected || !isVisible(anchor)) return;
+    injected.add(anchor);
 
     const root = getOrCreateShadowRoot();
 
     const iconBtn = document.createElement('button');
     iconBtn.className = 'ss-icon-btn';
-    iconBtn.setAttribute('aria-label', 'Fill with Digivault');
-    iconBtn.setAttribute('title', 'Fill with Digivault');
+    iconBtn.setAttribute('aria-label', 'Fill with Stacks Monitor');
+    iconBtn.setAttribute('title', 'Fill with Stacks Monitor');
     iconBtn.innerHTML = `
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M7 1L2 3v4c0 2.76 2.17 5.34 5 6 2.83-.66 5-3.24 5-6V3L7 1z" fill="#22c55e"/>
       </svg>
     `;
 
-    positionIconBtn(iconBtn, pair.username);
+    positionIconBtn(iconBtn, anchor);
     root.appendChild(iconBtn);
 
-    const reposition = () => positionIconBtn(iconBtn, pair.username);
+    const reposition = () => positionIconBtn(iconBtn, anchor);
     window.addEventListener('scroll', reposition, { passive: true });
     window.addEventListener('resize', reposition, { passive: true });
+    icons.set(anchor, { btn: iconBtn, reposition });
 
     iconBtn.addEventListener('click', (e) => {
       e.preventDefault();
@@ -237,9 +317,16 @@
             { type: 'REVEAL_CREDENTIAL', credentialId: cred.id },
             (result) => {
               if (!result || result.error) return;
-              fillField(pair.username, result.username);
-              fillField(pair.password, result.password);
-              pair.username.focus();
+              if (pair.username) fillField(pair.username, result.username);
+              if (pair.password) {
+                fillField(pair.password, result.password);
+              } else {
+                // Username step of a two-step sign-in: remember the choice so
+                // the password step (same site, within two minutes) fills
+                // without a second pick. The user's click started this flow.
+                safeSendMessage({ type: 'SET_MULTISTEP', credentialId: cred.id }, () => {});
+              }
+              (pair.username || pair.password).focus();
             }
           );
         });
@@ -261,6 +348,7 @@
     });
 
     root.appendChild(dd);
+    dd.__dvIcon = iconBtn;
     activeDropdown = dd;
 
     dd.querySelector('.ss-cred-btn')?.focus();
@@ -293,8 +381,29 @@
   }
 
   function run() {
-    const pairs = findLoginPairs();
-    if (pairs.length === 0) return;
+    pruneIcons();
+    if (!fillAllowedHere()) return;
+    let pairs = findLoginPairs();
+    if (pairs.length === 0) {
+      const userField = findUsernameOnlyField();
+      if (!userField) return;
+      pairs = [{ username: userField, password: null }];
+    }
+
+    // Second step of a sign-in the user started with a click on step one.
+    const passwordSteps = pairs.filter((pr) => pr.password && !pr.password.value);
+    if (passwordSteps.length) {
+      safeSendMessage({ type: 'GET_MULTISTEP' }, (pending) => {
+        if (!pending || !pending.credentialId) return;
+        safeSendMessage({ type: 'CLEAR_MULTISTEP' }, () => {});
+        safeSendMessage({ type: 'REVEAL_CREDENTIAL', credentialId: pending.credentialId }, (result) => {
+          if (!result || result.error) return;
+          const pr = passwordSteps[0];
+          if (pr.username && !pr.username.value) fillField(pr.username, result.username);
+          fillField(pr.password, result.password);
+        });
+      });
+    }
 
     safeSendMessage(
       { type: 'GET_CREDENTIALS', domain: location.hostname },
@@ -302,22 +411,11 @@
         if (!response || response.error || !response.credentials?.length) return;
         const creds = response.credentials;
 
-        pairs.forEach((pair) => {
-          injectIcon(pair, creds);
-
-          // Single saved credential → auto-fill silently (like LastPass)
-          if (creds.length === 1 && !pair.__dvAutofilled) {
-            pair.__dvAutofilled = true;
-            safeSendMessage({ type: 'REVEAL_CREDENTIAL', credentialId: creds[0].id }, (result) => {
-              if (!result || result.error) return;
-              // Small delay so the page's own JS finishes initialising the fields
-              setTimeout(() => {
-                fillField(pair.username, result.username);
-                fillField(pair.password, result.password);
-              }, 350);
-            });
-          }
-        });
+        // Fill only on a click — the icon, the popup's Fill, or Open. A page
+        // with one matching login used to be filled silently on load, which
+        // hands the password to any script on that page (and to any form an
+        // injected script draws) without the user doing anything.
+        pairs.forEach((pair) => injectIcon(pair, creds));
       }
     );
   }
@@ -327,20 +425,23 @@
   // ----------------------------------------------------------------
 
   let debounceTimer = null;
+  let pruneFrame = 0;
   const observer = new MutationObserver(() => {
+    // Pruning is immediate (once per frame) so the icon goes with its field;
+    // the full detection pass stays debounced.
+    if (icons.size && !pruneFrame) {
+      pruneFrame = requestAnimationFrame(() => { pruneFrame = 0; pruneIcons(); });
+    }
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(run, 600);
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  run();
 
   // ----------------------------------------------------------------
   // Original ingest logic (preserved)
   // ----------------------------------------------------------------
 
-  const snippetEl = document.querySelector('script[data-site]');
+  const snippetEl = IS_TOP ? document.querySelector('script[data-site]') : null;
   if (snippetEl) {
     const siteId = snippetEl.getAttribute('data-site');
     const scripts = Array.from(document.querySelectorAll('script[src]')).map((t) => ({
@@ -354,7 +455,7 @@
     if (scripts.length) {
       const apiBase =
         (snippetEl.src || '').replace(/\/s\.js.*$/, '') ||
-        'https://digivault.digilatics.co';
+        'https://stacksmonitor.com';
       fetch(`${apiBase}/api/ingest/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -372,65 +473,125 @@
   // Credential capture — save prompt (LastPass-style)
   // ----------------------------------------------------------------
 
-  const PENDING_KEY = 'dv_pending_save';
-
   function escapeStr(s) {
     return String(s ?? '')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  // Attach submit listeners to any form containing a login pair
+  // Save capture. A login is "submitted" by a form submit, an Enter in the
+  // password field, or a click on a button while a password is typed — most
+  // modern sign-ins (Google's among them) never fire a submit event at all.
+  // Top frame only: a save bar drawn inside a small login iframe is unreadable.
+  const armed = new WeakMap(); // password field -> value already captured
+
+  function captureFrom(passwordField) {
+    const p = passwordField.value;
+    if (!p || armed.get(passwordField) === p) return;
+    armed.set(passwordField, p);
+    const userField = findUsernameField(passwordField);
+    const typed = userField ? userField.value.trim() : '';
+
+    const finish = (username) => {
+      if (!username) return;
+      // Only for a login that is new to the vault or whose password changed:
+      // the prompt used to come back on every sign-in to a site already saved.
+      safeSendMessage(
+        { type: 'CHECK_SAVE', domain: location.hostname, username, password: p },
+        (check) => { if (check && check.prompt) offer(username, check.mode); }
+      );
+    };
+
+    const offer = (username, mode) => {
+      const pendingData = {
+        domain: location.hostname,
+        username,
+        password: p,
+        loginUrl: location.href,
+        ts: Date.now(),
+        mode: mode === 'update' ? 'update' : 'save',
+      };
+      // Store for display on the next page (regular navigation). Through the
+      // background: content scripts cannot reach chrome.storage.session.
+      safeSendMessage({ type: 'SET_PENDING_SAVE', pending: pendingData }, () => {});
+
+      // SPA: poll until the password field leaves the DOM / becomes hidden.
+      // When it does, the SPA completed login — show the bar immediately.
+      let ticks = 0;
+      const poll = setInterval(() => {
+        ticks++;
+        if (ticks > 12) { clearInterval(poll); return; } // give up after ~6 s
+        if (!passwordField.isConnected || !isVisible(passwordField)) {
+          clearInterval(poll);
+          showSaveBar(pendingData);
+        }
+      }, 500);
+    };
+
+    // A password-only step has no username on the page; use the one typed on
+    // the previous step of this sign-in, if the background kept it.
+    if (typed) finish(typed);
+    else safeSendMessage({ type: 'GET_LOGIN_USERNAME' }, (u) => finish(u || ''));
+  }
+
   function attachSaveCapture() {
-    const pairs = findLoginPairs();
-    if (!pairs.length) return;
+    if (!IS_TOP) return;
+    // Remember what was typed into a username-only first step.
+    const userOnly = findUsernameOnlyField();
+    if (userOnly && !userOnly.__dvRemember) {
+      userOnly.__dvRemember = true;
+      userOnly.addEventListener('change', () => {
+        const u = userOnly.value.trim();
+        if (u) safeSendMessage({ type: 'SET_LOGIN_USERNAME', username: u }, () => {});
+      });
+    }
+    findLoginPairs().forEach(({ password }) => {
+      if (password.__dvCapture) return;
+      password.__dvCapture = true;
+      const form = password.closest('form');
+      if (form) form.addEventListener('submit', () => captureFrom(password));
+      password.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') captureFrom(password);
+      });
+    });
+  }
 
-    pairs.forEach(({ username, password }) => {
-      const form = username.closest('form') || password.closest('form');
-      if (!form || form.__dvCapture) return;
-      form.__dvCapture = true;
+  // A click is a sign-in only when the button belongs to the password's own
+  // form (or, for a form-less login, sits right beside it). Counting any click
+  // on the page turned every button in an app that merely *shows* a password
+  // field — Stacks Monitor's own edit dialog among them — into a save prompt.
+  function sameLoginArea(button, passwordField) {
+    const form = passwordField.closest('form');
+    if (form) return form.contains(button) || button.form === form;
+    let node = passwordField.parentElement;
+    for (let i = 0; i < 6 && node; i++, node = node.parentElement) {
+      if (node.contains(button)) return true;
+    }
+    return false;
+  }
 
-      form.addEventListener('submit', () => {
-        const u = username.value.trim();
-        const p = password.value;
-        if (!u || !p) return;
-
-        const pendingData = {
-          domain: location.hostname,
-          username: u,
-          password: p,
-          loginUrl: location.href,
-          ts: Date.now(),
-        };
-
-        // Store for display on the next page (regular navigation)
-        chrome.storage.session.set({ [PENDING_KEY]: pendingData });
-
-        // SPA fix: poll until the password field leaves the DOM / becomes hidden.
-        // When it does, the SPA completed login — show the bar immediately.
-        let ticks = 0;
-        const poll = setInterval(() => {
-          ticks++;
-          if (ticks > 12) { clearInterval(poll); return; } // give up after ~6 s
-          if (!isVisible(password)) {
-            clearInterval(poll);
-            showSaveBar(pendingData);
-          }
-        }, 500);
-      }, { once: true });
+  function onPossibleSubmitClick(e) {
+    const target = e.target instanceof Element ? e.target : null;
+    const button = target && target.closest('button, [role="button"], input[type="submit"], input[type="button"]');
+    if (!button) return;
+    findLoginPairs().forEach(({ password }) => {
+      if (password.value && sameLoginArea(button, password)) captureFrom(password);
     });
   }
 
   // On every page load, check if a pending save came from a previous login submit
+  function clearPendingSave() {
+    safeSendMessage({ type: 'CLEAR_PENDING_SAVE' }, () => {});
+  }
+
   function checkPendingSave() {
-    chrome.storage.session.get(PENDING_KEY, (data) => {
-      if (chrome.runtime.lastError) return;
-      const pending = data[PENDING_KEY];
+    if (!IS_TOP) return;
+    safeSendMessage({ type: 'GET_PENDING_SAVE' }, (pending) => {
       if (!pending) return;
 
       // Expire after 90 seconds
       if (Date.now() - pending.ts > 90_000) {
-        chrome.storage.session.remove(PENDING_KEY);
+        clearPendingSave();
         return;
       }
 
@@ -455,11 +616,12 @@
         <path d="M7 1L2 3v4c0 2.76 2.17 5.34 5 6 2.83-.66 5-3.24 5-6V3L7 1z" fill="#22c55e"/>
       </svg>
       <div class="dv-save-text">
-        <div>Save login for <span class="dv-save-domain">${escapeStr(pending.domain)}</span> to Digivault?</div>
+        <div>${pending.mode === 'update' ? 'Update the password for' : 'Save login for'} <span class="dv-save-domain">${escapeStr(pending.domain)}</span> ${pending.mode === 'update' ? 'in' : 'to'} Stacks Monitor?</div>
         <div class="dv-save-user">${escapeStr(pending.username)}</div>
       </div>
-      <button class="dv-save-btn dv-save-btn-primary" id="dv-save-yes">Save</button>
+      <button class="dv-save-btn dv-save-btn-primary" id="dv-save-yes">${pending.mode === 'update' ? 'Update' : 'Save'}</button>
       <button class="dv-save-btn dv-save-btn-ghost" id="dv-save-no">Not now</button>
+      <button class="dv-save-btn dv-save-btn-ghost" id="dv-save-never">Never for this site</button>
     `;
     root.appendChild(bar);
 
@@ -468,10 +630,18 @@
     function dismiss() {
       clearTimeout(autoTimer);
       bar.remove();
-      chrome.storage.session.remove(PENDING_KEY);
+      clearPendingSave();
     }
 
-    bar.querySelector('#dv-save-no').addEventListener('click', dismiss);
+    // "Not now" quiets this login for a while; "Never" quiets the site for good.
+    bar.querySelector('#dv-save-no').addEventListener('click', () => {
+      safeSendMessage({ type: 'DISMISS_SAVE', domain: pending.domain, username: pending.username }, () => {});
+      dismiss();
+    });
+    bar.querySelector('#dv-save-never').addEventListener('click', () => {
+      safeSendMessage({ type: 'NEVER_SAVE', domain: pending.domain }, () => {});
+      dismiss();
+    });
 
     bar.querySelector('#dv-save-yes').addEventListener('click', () => {
       const saveBtn = bar.querySelector('#dv-save-yes');
@@ -481,24 +651,26 @@
 
       safeSendMessage({ type: 'SAVE_CREDENTIAL', ...pending }, (result) => {
         if (!result || result.error) {
-          const msg = result?.detail || 'Could not save — is this domain registered in Digivault?';
+          const msg = result?.detail || 'Could not save this login to Stacks Monitor.';
           bar.querySelector('.dv-save-text').innerHTML =
             `<div class="dv-error">${escapeStr(msg)}</div>`;
           saveBtn.remove();
+          bar.querySelector('#dv-save-never')?.remove();
           bar.querySelector('#dv-save-no').textContent = 'Dismiss';
-          chrome.storage.session.remove(PENDING_KEY);
+          clearPendingSave();
           autoTimer = setTimeout(dismiss, 5_000);
           return;
         }
 
         const verb = result.action === 'updated' ? 'Updated' : 'Saved';
         bar.querySelector('.dv-save-text').innerHTML = `
-          <div>✅ ${verb} to Digivault!</div>
+          <div>✅ ${verb} to Stacks Monitor!</div>
           <div class="dv-save-user">${escapeStr(pending.username)} · ${escapeStr(pending.domain)}</div>
         `;
         saveBtn.remove();
+        bar.querySelector('#dv-save-never')?.remove();
         bar.querySelector('#dv-save-no').textContent = 'Dismiss';
-        chrome.storage.session.remove(PENDING_KEY);
+        clearPendingSave();
         autoTimer = setTimeout(dismiss, 3_000);
       });
     });
@@ -510,20 +682,39 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.type !== 'AUTOFILL') return;
+    if (!fillAllowedHere()) { sendResponse({ error: 'insecure_page' }); return; }
     const pairs = findLoginPairs();
-    if (!pairs.length) { sendResponse({ error: 'no_form' }); return; }
-    fillField(pairs[0].username, msg.username);
+    if (!pairs.length) {
+      // Username step of a two-step sign-in: fill what is there.
+      const userOnly = findUsernameOnlyField();
+      if (!userOnly) { sendResponse({ error: 'no_form' }); return; }
+      fillField(userOnly, msg.username);
+      sendResponse({ ok: true });
+      return;
+    }
+    if (pairs[0].username) fillField(pairs[0].username, msg.username);
     fillField(pairs[0].password, msg.password);
     sendResponse({ ok: true });
   });
 
   // Re-attach capture on DOM changes (SPA login forms that appear dynamically)
   const captureObserver = new MutationObserver(() => attachSaveCapture());
-  captureObserver.observe(document.body, { childList: true, subtree: true });
 
-  attachSaveCapture();
-  checkPendingSave();
-  checkPendingAutofill();
+  // Nothing — no fill icons, no save prompt — on Stacks Monitor itself. Its own
+  // pages show password fields (the vault's edit dialog), and treating them as
+  // a website login put a shield in the dialog's username box and offered to
+  // "save" the credential being edited on every click.
+  function startAutofill() {
+    observer.observe(document.body, { childList: true, subtree: true });
+    run();
+    captureObserver.observe(document.body, { childList: true, subtree: true });
+    if (IS_TOP) document.addEventListener('click', onPossibleSubmitClick, true);
+    attachSaveCapture();
+    checkPendingSave();
+    checkPendingAutofill();
+  }
+
+  isOwnOrigin().then((onOwnOrigin) => { if (!onOwnOrigin) startAutofill(); });
 
   // ----------------------------------------------------------------
   // Pending autofill — when the user clicks "Open" in the popup, the
@@ -552,7 +743,7 @@
             { type: 'REVEAL_CREDENTIAL', credentialId: pending.credentialId },
             (creds) => {
               if (creds && !creds.error) {
-                fillField(pairs[0].username, creds.username);
+                if (pairs[0].username) fillField(pairs[0].username, creds.username);
                 fillField(pairs[0].password, creds.password);
               }
             }
@@ -570,30 +761,67 @@
   // Web → Extension SSO: pick up tokens posted by the login page
   // ----------------------------------------------------------------
 
-  window.addEventListener('message', (e) => {
-    if (e.origin !== window.location.origin) return;
-    if (e.data?.type === 'DIGIVAULT_EXTENSION_AUTH') {
+  // Listened for on the dashboard only. `e.origin === location.origin` is true
+  // for every page's messages to itself, so the old check let any website post
+  // its own tokens and sign the extension into an attacker's account. The
+  // background re-checks the sender's URL as well.
+  async function isOwnOrigin() {
+    const { serverUrl } = await new Promise((resolve) =>
+      chrome.storage.sync.get('serverUrl', resolve)
+    );
+    try {
+      return location.origin === new URL((serverUrl || 'https://stacksmonitor.com').replace(/\/$/, '')).origin;
+    } catch {
+      return false;
+    }
+  }
+
+  async function isDashboardPage() {
+    const { serverUrl } = await new Promise((resolve) =>
+      chrome.storage.sync.get('serverUrl', resolve)
+    );
+    try {
+      const origin = new URL((serverUrl || 'https://stacksmonitor.com').replace(/\/$/, '')).origin;
+      return window.top === window && location.origin === origin;
+    } catch {
+      return false;
+    }
+  }
+
+  isDashboardPage().then((onDashboard) => {
+    if (!onDashboard) return;
+    window.addEventListener('message', onDashboardMessage);
+    // The dashboard posts its session once on load, and that can land before
+    // this listener exists (the origin check above is async). Saying we are
+    // ready makes it post again, so signing in to the web app reliably signs
+    // in the extension too.
+    window.postMessage({ type: 'STACKSMONITOR_EXTENSION_READY' }, window.location.origin);
+  });
+
+  function onDashboardMessage(e) {
+    if (e.source !== window || e.origin !== window.location.origin) return;
+    if (e.data?.type === 'STACKSMONITOR_EXTENSION_AUTH') {
       const { access, refresh, email } = e.data;
       if (!access || !refresh) return;
       safeSendMessage({ type: 'WEB_AUTH_SYNC', access, refresh, email: email || '' }, () => {});
-    } else if (e.data?.type === 'DIGIVAULT_EXTENSION_LOGOUT') {
+    } else if (e.data?.type === 'STACKSMONITOR_EXTENSION_LOGOUT') {
       // Portal signed out → clear the extension's stored session too.
       safeSendMessage({ type: 'WEB_AUTH_LOGOUT' }, () => {});
     }
-  });
+  }
 
   // ----------------------------------------------------------------
-  // Extension auto-login on the Digivault web app login page
+  // Extension auto-login on the Stacks Monitor web app login page
   // ----------------------------------------------------------------
 
   (async function maybeHandoff() {
-    if (handoffAttempted) return;
+    if (handoffAttempted || !IS_TOP) return;
 
     const { serverUrl } = await new Promise((resolve) =>
       chrome.storage.sync.get("serverUrl", resolve)
     );
     const scdbHost = new URL(
-      (serverUrl || "https://digivault.digilatics.co").replace(/\/$/, "")
+      (serverUrl || "https://stacksmonitor.com").replace(/\/$/, "")
     ).hostname;
 
     if (
