@@ -297,7 +297,7 @@ def passive_scan_website(website_pk: str) -> None:
             for src in script_urls
         ],
         "forms": forms,
-        "user_agent": "Digivault-Scanner/1.0",
+        "user_agent": "StacksMonitor-Scanner/1.0",
         "snippet_version": ScriptSnapshot.SERVER_SCAN_VERSION,
     })
     logger.info(

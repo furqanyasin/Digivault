@@ -136,7 +136,7 @@ def _vendor_fix(vendor: str, ips: list[str], ip_text: str, domains: list[str]) -
         return {
             "how": "Add this rule once per Cloudflare account (Security → WAF → Custom rules → Create rule), Action: Skip → all remaining custom rules + Bot Fight Mode. It covers every site in the account.",
             "copy_label": "Copy WAF expression",
-            "text": f'(http.user_agent contains "Digivault-Monitor"){ip_rule}',
+            "text": f'(http.user_agent contains "{outbound.ALLOWLIST_TOKEN}"){ip_rule}',
         }
     if vendor == "Wordfence":
         return {
@@ -656,14 +656,14 @@ class MonitoringInfoView(APIView):
             "allowlist": {
                 "cloudflare": (
                     "Security → WAF → Custom rules → Create rule.\n"
-                    f'Expression:  (http.user_agent contains "Digivault-Monitor")'
+                    f'Expression:  (http.user_agent contains "{outbound.ALLOWLIST_TOKEN}")'
                     f'{" or (ip.src in {" + " ".join(ips) + "})" if ips else ""}\n'
                     "Action: Skip → All remaining custom rules, plus Bot Fight Mode."
                 ),
                 "wordfence": (
                     "Wordfence → Firewall → Blocking → Whitelisted IP addresses.\n"
                     f"Add: {ip_list}\n"
-                    "Also add 'Digivault-Monitor' under Tools → Whitelisted URLs if "
+                    f"Also add '{outbound.ALLOWLIST_TOKEN}' under Tools → Whitelisted URLs if "
                     "rate limiting is set to block unknown crawlers."
                 ),
                 "siteground": (

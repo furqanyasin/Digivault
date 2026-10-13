@@ -43,9 +43,9 @@ def test_flush_signs_the_body_not_the_url(php):
 
 
 def test_flush_sends_the_three_auth_headers(php):
-    assert "X-Digivault-Site" in php
-    assert "X-Digivault-Timestamp" in php
-    assert "X-Digivault-Signature" in php
+    assert "X-StacksMonitor-Site" in php
+    assert "X-StacksMonitor-Timestamp" in php
+    assert "X-StacksMonitor-Signature" in php
 
 
 def test_flush_records_the_ack_timestamp(php):

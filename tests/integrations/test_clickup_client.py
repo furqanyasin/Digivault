@@ -63,9 +63,9 @@ def test_create_task_sends_assignees_and_tags_only_when_given():
     assert "assignees" not in session.last["json"]
     assert "tags" not in session.last["json"]
 
-    client.create_task("list-9", name="With extras", assignees=[7, 8], tags=["digivault"])
+    client.create_task("list-9", name="With extras", assignees=[7, 8], tags=["stacksmonitor"])
     assert session.last["json"]["assignees"] == [7, 8]
-    assert session.last["json"]["tags"] == ["digivault"]
+    assert session.last["json"]["tags"] == ["stacksmonitor"]
 
 
 def test_every_request_carries_the_token_as_the_authorization_header():

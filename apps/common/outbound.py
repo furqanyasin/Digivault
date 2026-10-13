@@ -54,20 +54,21 @@ logger = logging.getLogger(__name__)
 # matters: it gives a site owner staring at their firewall log something to look
 # up, and it is what a WAF vendor needs in order to allowlist us.
 #
-# The product token is "Digivault-Uptime", with "Digivault-Monitor" kept as a
-# second token. SiteGround's firewall blocks the exact form
-# "compatible; Digivault-Monitor/1.0" on every path (a 403 page, or its 202
-# bot challenge) while letting "compatible; Digivault-Uptime/1.0" through — so
-# every SiteGround-hosted client read "blocked". "Digivault-Monitor" stays in
-# the string because client Cloudflare rules allowlist `user_agent contains
-# "Digivault-Monitor"`, and dropping it would block those sites instead.
+# The product token is "StacksMonitor-Uptime", with ALLOWLIST_TOKEN kept as a
+# separate second token. SiteGround's firewall blocked the form
+# "compatible; <Name>-Monitor/1.0" on every path (a 403 page, or its 202 bot
+# challenge) while letting "compatible; <Name>-Uptime/1.0" through, so the
+# product token leads and the allowlist token never sits in that position.
+# ALLOWLIST_TOKEN is what client firewall rules match on (`user_agent contains
+# "StacksMonitor-Bot"`), so the instructions we hand out read it from here.
 # Still honest: it names us, names no browser, and links to /bot.
 #
 # MONITOR_USER_AGENT overrides it from the environment, so if a host starts
 # blocking this string too, it can be changed without a release.
+ALLOWLIST_TOKEN = "StacksMonitor-Bot"
 _DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (compatible; Digivault-Uptime/1.0; Digivault-Monitor; "
-    "+https://digivault.digilatics.co/bot)"
+    f"Mozilla/5.0 (compatible; StacksMonitor-Uptime/1.0; {ALLOWLIST_TOKEN}; "
+    f"+{settings.BOT_INFO_URL})"
 )
 USER_AGENT = getattr(settings, "MONITOR_USER_AGENT", "") or _DEFAULT_USER_AGENT
 

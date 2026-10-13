@@ -359,7 +359,7 @@ function apiError(json, fallback) {
 
 // Email + password, no authenticator code — the extension's own route. Most of
 // the time this is never used: signing in to the dashboard hands its session
-// to the extension (see the DIGIVAULT_EXTENSION_AUTH hand-over).
+// to the extension (see the STACKSMONITOR_EXTENSION_AUTH hand-over).
 async function handleLogin(email, password) {
   const apiBase = await getApiBase();
   try {

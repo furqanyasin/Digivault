@@ -637,7 +637,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         domain = website.domain
         if not domain.startswith(("http://", "https://")):
             domain = f"https://{domain}"
-        url = f"{domain.rstrip('/')}/wp-json/digivault/v1/sso?p={payload_b64}&s={sig}"
+        url = f"{domain.rstrip('/')}/wp-json/stacksmonitor/v1/sso?p={payload_b64}&s={sig}"
 
         AuditService.log_request(
             request, ActivityLog.Action.WEBSITE_WP_LOGIN,
@@ -915,7 +915,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "page_url": final_url,
             "scripts": scripts,
             "forms": forms,
-            "user_agent": "Digivault-Scanner/1.0",
+            "user_agent": "StacksMonitor-Scanner/1.0",
             "snippet_version": ScriptSnapshot.SERVER_SCAN_VERSION,
         }
         process_ingest_payload.delay(website.site_id, payload)

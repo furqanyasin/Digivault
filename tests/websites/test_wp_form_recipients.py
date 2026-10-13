@@ -71,7 +71,7 @@ def _Resp(status_code=200, payload=None, text=""):
 class TestSignedUrl:
     def test_signature_verifies_against_the_shared_secret(self, website):
         url = build_signed_url(website)
-        assert url.startswith("https://wpforms.test/wp-json/digivault/v1/forms?p=")
+        assert url.startswith("https://wpforms.test/wp-json/stacksmonitor/v1/forms?p=")
 
         query = url.split("?", 1)[1]
         params = dict(p.split("=", 1) for p in query.split("&"))

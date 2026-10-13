@@ -34,9 +34,9 @@ def post(client, website, payload, site_header=None):
         "/api/wp-activity/",
         data=body,
         content_type="application/json",
-        HTTP_X_DIGIVAULT_SITE=site_header or website.site_id,
-        HTTP_X_DIGIVAULT_TIMESTAMP=ts,
-        HTTP_X_DIGIVAULT_SIGNATURE=sig,
+        HTTP_X_STACKSMONITOR_SITE=site_header or website.site_id,
+        HTTP_X_STACKSMONITOR_TIMESTAMP=ts,
+        HTTP_X_STACKSMONITOR_SIGNATURE=sig,
     )
 
 
@@ -58,10 +58,10 @@ def test_throttle_is_keyed_on_the_site_header_not_the_ip(website):
     from its own server, but they can share a host, a CDN egress or a NAT."""
     throttle = WpActivityThrottle()
     key_one = throttle.get_cache_key(
-        _drf_request(HTTP_X_DIGIVAULT_SITE="site-one"), WpActivityIngestView()
+        _drf_request(HTTP_X_STACKSMONITOR_SITE="site-one"), WpActivityIngestView()
     )
     key_two = throttle.get_cache_key(
-        _drf_request(HTTP_X_DIGIVAULT_SITE="site-two"), WpActivityIngestView()
+        _drf_request(HTTP_X_STACKSMONITOR_SITE="site-two"), WpActivityIngestView()
     )
     assert key_one != key_two
     assert "site-one" in key_one

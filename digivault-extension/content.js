@@ -18,7 +18,7 @@
   function getOrCreateShadowRoot() {
     if (shadowRoot) return shadowRoot;
     const host = document.createElement('div');
-    host.setAttribute('data-digivault-ui', '');
+    host.setAttribute('data-stacksmonitor-ui', '');
     Object.assign(host.style, {
       all: 'initial',
       position: 'fixed',
@@ -795,16 +795,16 @@
     // this listener exists (the origin check above is async). Saying we are
     // ready makes it post again, so signing in to the web app reliably signs
     // in the extension too.
-    window.postMessage({ type: 'DIGIVAULT_EXTENSION_READY' }, window.location.origin);
+    window.postMessage({ type: 'STACKSMONITOR_EXTENSION_READY' }, window.location.origin);
   });
 
   function onDashboardMessage(e) {
     if (e.source !== window || e.origin !== window.location.origin) return;
-    if (e.data?.type === 'DIGIVAULT_EXTENSION_AUTH') {
+    if (e.data?.type === 'STACKSMONITOR_EXTENSION_AUTH') {
       const { access, refresh, email } = e.data;
       if (!access || !refresh) return;
       safeSendMessage({ type: 'WEB_AUTH_SYNC', access, refresh, email: email || '' }, () => {});
-    } else if (e.data?.type === 'DIGIVAULT_EXTENSION_LOGOUT') {
+    } else if (e.data?.type === 'STACKSMONITOR_EXTENSION_LOGOUT') {
       // Portal signed out → clear the extension's stored session too.
       safeSendMessage({ type: 'WEB_AUTH_LOGOUT' }, () => {});
     }

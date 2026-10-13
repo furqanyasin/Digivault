@@ -6,7 +6,7 @@ the form post's JSON, Gravity Forms in its notification config. None of it is
 rendered into the page, so the tracking snippet cannot see it and the Forms tab's
 "Goes to" column stays empty on exactly the sites the agency cares about.
 
-This module asks the site instead, over the signature-gated `digivault/v1/forms`
+This module asks the site instead, over the signature-gated `stacksmonitor/v1/forms`
 route that ships in the WP Connect PHP snippet (`wp_sso_snippet.py`), and joins
 the answer onto the `DetectedForm` rows the snippet already created.
 """
@@ -44,7 +44,7 @@ def site_base_url(website) -> str:
 
 
 def build_signed_url(website, path: str = "forms") -> str:
-    """A signed, expiring URL for one of the snippet's `digivault/v1` routes.
+    """A signed, expiring URL for one of the snippet's `stacksmonitor/v1` routes.
 
     Mirrors the scheme `WebsiteViewSet.wp_login` uses, and the snippet's
     `dvc_verify_token` checks: HMAC-SHA256 over the base64 payload, using the
@@ -59,7 +59,7 @@ def build_signed_url(website, path: str = "forms") -> str:
     sig = hmac.new(
         website.wp_sso_secret.encode(), payload_b64.encode(), hashlib.sha256
     ).hexdigest()
-    return f"{site_base_url(website)}/wp-json/digivault/v1/{path}?p={payload_b64}&s={sig}"
+    return f"{site_base_url(website)}/wp-json/stacksmonitor/v1/{path}?p={payload_b64}&s={sig}"
 
 
 def fetch_recipients(website) -> list[dict]:

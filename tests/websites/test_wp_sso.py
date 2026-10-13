@@ -78,7 +78,7 @@ class TestSecretRotation:
         # The response includes a ready-to-paste PHP snippet with the secret in it.
         assert "register_rest_route" in resp.data["snippet"]
         assert resp.data["secret"] in resp.data["snippet"]
-        assert "digivault/v1" in resp.data["snippet"]
+        assert "stacksmonitor/v1" in resp.data["snippet"]
 
     def test_developer_cannot_rotate(self, developer, team, website):
         resp = _client(developer, team).post(f"/api/v1/websites/{website.id}/wp-sso-secret/")
@@ -119,7 +119,7 @@ class TestLoginUrl:
         resp = _client(owner, team).post(f"/api/v1/websites/{website.id}/wp-login/")
         assert resp.status_code == 200, resp.data
         assert resp.data["wp_role"] == "administrator"
-        assert resp.data["url"].startswith("https://sso.io/wp-json/digivault/v1/sso?p=")
+        assert resp.data["url"].startswith("https://sso.io/wp-json/stacksmonitor/v1/sso?p=")
 
         payload = _decode_url(resp.data["url"], "topsecret")
         assert payload["email"] == "sso_owner@test.com"

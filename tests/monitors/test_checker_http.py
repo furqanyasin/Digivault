@@ -199,7 +199,7 @@ def test_requests_carry_the_platform_identity():
         check_http(URL)
 
     assert calls[0].get_header("User-agent") == outbound.USER_AGENT
-    assert "Digivault-Monitor" in calls[0].get_header("User-agent")
+    assert "StacksMonitor-Bot" in calls[0].get_header("User-agent")
 
 
 # --- expected_status honoured for non-2xx ---------------------------------

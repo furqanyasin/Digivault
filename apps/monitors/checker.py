@@ -56,7 +56,7 @@ _VENDOR_FIX = {
     ),
     "Cloudflare": (
         "In Cloudflare, allowlist our monitor with a WAF custom rule that skips "
-        "bot protection for user-agent \"Digivault-Monitor\""
+        f"bot protection for user-agent \"{outbound.ALLOWLIST_TOKEN}\""
     ),
     "Wordfence": "In Wordfence → Firewall → Blocking, allowlist our monitor's IP",
     "Sucuri": "In the Sucuri dashboard → Access Control, allowlist our monitor's IP",

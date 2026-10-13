@@ -122,10 +122,10 @@ def test_summary_gives_one_ticket_for_every_siteground_site(owner, team):
     ticket = sg["fix"]["text"]
     assert "203.0.113.7" in ticket
     assert "- 3wavecleaning.com" in ticket and "- acme.io" in ticket
-    assert "Digivault-Monitor" in ticket
+    assert "StacksMonitor-Bot" in ticket
 
     cf = groups["Cloudflare"]["fix"]["text"]
-    assert 'http.user_agent contains "Digivault-Monitor"' in cf and "203.0.113.7" in cf
+    assert 'http.user_agent contains "StacksMonitor-Bot"' in cf and "203.0.113.7" in cf
 
 
 @pytest.mark.django_db

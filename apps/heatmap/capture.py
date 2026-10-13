@@ -16,7 +16,7 @@ pulls every image, font and script on the page. So this module:
 * takes a token from the **same** per-host bucket as the monitor and the SEO
   checker, so a capture sweep cannot eat the monitoring budget,
 * honours the same cooldowns — a host that just 429'd is not screenshotted,
-* sets the **Digivault-Monitor user-agent**, not Chrome's. The TLS fingerprint
+* sets **our monitor's user-agent**, not Chrome's. The TLS fingerprint
   really is Chrome's here (it *is* Chrome), which is exactly why the UA must
   stay honest: we want to be allowlistable, not to look like a scraper,
 * re-applies the SSRF guard to the URL before navigating.

@@ -8,12 +8,14 @@ invalidates every previously issued login link.
 The snippet validates the HMAC-signed, single-use, short-lived token minted by
 `WebsiteViewSet.wp_login` and logs the role-mapped user into wp-admin.
 
-It also answers `digivault/v1/forms` — likewise signature-gated — with where each
+It also answers `stacksmonitor/v1/forms` — likewise signature-gated — with where each
 form plugin is configured to send submissions. That address lives in the database
 (Elementor's `_elementor_data`, CF7's `_mail`, and so on) and never reaches the
 page, so it is invisible to the tracking snippet; this route is the only way the
 Forms tab can show it.
 """
+
+from django.conf import settings
 
 # The version stamped into the template and reported by every activity flush.
 # Single source of truth: the rollout badge compares a site's reported version
@@ -54,7 +56,7 @@ define( 'DVC2_DEAD_DAYS',   7 );
 if ( ! function_exists( 'dvc2_table' ) ) {
 	function dvc2_table() {
 		global $wpdb;
-		return $wpdb->prefix . 'digivault_events';
+		return $wpdb->prefix . 'stacksmonitor_events';
 	}
 }
 
@@ -184,12 +186,12 @@ if ( ! function_exists( 'dvc2_record' ) ) {
 }
 
 add_action( 'rest_api_init', function () {
-	register_rest_route( 'digivault/v1', '/sso', array(
+	register_rest_route( 'stacksmonitor/v1', '/sso', array(
 		'methods'             => 'GET',
 		'permission_callback' => '__return_true',
 		'callback'            => 'dvc2_handle_sso',
 	) );
-	register_rest_route( 'digivault/v1', '/forms', array(
+	register_rest_route( 'stacksmonitor/v1', '/forms', array(
 		'methods'             => 'GET',
 		'permission_callback' => '__return_true',
 		'callback'            => 'dvc2_handle_forms',
@@ -650,9 +652,9 @@ if ( ! function_exists( 'dvc2_flush' ) ) {
 				'blocking' => true,
 				'headers'  => array(
 					'Content-Type'          => 'application/json',
-					'X-Digivault-Site'      => DVC2_SITE_ID,
-					'X-Digivault-Timestamp' => $ts,
-					'X-Digivault-Signature' => $sig,
+					'X-StacksMonitor-Site'      => DVC2_SITE_ID,
+					'X-StacksMonitor-Timestamp' => $ts,
+					'X-StacksMonitor-Signature' => $sig,
 				),
 				'body'     => $body,
 			) );
@@ -704,7 +706,7 @@ if ( ! function_exists( 'dvc2_heartbeat' ) ) {
 				'timeout'     => 10,
 				'redirection' => 3,
 				'sslverify'   => apply_filters( 'https_local_ssl_verify', false ),
-				'user-agent'  => 'Digivault-Heartbeat/1.0 (self-check; +https://digivault.digilatics.co/bot)',
+				'user-agent'  => 'StacksMonitor-Heartbeat/1.0 (self-check; +__DVC_BOT_URL__)',
 			) );
 			if ( ! is_wp_error( $response ) ) {
 				$status = (int) wp_remote_retrieve_response_code( $response );
@@ -976,4 +978,5 @@ def build_wp_sso_snippet(secret: str, site_id: str = "", ingest_url: str = "") -
         .replace("__DVC_SECRET__", secret)
         .replace("__DVC_SITE_ID__", site_id)
         .replace("__DVC_INGEST_URL__", ingest_url)
+        .replace("__DVC_BOT_URL__", settings.BOT_INFO_URL)
     )

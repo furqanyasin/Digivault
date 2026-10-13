@@ -22,20 +22,20 @@ def test_user_agent_is_honest_and_points_at_the_allowlist_page():
     # The Mozilla/5.0 (compatible; ...) prefix satisfies naive UA sniffers.
     assert ua.startswith("Mozilla/5.0 (compatible;")
     # It must name us, not a browser, and carry a URL a site owner can look up.
-    assert "Digivault-Monitor" in ua
+    assert outbound.ALLOWLIST_TOKEN in ua
     assert "+https://" in ua
     for browser in ("Chrome/", "Firefox/", "Safari/"):
         assert browser not in ua
 
 
 def test_user_agent_avoids_the_form_siteground_blocks():
-    """SiteGround's firewall blocks "compatible; Digivault-Monitor/1.0" on every
-    path and lets "compatible; Digivault-Uptime/1.0" through. The Monitor token
+    """SiteGround's firewall blocked "compatible; <Name>-Monitor/1.0" on every
+    path and let "compatible; <Name>-Uptime/1.0" through. The allowlist token
     must stay somewhere, for client Cloudflare rules that match on it."""
     ua = outbound.USER_AGENT
-    assert "compatible; Digivault-Monitor" not in ua
-    assert "compatible; Digivault-Uptime/" in ua
-    assert "Digivault-Monitor" in ua
+    assert f"compatible; {outbound.ALLOWLIST_TOKEN}" not in ua
+    assert "compatible; StacksMonitor-Uptime/" in ua
+    assert outbound.ALLOWLIST_TOKEN in ua
 
 
 def test_default_headers_include_accept():

@@ -160,7 +160,7 @@ def _fetch_latest_wp_version() -> str | None:
     try:
         req = urllib.request.Request(
             "https://api.wordpress.org/core/version-check/1.7/",
-            headers={"User-Agent": "Digivault/1.0"},
+            headers={"User-Agent": "StacksMonitor/1.0"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
