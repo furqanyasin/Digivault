@@ -1,4 +1,4 @@
-# Digivault Future Features Roadmap
+# Stacks Monitor Future Features Roadmap
 
 > Features planned after Internal Launch v1.0.
 >
@@ -384,7 +384,7 @@ Analyze outages automatically.
 
 ## Public API
 
-Expose Digivault functionality through APIs.
+Expose Stacks Monitor functionality through APIs.
 
 ### Modules
 
@@ -464,7 +464,7 @@ Provide mobile access.
 
 # Long-Term Vision
 
-Digivault should evolve into a complete operational platform that combines:
+Stacks Monitor should evolve into a complete operational platform that combines:
 
 * Website Management
 * Security Intelligence

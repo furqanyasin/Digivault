@@ -1,6 +1,6 @@
-# Digivault — Feature Plan & Status
+# Stacks Monitor — Feature Plan & Status
 
-Status tracker for the Digivault WebOps platform. Audited against
+Status tracker for the Stacks Monitor WebOps platform. Audited against
 [master-feature-spec.md](master-feature-spec.md) plus the recent improvement
 tiers. Last updated 2026-06-17 (re-audited against the codebase; several items
 previously marked "not built" were already implemented — corrected below).
@@ -153,14 +153,14 @@ an overall status: **Built**, **Partial**, or **Not built**.
 ## Part 2 — Recent Improvement Tiers
 
 ### Tier 1 — Quick-Win Improvements (Deployed)
-Spec: `docs/superpowers/specs/2026-05-21-tier1-improvements-design.md`
+Spec: `docs/archive/superpowers/specs/2026-05-21-tier1-improvements-design.md`
 
 - [x] **Monitor retry logic + alert deduplication** — `consecutive_failures` / `is_alerting` fields, `retry_count` default 1 → 3, retry-before-alert, single recovery notification
 - [x] **Audit log metadata** — `ActivityLog.metadata` JSON, `AuditService.log()` metadata arg, recorded for role change / member removal / team rename / credential update, UI change-detail line
 - [x] **2FA manager disable UI** — `TeamMembershipSerializer.totp_enabled`, per-member disable button
 
 ### Tier 2 — Proactive Health & Alerts (Deployed, commit `1f00c30`)
-Spec: `docs/superpowers/specs/2026-05-21-tier2-improvements-design.md`
+Spec: `docs/archive/superpowers/specs/2026-05-21-tier2-improvements-design.md`
 
 - [x] **Website health score (0-100)** — `health_score` field, `recalculate_health_score()`, triggers on acknowledge / domain check / security scan, API + frontend
 - [x] **Dashboard action center** — `expiring-domains` / `expiring-ssl` endpoints, "Needs Attention" section (reworked in Tier 3)
@@ -183,5 +183,5 @@ Spec: `docs/superpowers/specs/2026-05-21-tier2-improvements-design.md`
 
 Not tier features — surfaced during the work above.
 
-- [ ] **Health score vs UI "pending" mismatch** — the score counts a DB-level unacknowledged change the website detail page hides as auto-acknowledged "noise" (digilaticsvps shows `97` while the UI says "0 pending"). Align the two definitions.
+- [ ] **Health score vs UI "pending" mismatch** — the score counts a DB-level unacknowledged change the website detail page hides as auto-acknowledged "noise" (one internal site showed `97` while the UI says "0 pending"). Align the two definitions.
 - [ ] **~19 pre-existing test failures** — old tests use the wrong `resp.data["data"]` envelope pattern; one WebSocket event-loop issue. Pre-date all tier work; not regressions.

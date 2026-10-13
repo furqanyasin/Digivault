@@ -1,12 +1,12 @@
-# Digivault — Software Requirements Specification (As-Built)
+# Stacks Monitor — Software Requirements Specification (As-Built)
 
 **Document type:** SRS / system description of the system as implemented
 **Version:** 1.0
 **Date:** 2026-08-02
-**Repository:** `d:\tools-working\Digivault` (branch `phase-0-hardening`)
-**Live deployment:** https://digivault.digilatics.co
+**Repository:** `d:\tools-working\Stacks Monitor` (branch `phase-0-hardening`)
+**Live deployment:** https://stacksmonitor.com
 
-> This document describes what the Digivault portal **actually does today**, derived
+> This document describes what the Stacks Monitor portal **actually does today**, derived
 > from the source tree rather than from a plan. Where the implementation diverges from
 > intent or from configuration, that divergence is recorded in
 > [§16 Known constraints, divergences and gaps](#16-known-constraints-divergences-and-gaps)
@@ -36,7 +36,7 @@
 > Chapters 17–28 (Site health, Status pages, Reports, Audit log, Chatbot,
 > Credential vault, Chrome extension, Frontend, Scheduled jobs, Retention,
 > Non-functional requirements, Deployment, Testing, API catalogue) continue in
-> [`digivault-srs-part2.md`](digivault-srs-part2.md).
+> [`srs-part2.md`](srs-part2.md).
 
 ---
 
@@ -44,7 +44,7 @@
 
 ### 1.1 Purpose
 
-Digivault is a multi-tenant SaaS platform through which a web agency monitors the
+Stacks Monitor is a multi-tenant SaaS platform through which a web agency monitors the
 websites it manages on behalf of its clients. Its founding concern is the
 **third-party JavaScript inventory** of a client site — what tags, pixels and
 trackers are present, when they change, and whether a change was authorised. Around
@@ -116,16 +116,16 @@ Source-of-truth files referenced throughout:
 
 ### 2.1 Product perspective
 
-Digivault sits **outside** the sites it watches and never has privileged access to
+Stacks Monitor sits **outside** the sites it watches and never has privileged access to
 them by default. It learns about a site through four independent channels, which are
 deliberately unequal in what they can see:
 
 | Channel | Direction | Sees scripts | Sees forms | Sees JS errors | Trigger |
 |---|---|---|---|---|---|
-| Passive snippet (`/api/s.js`) | Site → Digivault | Yes | Yes | Yes | Real browser page loads |
-| Server-side Scan | Digivault → site | Homepage only | No | No | User clicks "Scan" |
-| Chrome extension | Browser → Digivault | Yes | No | No | Page has a `script[data-site]` tag |
-| WordPress PHP snippet | Site → Digivault | — | — | — (PHP errors) | PHP error handler |
+| Passive snippet (`/api/s.js`) | Site → Stacks Monitor | Yes | Yes | Yes | Real browser page loads |
+| Server-side Scan | Stacks Monitor → site | Homepage only | No | No | User clicks "Scan" |
+| Chrome extension | Browser → Stacks Monitor | Yes | No | No | Page has a `script[data-site]` tag |
+| WordPress PHP snippet | Site → Stacks Monitor | — | — | — (PHP errors) | PHP error handler |
 
 Because collection is **traffic-driven**, a site with no visitors reports nothing.
 There is no crawler, so `robots.txt`, `noindex` and `nofollow` are irrelevant to
@@ -180,7 +180,7 @@ Two non-team actors also exist: the **anonymous snippet** (authenticated only by
   `celery-beat`, plus `db` and `redis`) via
   `docker-compose.production.cloudpanel.yml`; the `api` entrypoint runs `migrate`
   and `collectstatic` then starts Daphne on `127.0.0.1:8000`. The frontend runs
-  **on the host under pm2** (`digivault-frontend`, `next start`, `PORT=3006`).
+  **on the host under pm2** (`stacksmonitor-frontend`, `next start`, `PORT=3006`).
   nginx routes `/api`, `/admin`, `/ws` → `:8000` and everything else → `:3006`.
 - **Development:** `python manage.py runserver` + `npm run dev`, with
   `config.settings.development` substituting LocMem cache, the in-memory Channels
@@ -561,7 +561,7 @@ straight into mandatory 2FA setup without a second login.
 has passed email+password but not yet enrolled request their QR code without a JWT.
 
 - `GET /api/v1/auth/2fa/setup/` — mints a `pyotp.random_base32()` secret, builds the
-  `otpauth://` provisioning URI (issuer `Digivault`), renders a PNG QR as a base64
+  `otpauth://` provisioning URI (issuer `Stacks Monitor`), renders a PNG QR as a base64
   data URI, and caches the pending secret under `totp_pending:<user_pk>` for 600 s.
   2FA is **not** yet enabled.
 - `POST /api/v1/auth/2fa/confirm/` — verifies the code against the pending secret,
@@ -579,7 +579,7 @@ vault** (`apps.credentials.encryption`).
 
 ### 6.4 Admin-gated password reset
 
-Digivault does not self-serve password resets; a human approves each one.
+Stacks Monitor does not self-serve password resets; a human approves each one.
 
 1. `POST /api/v1/auth/password-reset/` (public) — user submits an email. A
    `PasswordResetRequest` is created `PENDING`. The response does not reveal whether
@@ -711,8 +711,8 @@ consequence is described in §4.3.
 ### 8.2 Snippet properties
 
 - `snippet_html` — `<script async src="{SNIPPET_CDN_URL}/s.js" data-site="{site_id}"></script>`.
-  In production `SNIPPET_CDN_URL` **must** be `https://digivault.digilatics.co/api`;
-  `cdn.digivault.digilatics.co` has no DNS or vhost, and nginx only proxies `/api/…`.
+  In production `SNIPPET_CDN_URL` **must** be `https://stacksmonitor.com/api`;
+  `stacksmonitor.com` has no DNS or vhost, and nginx only proxies `/api/…`.
 - `snippet_instructions` — platform-specific installation copy for WordPress
   (WPCode/Code Snippets → Footer), Webflow, Wix, Framer, Shopify and Squarespace,
   with a generic "before `</body>` on every page" fallback.
@@ -761,9 +761,8 @@ human chose and health **never** overwrites it — only the score is refreshed.
 
 Three details carry hard-won intent:
 
-- **Digivault's own infra is excluded.** `_internal_hosts()` returns
-  `digivault.digilatics.co`, `cdn.digivault.digilatics.co`,
-  `digilaticsvps.digilatics.co` plus the configured `SNIPPET_CDN_URL` host. The
+- **Stacks Monitor's own infra is excluded.** `_internal_hosts()` returns the
+  `PRODUCT_URL` host plus the configured `SNIPPET_CDN_URL` host. The
   tracking snippet is itself a script on the page; its changes are hidden from the
   UI and can never be acknowledged, so counting them would pin every site to
   critical forever.
@@ -860,13 +859,13 @@ does synchronous DB-only work then defers all network I/O:
 writes it with `.update()` and returns the secret plus the ready-to-paste PHP
 snippet. Rotating invalidates every previously issued link.
 
-`POST …/wp-login/` maps the caller's Digivault role to a WordPress role —
+`POST …/wp-login/` maps the caller's Stacks Monitor role to a WordPress role —
 `owner`/`manager` → `administrator`, `developer` → `editor`, anything else → 403 —
 then builds a payload `{email, name, role, exp: now+120, jti: uuid4}`,
 base64url-encodes it, HMAC-SHA256-signs it with the site secret, and returns
 
 ```
-https://<domain>/wp-json/digivault/v1/sso?p=<payload_b64>&s=<hex_sig>
+https://<domain>/wp-json/stacksmonitor/v1/sso?p=<payload_b64>&s=<hex_sig>
 ```
 
 The link is single-use (`jti`) and expires in **120 seconds**. Both actions are
@@ -939,7 +938,7 @@ The observer watches `document.documentElement` with `childList` + `subtree` and
 **disconnects after 30 s** to avoid overhead on long-lived pages.
 
 Everything in the error-reporting paths is wrapped in `try/catch` so a failure in
-Digivault's reporter can never break the host page.
+Stacks Monitor's reporter can never break the host page.
 
 ### 9.2 URL normalisation
 
@@ -964,7 +963,7 @@ changing which page it is. So `/contact`, `/contact/` and `/contact?utm=x` are o
 ([apps/scripts/tasks.py](../apps/scripts/tasks.py)) returns `False` for:
 
 1. Relative URLs (always self-hosted).
-2. Digivault's own infra hosts (`_internal_hosts()`).
+2. Stacks Monitor's own infra hosts (`_internal_hosts()`).
 3. The site's own domain or any subdomain of it.
 4. Known utility CDNs: `cdnjs.cloudflare.com`, `cdn.jsdelivr.net`, `unpkg.com`,
    `code.jquery.com`, `maxcdn.bootstrapcdn.com`, `stackpath.bootstrapcdn.com`,
@@ -1022,7 +1021,7 @@ Remaining events:
 ### 9.6 Suspicion heuristics
 
 [apps/scripts/suspicion.py](../apps/scripts/suspicion.py) is **advisory, not a
-verdict** — Digivault sees a URL and its load context, never the script body, so it
+verdict** — Stacks Monitor sees a URL and its load context, never the script body, so it
 cannot prove intent. Reasons are always stored and displayed with the flag so nobody
 has to trust a bare "suspicious" label. False positives are the expected failure mode
 and are much cheaper than false negatives.
@@ -1433,7 +1432,7 @@ with a single `.update()`.
 
 | Function | Logic |
 |---|---|
-| `check_http` | Timed `urlopen` with `User-Agent: Digivault-Monitor/1.0`, reads the first 4096 bytes. Keyword miss → `down`. Code == expected → `up`; other 2xx/3xx → `degraded`; else `down` |
+| `check_http` | Timed `urlopen` with `User-Agent: StacksMonitor-Bot/1.0`, reads the first 4096 bytes. Keyword miss → `down`. Code == expected → `up`; other 2xx/3xx → `degraded`; else `down` |
 | `check_ping` | TCP/DNS-based (ICMP needs root): `gethostbyname` timing. `gaierror` → `down` with "DNS lookup failed" |
 | `check_port` | `create_connection((host, port))`; `ConnectionRefusedError` → "Port N refused" |
 | `check_ssl` | TLS handshake on 443, parses `notAfter`. Expired or ≤ 7 days → `down`; ≤ 30 days → `degraded`; else `up` |
@@ -1496,7 +1495,7 @@ Team-scoped, reusable. Types: `email`, `clickup`, `slack`. Config is JSON —
 ClickUp, `{webhook_url}` for Slack.
 
 `parse_clickup_chat()` extracts workspace and channel IDs from a ClickUp Chat link
-such as `https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438`.
+such as `https://acme.clickup.com/25658037/chat/r/rf0nn-49438`.
 
 `POST /api/v1/notification-channels/<pk>/test/` sends a real test message and returns
 success plus a message, so misconfiguration surfaces at setup rather than during an
@@ -1550,7 +1549,7 @@ Three properties — `domain_days_until_expiry`, `ssl_days_until_expiry`,
 `hosting_days_until_expiry` — return `None` when the date is unset and clamp at 0.
 
 Email-auth statuses describe **presence and syntax, not correctness**: proving an SPF
-policy lists the right senders needs the sending infrastructure, which Digivault does
+policy lists the right senders needs the sending infrastructure, which Stacks Monitor does
 not know.
 
 ### 14.2 Checks
@@ -1764,4 +1763,4 @@ call is still not prefix-stripping.
 
 ---
 
-*Chapters 17–28 continue in [`digivault-srs-part2.md`](digivault-srs-part2.md).*
+*Chapters 17–28 continue in [`srs-part2.md`](srs-part2.md).*

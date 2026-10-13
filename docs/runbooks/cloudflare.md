@@ -1,4 +1,4 @@
-# Runbook — Cloudflare in front of Digivault (optional)
+# Runbook — Cloudflare in front of Stacks Monitor (optional)
 
 **Why:** every visitor to every client site fetches `/api/s.js` from this one
 VPS whenever their 5-minute browser cache expires, so snippet traffic grows
@@ -12,7 +12,7 @@ from this server's own IP, not through Cloudflare. Client firewall allowlists
 
 ## Order matters
 
-Do these steps in order. If step 1 is skipped, every user appears to Digivault
+Do these steps in order. If step 1 is skipped, every user appears to Stacks Monitor
 as a Cloudflare address. The per-IP limits are shared across everyone behind
 the same address, so the extension sign-in limit (20/minute) would be shared
 by the whole team, and the audit log would record Cloudflare's IPs instead of
@@ -20,7 +20,7 @@ people's.
 
 ### 1. Teach nginx Cloudflare's addresses (before proxying anything)
 
-CloudPanel → Sites → `digivault.digilatics.co` → **Vhost**. Inside the
+CloudPanel → Sites → `stacksmonitor.com` → **Vhost**. Inside the
 `server { }` block, add:
 
 ```nginx
@@ -61,7 +61,7 @@ from Cloudflare, so it is safe to add first.
 ### 2. Move DNS to Cloudflare
 
 Add the site in Cloudflare and copy the existing DNS records. Turn the proxy
-(orange cloud) **on for `digivault.digilatics.co` only**.
+(orange cloud) **on for `stacksmonitor.com` only**.
 
 - SSL/TLS mode: **Full (strict)**. The origin already has a valid certificate.
 - Network → WebSockets: **on**. The dashboard's live alerts use `/ws/`.
@@ -76,7 +76,7 @@ Caching → Cache Rules → create a rule:
 
 Create a second rule below it:
 
-- **When:** Hostname equals `digivault.digilatics.co`
+- **When:** Hostname equals `stacksmonitor.com`
 - **Then:** Bypass cache
 
 The API, the ingest endpoints and the dashboard must never be cached.
@@ -85,10 +85,10 @@ The API, the ingest endpoints and the dashboard must never be cached.
 
 ```bash
 # Served by the edge (repeat once; the second answer should say HIT):
-curl -sI https://digivault.digilatics.co/api/s.js | grep -i cf-cache-status
+curl -sI https://stacksmonitor.com/api/s.js | grep -i cf-cache-status
 
 # The API is not cached:
-curl -sI https://digivault.digilatics.co/api/ready/ | grep -i cf-cache-status   # DYNAMIC or BYPASS
+curl -sI https://stacksmonitor.com/api/ready/ | grep -i cf-cache-status   # DYNAMIC or BYPASS
 ```
 
 Then sign in to the dashboard and open the Activity Log. Your sign-in row must
@@ -98,5 +98,5 @@ Turn the orange cloud off until it is fixed.
 
 ## Rollback
 
-Turn the orange cloud off for `digivault.digilatics.co`. Traffic goes straight
+Turn the orange cloud off for `stacksmonitor.com`. Traffic goes straight
 to the VPS again, and the `set_real_ip_from` block goes back to doing nothing.

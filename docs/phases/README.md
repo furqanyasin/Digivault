@@ -1,4 +1,4 @@
-# Digivault Delivery Phases
+# Stacks Monitor Delivery Phases
 
 This directory breaks the [Production Readiness Roadmap](../planning/production-readiness-roadmap.md) into detailed, implementation-ready phases. Each phase file lists tasks, the exact files touched, acceptance criteria, and a test plan.
 

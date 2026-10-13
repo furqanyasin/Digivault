@@ -1,6 +1,6 @@
-# Digivault — Complete User Guide
+# Stacks Monitor — Complete User Guide
 
-Digivault is a control center for web agencies: monitor the third‑party scripts on
+Stacks Monitor is a control center for web agencies: monitor the third‑party scripts on
 your clients' sites, track uptime and domains, store logins in an encrypted vault,
 watch performance and security, and keep everything organized per client and per
 department.
@@ -34,7 +34,7 @@ Each page follows the same shape:
   invisible to other teams. People in two departments switch between them with the
   team switcher (bottom‑left).
 - Each website carries a tiny **tracking snippet** (`/api/s.js`). When a real
-  browser loads a page, the snippet reports the scripts and forms it sees. Digivault
+  browser loads a page, the snippet reports the scripts and forms it sees. Stacks Monitor
   diffs that against what it saw before and raises **changes** and **alerts**.
 - Detection is **passive** — data arrives only when real visitors (or you) load a
   page that has the snippet. There is no crawler.
@@ -51,5 +51,5 @@ Each page follows the same shape:
 Owners and managers see all credentials and the full activity log. Developer/Editor/SEO
 are "member" roles with identical access — pick the label that matches the person's job.
 
-> **Deploying changes?** This guide is for *using* Digivault. To ship code changes
+> **Deploying changes?** This guide is for *using* Stacks Monitor. To ship code changes
 > to the live site, see the deploy section in the repo's `CLAUDE.md` (`./deploy.sh`).

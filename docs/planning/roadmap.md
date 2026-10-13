@@ -1,4 +1,4 @@
-# Digivault — Upcoming Features Roadmap
+# Stacks Monitor — Upcoming Features Roadmap
 
 Forward-looking backlog of features not yet built (or only partially built).
 Derived from the 2026-06-17 codebase audit in [feature-plan-status.md](feature-plan-status.md). Items are

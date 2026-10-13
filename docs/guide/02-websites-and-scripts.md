@@ -1,27 +1,27 @@
 # 2. Websites & Scripts
 
-The core of Digivault: know exactly which third‑party scripts run on each client
+The core of Stacks Monitor: know exactly which third‑party scripts run on each client
 site, and get alerted the moment that changes.
 
 ## Adding a website
 
 1. **Websites → New website**. Enter a name and the domain (e.g. `clientsite.com`).
-2. On save, Digivault automatically provisions an **uptime monitor** and a **public
+2. On save, Stacks Monitor automatically provisions an **uptime monitor** and a **public
    status page** for that site, and kicks off the first checks.
 
 ## Installing the tracking snippet (the most important step)
 
 Each website has a one‑line snippet. **Until it's installed and a browser loads a
-page, Digivault sees nothing.**
+page, Stacks Monitor sees nothing.**
 
 1. Open the website → **Setup** tab → copy the snippet. It looks like:
    ```html
-   <script async src="https://digivault.digilatics.co/api/s.js" data-site="YOUR_SITE_ID"></script>
+   <script async src="https://stacksmonitor.com/api/s.js" data-site="YOUR_SITE_ID"></script>
    ```
 2. Paste it before `</body>` on **every page** of the client site (in WordPress:
    a header/footer code plugin, or your theme; in Elementor/Wix/etc.: the custom‑code
    area).
-3. Click **Verify snippet** to confirm Digivault can see it on the homepage.
+3. Click **Verify snippet** to confirm Stacks Monitor can see it on the homepage.
 
 **Get 100% benefit:**
 - Install it site‑wide, not just the homepage — page‑specific scripts (checkout,

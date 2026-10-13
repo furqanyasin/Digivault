@@ -1,4 +1,4 @@
-# Digivault — Features, Challenges & Improvement Plan
+# Stacks Monitor — Features, Challenges & Improvement Plan
 
 > Status snapshot as of 2026-06-08. A SaaS platform for web agencies to monitor third-party scripts, uptime, performance, security, domains, and credentials across client websites.
 
@@ -218,7 +218,7 @@ Phased so you can launch incrementally. Each phase is independently shippable.
 - [ ] DB-level INSERT-only GRANTs applied for audit & credential access logs.
 - [ ] Backups for PostgreSQL (incl. encrypted credential blobs) + key escrow for `VAULT_ENCRYPTION_KEY`.
 - [ ] Rate limits verified on all public endpoints.
-- [ ] Status page + monitors live for Digivault's own infrastructure.
+- [ ] Status page + monitors live for Stacks Monitor's own infrastructure.
 - [ ] Decide SMS: implement or hide.
 - [ ] Smoke test full flow: register → snippet install → ingest → change detected → alert delivered (email/Slack/in-app).
 

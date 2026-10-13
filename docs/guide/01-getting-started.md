@@ -2,7 +2,7 @@
 
 ## Logging in
 
-1. Go to your Digivault URL and sign in with your email + password.
+1. Go to your Stacks Monitor URL and sign in with your email + password.
 2. **Two‑factor authentication is mandatory.** On first login you'll be sent to
    set up 2FA (see below) before you can use the app.
 3. After login you land on the **Dashboard** — a roll‑up of every site's status,

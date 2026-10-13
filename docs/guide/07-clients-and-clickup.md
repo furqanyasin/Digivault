@@ -39,14 +39,14 @@ data.
 - Re‑sync to refresh; the client shows when it was last synced.
 
 **Get 100% benefit:** keep ClickUp as your source of truth for client metadata and let
-Digivault mirror it — then the Renewal Center and client list stay current without
+Stacks Monitor mirror it — then the Renewal Center and client list stay current without
 manual edits. Each department (team) connects its own ClickUp token, so Web and SEO
 can point at different lists.
 
 ## Web team channel *(owners & managers)*
 
 **What it is:** one ClickUp Chat channel holding your whole web team. When a website
-has a problem, Digivault posts it there and addresses the developer assigned to that
+has a problem, Stacks Monitor posts it there and addresses the developer assigned to that
 client — so nobody has to be watching a dashboard to find out.
 
 What gets announced:
@@ -62,7 +62,7 @@ load would drown the channel. Those keep their per‑website channels.
 ### Set it up
 
 1. **Settings → ClickUp Integration**, below *Issue list*.
-2. Click **Create web team channel**. Digivault makes a private ClickUp channel and
+2. Click **Create web team channel**. Stacks Monitor makes a private ClickUp channel and
    adds everyone on the team it can find in your ClickUp workspace.
 3. Already have a channel? Paste its link instead and **Save link**.
 
@@ -74,8 +74,8 @@ The developer named in the client's **assigned to** field — so keeping that cu
 what makes the mentions useful. A site with no client, or a client with nobody
 assigned, still gets announced; the message just says *unassigned*.
 
-Digivault matches your team to ClickUp **by email address**. Anyone whose ClickUp
-email differs from their Digivault one shows up under *not found* after a sync — paste
+Stacks Monitor matches your team to ClickUp **by email address**. Anyone whose ClickUp
+email differs from their Stacks Monitor one shows up under *not found* after a sync — paste
 their **ClickUp user ID** in the box next to their name and **Save & re‑sync**.
 
 ### Tasks alongside the message

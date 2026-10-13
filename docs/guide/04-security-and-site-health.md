@@ -29,7 +29,7 @@ errors.
   ingest endpoint is rate‑limited and origin‑bound so only the real site can post.
 
 **Note:** PHP errors require a small WordPress companion plugin on the site to send
-them (the receiving endpoint exists in Digivault). If you haven't installed that
+them (the receiving endpoint exists in Stacks Monitor). If you haven't installed that
 plugin, this tab stays hidden — which is expected.
 
 ## Site Events (WordPress)
@@ -41,7 +41,7 @@ events exist.
 
 ## CMS / platform detection
 
-When you **Scan** a site, Digivault detects the platform from the page's
+When you **Scan** a site, Stacks Monitor detects the platform from the page's
 `generator` meta tag, response headers, and HTML fingerprints — WordPress, Shopify,
 Wix, Webflow, Framer, Squarespace, or "other".
 

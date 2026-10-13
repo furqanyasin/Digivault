@@ -1,8 +1,8 @@
-# Digivault Browser Extension
+# Stacks Monitor Browser Extension
 
 ## What it does
 
-The extension lets any team member browse to a registered website and instantly see which third-party scripts are running on the current page — without waiting for the tracking snippet to accumulate data. It queries the Digivault API and overlays a badge/panel showing script count, provider names, categories, and whether any unknowns were detected.
+The extension lets any team member browse to a registered website and instantly see which third-party scripts are running on the current page — without waiting for the tracking snippet to accumulate data. It queries the Stacks Monitor API and overlays a badge/panel showing script count, provider names, categories, and whether any unknowns were detected.
 
 ---
 
@@ -41,7 +41,7 @@ extension/
 ```json
 {
   "manifest_version": 3,
-  "name": "Digivault",
+  "name": "Stacks Monitor",
   "version": "1.0.0",
   "description": "Monitor third-party scripts on any registered website.",
   "permissions": ["activeTab", "storage", "scripting"],
@@ -79,7 +79,7 @@ extension/
 ### Lookup (public, no auth)
 
 ```
-GET https://digivault.digilatics.co/api/extension/lookup/?domain=<domain>
+GET https://stacksmonitor.com/api/extension/lookup/?domain=<domain>
 ```
 
 **Response:**
@@ -105,7 +105,7 @@ GET https://digivault.digilatics.co/api/extension/lookup/?domain=<domain>
 ### Ingest (public, site_id auth)
 
 ```
-POST https://digivault.digilatics.co/api/ingest/
+POST https://stacksmonitor.com/api/ingest/
 Content-Type: application/json
 
 {
@@ -144,7 +144,7 @@ Responsibilities:
 6. Expose cached data to popup via `chrome.runtime.onMessage`
 
 ```js
-const API_BASE = "https://digivault.digilatics.co";
+const API_BASE = "https://stacksmonitor.com";
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete" || !tab.url?.startsWith("http")) return;
@@ -187,7 +187,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 ## content.js
 
 Responsibilities:
-1. Find the Digivault snippet `<script data-site="...">` on the page (if present)
+1. Find the Stacks Monitor snippet `<script data-site="...">` on the page (if present)
 2. If found: collect all `<script>` tags and POST to `/api/ingest/`
 3. This runs in addition to the embedded `s.js` — it gives the extension a chance to send data even if the user hasn't visited the page before
 
@@ -208,7 +208,7 @@ Responsibilities:
 
   if (!scripts.length) return;
 
-  const API_BASE = snippetEl.src.replace(/\/s\.js.*$/, '') || 'https://digivault.digilatics.co';
+  const API_BASE = snippetEl.src.replace(/\/s\.js.*$/, '') || 'https://stacksmonitor.com';
 
   fetch(`${API_BASE}/api/ingest/`, {
     method: 'POST',
@@ -234,12 +234,12 @@ Responsibilities:
 <head>
   <meta charset="UTF-8" />
   <link rel="stylesheet" href="popup.css" />
-  <title>Digivault</title>
+  <title>Stacks Monitor</title>
 </head>
 <body>
   <header>
     <img src="../icons/icon48.png" alt="" width="24" height="24" />
-    <span>Digivault</span>
+    <span>Stacks Monitor</span>
   </header>
   <main id="root">Loading…</main>
   <script src="popup.js"></script>
@@ -256,7 +256,7 @@ chrome.runtime.sendMessage({ type: "GET_DATA" }, (data) => {
   const root = document.getElementById("root");
 
   if (!data || !data.registered) {
-    root.innerHTML = `<p class="muted">This site is not registered with Digivault.</p>`;
+    root.innerHTML = `<p class="muted">This site is not registered with Stacks Monitor.</p>`;
     return;
   }
 
@@ -280,7 +280,7 @@ chrome.runtime.sendMessage({ type: "GET_DATA" }, (data) => {
         ? `<li class="muted">…and ${data.script_count - data.scripts.length} more in dashboard</li>`
         : ''}
     </ul>
-    <a class="link" href="https://digivault.digilatics.co/websites" target="_blank">Open dashboard →</a>
+    <a class="link" href="https://stacksmonitor.com/websites" target="_blank">Open dashboard →</a>
   `;
 });
 ```
@@ -296,7 +296,7 @@ const form = document.getElementById("options-form");
 const serverInput = document.getElementById("server-url");
 
 chrome.storage.sync.get("serverUrl", ({ serverUrl }) => {
-  serverInput.value = serverUrl || "https://digivault.digilatics.co";
+  serverInput.value = serverUrl || "https://stacksmonitor.com";
 });
 
 form.addEventListener("submit", (e) => {
@@ -326,7 +326,7 @@ The `/api/extension/lookup/` and `/api/ingest/` endpoints already return `Access
 
 To verify:
 ```
-curl -I "https://digivault.digilatics.co/api/extension/lookup/?domain=example.com"
+curl -I "https://stacksmonitor.com/api/extension/lookup/?domain=example.com"
 # Access-Control-Allow-Origin: *  ← must be present
 ```
 
@@ -336,7 +336,7 @@ curl -I "https://digivault.digilatics.co/api/extension/lookup/?domain=example.co
 
 1. Open `chrome://extensions` → Enable **Developer mode**
 2. Click **Load unpacked** → select the `extension/` folder
-3. Navigate to any website registered in your Digivault account
+3. Navigate to any website registered in your Stacks Monitor account
 4. The badge shows the script count; click the icon to see the popup
 
 ---
@@ -345,7 +345,7 @@ curl -I "https://digivault.digilatics.co/api/extension/lookup/?domain=example.co
 
 ```bash
 cd extension
-zip -r ../digivault-extension.zip . --exclude "*.DS_Store"
+zip -r ../stacksmonitor-extension.zip . --exclude "*.DS_Store"
 ```
 
-Upload `digivault-extension.zip` at [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
+Upload `stacksmonitor-extension.zip` at [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).

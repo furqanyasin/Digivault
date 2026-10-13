@@ -1,6 +1,6 @@
-# Digivault SRS — Part 2 (Chapters 17–28)
+# Stacks Monitor SRS — Part 2 (Chapters 17–28)
 
-**Continues from** [`digivault-srs.md`](digivault-srs.md). Conventions, definitions
+**Continues from** [`srs.md`](srs.md). Conventions, definitions
 and cross-cutting mechanisms are defined there and are not repeated.
 
 ---
@@ -267,7 +267,7 @@ time.
 | Section | Content |
 |---|---|
 | Overview (always) | Website name, domain, platform, status, health score; period |
-| `active_scripts` | Active scripts **grouped by source domain** with a file count, excluding Digivault's own infra so it matches the website detail "Active Scripts" list. Sorted with unknown providers first — they are what needs attention |
+| `active_scripts` | Active scripts **grouped by source domain** with a file count, excluding Stacks Monitor's own infra so it matches the website detail "Active Scripts" list. Sorted with unknown providers first — they are what needs attention |
 | `script_changes` | Counts by change type in the window, plus the 20 most recent critical/high descriptions |
 | `domain_ssl` | Registrar, hosting provider, domain days, SSL days |
 | `uptime` | Per monitor: name, URL, current status, uptime %, total checks, down checks, computed over the window from raw `MonitorCheck` rows |
@@ -550,7 +550,7 @@ Manifest V3. Permissions: `activeTab`, `storage`, `scripting`, host permissions
 
 [extension/background.js](../extension/background.js) — the only component that holds
 tokens, in `chrome.storage.local`. `getApiBase()` reads `serverUrl` from
-`chrome.storage.sync`, defaulting to `https://digivault.digilatics.co`.
+`chrome.storage.sync`, defaulting to `https://stacksmonitor.com`.
 
 `authedFetch()` retries once through `tryRefreshToken()` on a 401 and clears
 `access` / `refresh` / `email` when refresh fails, so an expired session logs out
@@ -734,7 +734,7 @@ Derived values are computed in `getData`, not during render: `reportingCount` us
 `Date.now()`, which is not idempotent and which React's purity rule rightly rejects
 inside a component body.
 
-Digivault's own infra domains are filtered out of the change list before counting, so
+Stacks Monitor's own infra domains are filtered out of the change list before counting, so
 the alert KPI cannot disagree with the Change Log, and severity composition is derived
 from the same filtered list the KPI counts.
 
@@ -980,13 +980,13 @@ preserved when editing.
 **Always `./deploy.sh`.** It refuses to run without `.env.production`, performs an
 email pre-flight (rejecting a missing, `consolemail` or placeholder `EMAIL_URL`),
 pulls `main`, rebuilds `api` / `celery` / `celery-beat` with the production compose
-file, builds the frontend and `pm2 restart digivault-frontend`, then verifies
-`https://digivault.digilatics.co/api/s.js` actually serves the snippet.
+file, builds the frontend and `pm2 restart stacksmonitor-frontend`, then verifies
+`https://stacksmonitor.com/api/s.js` actually serves the snippet.
 
 Server path and command:
 
 ```bash
-cd /home/digilatics-digivault/htdocs/digivault.digilatics.co && ./deploy.sh
+cd /home/stacksmonitor/app && ./deploy.sh
 ```
 
 **Never run bare `docker compose up` on the server.** The default
@@ -1003,16 +1003,16 @@ find Server Action" errors until reload.
 `.env.production` needs everything in `.env` plus:
 
 ```
-ALLOWED_HOSTS=digivault.digilatics.co
-CORS_ALLOWED_ORIGINS=https://digivault.digilatics.co
-SNIPPET_CDN_URL=https://digivault.digilatics.co/api
+ALLOWED_HOSTS=stacksmonitor.com
+CORS_ALLOWED_ORIGINS=https://stacksmonitor.com
+SNIPPET_CDN_URL=https://stacksmonitor.com/api
 DB_PASSWORD=<postgres password>
 EMAIL_URL=smtp+tls://LOGIN%40smtp-brevo.com:SMTP_KEY@smtp-relay.brevo.com:587
 DEFAULT_FROM_EMAIL=<sender on a Brevo-authenticated domain>
 ```
 
 `SNIPPET_CDN_URL` **must** end in `/api` — nginx proxies only `/api/...` to Django,
-and `cdn.digivault.digilatics.co` has no DNS record or vhost.
+and `stacksmonitor.com` has no DNS record or vhost.
 
 ### 28.3 Migrations
 
@@ -1224,9 +1224,9 @@ queried directly).
 | `VAULT_ENCRYPTION_KEY` | One of | `""` | Legacy single Fernet key |
 | `VAULT_ENCRYPTION_KEYS` | One of | `[]` | Ordered rotation list; first encrypts |
 | `EMAIL_URL` | **Prod** | `consolemail://` | Production **refuses to boot** on blank/console |
-| `DEFAULT_FROM_EMAIL` | No | `Digivault <noreply@digivault.digilatics.co>` | Sender |
+| `DEFAULT_FROM_EMAIL` | No | `Stacks Monitor <noreply@stacksmonitor.com>` | Sender |
 | `FRONTEND_URL` | No | `http://localhost:3000` | Links in emails |
-| `SNIPPET_CDN_URL` | Prod | `https://digivault.digilatics.co` | Snippet base; must end `/api` in production |
+| `SNIPPET_CDN_URL` | Prod | `https://stacksmonitor.com` | Snippet base; must end `/api` in production |
 | `CORS_ALLOWED_ORIGINS` | Prod | — | Asserted non-localhost in production |
 | `JWT_ACCESS_TOKEN_LIFETIME_MINUTES` | No | `15` | Access token TTL |
 | `JWT_REFRESH_TOKEN_LIFETIME_DAYS` | No | `7` | Refresh token TTL |
@@ -1244,4 +1244,4 @@ queried directly).
 
 ---
 
-*End of specification. Part 1: [`digivault-srs.md`](digivault-srs.md).*
+*End of specification. Part 1: [`srs.md`](srs.md).*
