@@ -5,12 +5,17 @@ from urllib.parse import parse_qs
 
 from django.db.models import Count, Q
 from rest_framework import permissions, status
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import IsTeamMember
+from apps.common.permissions import (
+    ROLE_MANAGER,
+    IsTeamMember,
+    TeamRolePermission,
+)
 from apps.websites.models import Website, WebsiteAssignment
 from apps.audit.services import AuditService
 from apps.audit.models import ActivityLog
@@ -27,28 +32,109 @@ from apps.websites.serializers import (
 
 logger = logging.getLogger(__name__)
 
-# Browser-ish headers for the snippet verifier. A UA that names a scanner is an
-# easy target for host WAFs, and a bare request with no Accept/Sec-Fetch headers
-# reads as a bot to most bot-management edges.
-_VERIFY_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
+
+class SyncFormRecipientsThrottle(UserRateThrottle):
+    scope = "sync_form_recipients"
+    rate = "2/minute"
+
+# Headers these two actions add on top of the shared outbound identity.
+#
+# They used to include a spoofed Chrome `User-Agent` and a full set of
+# `Sec-Fetch-*` headers, and they went out through a bare `requests.get` rather
+# than `apps.common.outbound` — so both actions skipped the per-host budget, the
+# 429/Retry-After cooldown, the WAF fingerprinting, and, most importantly, the
+# SSRF guard that `outbound` re-applies on *every redirect hop*. A single
+# `assert_public_url` on the URL we were handed is not a guard: the site being
+# scanned only has to answer 302 with `Location: http://169.254.169.254/`.
+#
+# The UA is gone deliberately. Every other server-side fetch in the platform
+# leaves from one IP under one honest identity, because from one IP a spoofed
+# browser is caught on TLS fingerprint anyway, gets that IP banned with no
+# appeal, and disqualifies us from Cloudflare's Verified Bots programme. Two
+# endpoints quietly opting out of that put every client's uptime monitoring at
+# risk to save a handful of scans from a 403 — and a 403 here is already handled
+# well, with a message naming the WAF and the fix.
+_PAGE_FETCH_HEADERS = {
     "Cache-Control": "no-cache, no-store",
     "Pragma": "no-cache",
 }
 
+# A homepage's `<head>` is what both actions read, but `_extract_script_urls`
+# also walks inline loaders anywhere in the body, so the whole document matters.
+# Generous enough for a page-builder homepage; `truncated` is checked so a
+# partial read is never mistaken for a page with fewer scripts on it.
+_SCAN_READ_BYTES = 2 * 1024 * 1024
+
+# How long a human-triggered fetch will wait for a per-host token before giving
+# up. Someone is watching a spinner, so this cannot be the SEO checker's patient
+# pacing — but failing instantly the moment another job touched the same host is
+# worse than a short wait.
+_PAGE_FETCH_WAIT_SECONDS = 8
+
 # Block-page detection lives in the shared outbound client so the monitor and
 # the verifier agree on what "we did not see the real page" looks like.
 _looks_like_block_page = outbound.looks_like_block_page
+
+
+def _fetch_page(fetch_url: str, *, website, what: str, read_bytes: int):
+    """Fetch one page of a customer origin for a human-triggered action.
+
+    Returns `(FetchResult, None)` on success or `(None, Response)` on failure,
+    so the caller can `if error is not None: return error`. Everything this
+    wraps — identity, budget, cooldown, per-hop SSRF guard — comes from
+    `apps.common.outbound`; the point of the helper is that neither caller can
+    reach the network without it.
+    """
+    from apps.common.ssrf import BlockedURLError
+
+    try:
+        result = outbound.fetch(
+            fetch_url,
+            timeout=20,
+            extra_headers=_PAGE_FETCH_HEADERS,
+            read_bytes=read_bytes,
+            wait_up_to=_PAGE_FETCH_WAIT_SECONDS,
+        )
+    except BlockedURLError as exc:
+        return None, Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except outbound.HostCoolingDownError as exc:
+        # The host told us to back off. Saying so is more useful than a generic
+        # failure, because the answer is "wait", not "check your domain".
+        logger.info("%s deferred for website %s: %s", what, website.pk, exc)
+        return None, Response(
+            {
+                "detail": (
+                    f"{website.domain} asked us to slow down, so we are waiting "
+                    "before contacting it again. Try in a few minutes."
+                ),
+                "code": "cooling_down",
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    except outbound.RateLimitedError:
+        return None, Response(
+            {
+                "detail": (
+                    "Another check is already talking to this site. "
+                    "Try again in a moment."
+                ),
+                "code": "rate_limited",
+            },
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    except Exception as exc:
+        logger.warning("%s fetch failed for website %s: %s", what, website.pk, exc)
+        return None, Response(
+            {
+                "detail": (
+                    "Could not reach the site. Check the domain is correct and "
+                    "publicly accessible."
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return result, None
 
 
 def _extract_script_urls(html: str) -> list[str]:
@@ -296,6 +382,12 @@ def _extract_forms(html: str) -> list[dict]:
 
 _MANAGER_ROLES = {"owner", "manager"}
 
+# Roles kept out of the per-website assignment picker. SEO staff work across
+# the whole client base rather than a slice of it, so a per-site assignment
+# would only ever narrow what they can do; leaving them unassigned is what
+# gives them every site (the team default in _restrict_to_assignments).
+_UNASSIGNABLE_ROLES = {"seo", "seo_executive"}
+
 
 def _user_role(user, team) -> str:
     from apps.accounts.models import TeamMembership
@@ -309,13 +401,15 @@ def _user_role(user, team) -> str:
 def _restrict_to_assignments(qs, request):
     """Non-managers with at least one website assignment see only those sites.
 
-    Managers/owners — and members with no assignments at all (backwards
-    compatible default) — see the whole team.
+    Managers/owners, SEO roles (never assignable — see _UNASSIGNABLE_ROLES) and
+    members with no assignments at all (backwards compatible default) see the
+    whole team.
     """
     team = request.user.active_team
     if team is None:
         return qs
-    if _user_role(request.user, team) in _MANAGER_ROLES:
+    role = _user_role(request.user, team)
+    if role in _MANAGER_ROLES or role in _UNASSIGNABLE_ROLES:
         return qs
     assigned_ids = list(
         WebsiteAssignment.objects.filter(
@@ -336,7 +430,30 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
     """
 
     queryset = Website.objects.all()
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
+
+    #: Reads stay open to every member. Writes need staff; the structural and
+    #: destructive ones need a manager.
+    #:
+    #: `regenerate_snippet` rotates the site_id, which invalidates the tag on
+    #: the client's live site and stops all ingest until they re-paste it — the
+    #: single most disruptive button in the product, and it was reachable by a
+    #: viewer. `wp_sso_secret` mints the shared secret behind one-click
+    #: wp-admin login, which is a credential for the client's WordPress. Both
+    #: belong with the vault, not with day-to-day work.
+    action_roles = {
+        "regenerate_snippet": ROLE_MANAGER,
+        "wp_sso_secret": ROLE_MANAGER,
+        # Who may see a site is a manager's decision; who *is* assigned is
+        # readable by anyone who can already see the site.
+        "assignments:PUT": ROLE_MANAGER,
+    }
+    # `wp_login` is deliberately absent. It carries its own, finer gate:
+    # `_WP_ROLE_MAP` translates the caller's team role into a WordPress role and
+    # refuses anyone it cannot map, so a developer gets an `editor` login and a
+    # viewer gets a 403. Adding it here as manager-only did not tighten that —
+    # it contradicted it, locking developers out of the one thing the role map
+    # exists to give them.
 
     def get_queryset(self):
         from apps.scripts.tasks import _internal_hosts
@@ -378,11 +495,16 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         "developer": "editor",
     }
 
-    @action(detail=True, methods=["post"], url_path="wp-sso-secret")
+    @action(detail=True, methods=["get", "post"], url_path="wp-sso-secret")
     def wp_sso_secret(self, request, pk=None):
-        """Generate (or rotate) the shared secret for the Digivault Connect
-        WordPress plugin. Managers/owners only. Rotating invalidates all
-        previously issued login links."""
+        """GET: the current WP Connect snippet, for a re-paste. POST: generate
+        (or rotate) the shared secret and return the new snippet. Managers and
+        owners only. Rotating invalidates all previously issued login links,
+        and the old snippet's posts are refused until the new one is pasted —
+        its buffer survives that and is re-sent, so nothing is lost.
+
+        GET exists because a re-paste (the uptime heartbeat, any snippet
+        change) should not have to rotate a secret that is working."""
         import secrets as _secrets
 
         website = self.get_object()
@@ -392,6 +514,20 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                 {"detail": "Only managers can manage the WP login secret."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if request.method == "GET":
+            if not website.wp_sso_secret:
+                return Response(
+                    {"detail": "This site has no WP Connect snippet yet. Generate one first."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            # The snippet carries the secret, so reading it is audited.
+            AuditService.log_request(
+                request, ActivityLog.Action.WEBSITE_WP_SNIPPET_VIEWED,
+                description=f"Viewed WP Connect snippet for '{website.domain}'",
+                resource_type="website", resource_id=website.pk,
+                metadata={"website_id": str(website.pk)},
+            )
+            return Response({"snippet": website.wp_sso_snippet})
         secret = _secrets.token_urlsafe(32)
         Website.objects.filter(pk=website.pk).update(wp_sso_secret=secret)
         website.wp_sso_secret = secret
@@ -413,42 +549,49 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         and seeing the Forms tab fill in are the same minute rather than a day
         apart.
 
-        Two paths, strongest first. WP Connect reads the site's database through
-        a signature-gated route and covers every form plugin. The REST readers
-        need only a vaulted WordPress credential, but reach Elementor and
-        Gravity Forms only — Contact Form 7 and WPForms publish nothing to any
-        API, so those sites still need the snippet.
+        Recipient lookup uses only the encrypted WordPress credential and
+        authenticated plugin REST APIs. Plugins that do not expose recipient
+        settings through their API are reported as unsupported; no browser
+        script or client-side access to the WordPress database is used.
+
+        Note this is deliberately *not* the WP Connect snippet — that path was
+        retired, and `wp_forms.fetch_recipients` no longer has a caller. The
+        Forms tab used to tell the user to set up WP Connect while this endpoint
+        demanded an Application Password, which is a dead end dressed up as an
+        instruction; the tab's copy now names the credential this actually
+        needs.
         """
-        from apps.credentials.wp_access import resolve_wp_credential
         from apps.websites import wp_api_forms
-        from apps.websites.wp_forms import sync_website
 
         website = self.get_object()
-
-        if website.wp_sso_secret:
-            source, runner = "wordpress", sync_website
-        elif resolve_wp_credential(website) is not None:
-            source, runner = "wp_api", wp_api_forms.sync_website
-        else:
+        throttle = SyncFormRecipientsThrottle()
+        if not throttle.allow_request(request, self):
             return Response(
-                {
-                    "detail": (
-                        "Add WordPress credentials for this website, or set up "
-                        "WP Connect, so Digivault can read where its forms deliver."
-                    )
-                },
-                status=status.HTTP_409_CONFLICT,
+                {"detail": "Recipient lookup is limited to two requests per minute."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
         try:
-            updated = runner(website)
+            result = wp_api_forms.sync_website_detailed(website)
         except Exception:
             logger.exception("sync_form_recipients failed for website %s", website.pk)
             return Response(
                 {"detail": "Could not read the site's form settings."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        return Response({"updated": updated, "source": source})
+        if result.get("reason") == "no_credentials":
+            return Response(
+                {
+                    **result,
+                    "detail": (
+                        "Add a WordPress credential for this site in the "
+                        "Credentials tab, using an Application Password, and "
+                        "Digivault can read where these forms deliver."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(result)
 
     @action(detail=True, methods=["post"], url_path="wp-login")
     def wp_login(self, request, pk=None):
@@ -526,14 +669,14 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                 )
             member_ids = set(
                 str(uid)
-                for uid in TeamMembership.objects.filter(team=team).values_list(
-                    "user_id", flat=True
-                )
+                for uid in TeamMembership.objects.filter(team=team)
+                .exclude(role__in=_UNASSIGNABLE_ROLES)
+                .values_list("user_id", flat=True)
             )
             invalid = [uid for uid in user_ids if str(uid) not in member_ids]
             if invalid:
                 return Response(
-                    {"detail": "Some users are not members of this team."},
+                    {"detail": "Some users cannot be assigned to this website."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             WebsiteAssignment.objects.filter(website=website).exclude(
@@ -560,8 +703,20 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                 "name": f"{user.first_name} {user.last_name}".strip() or user.email,
             }
 
-        rows = WebsiteAssignment.objects.filter(website=website).select_related("user")
-        memberships = TeamMembership.objects.filter(team=team).select_related("user")
+        memberships = (
+            TeamMembership.objects.filter(team=team)
+            .exclude(role__in=_UNASSIGNABLE_ROLES)
+            .select_related("user")
+        )
+        assignable_user_ids = {m.user_id for m in memberships}
+        # Stale rows for a now-unassignable member are hidden rather than
+        # listed: the picker cannot untick what it never shows, so surfacing
+        # them would strand an assignment nobody can clear.
+        rows = [
+            a for a in
+            WebsiteAssignment.objects.filter(website=website).select_related("user")
+            if a.user_id in assignable_user_ids
+        ]
         return Response({
             "assigned": [_user_row(a.user) for a in rows],
             "members": [
@@ -657,50 +812,80 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             state, _ = SiteScanState.objects.get_or_create(website=website)
             return Response(SiteScanStateSerializer(state).data)
 
+        if website.snippet_status != Website.SnippetStatus.INSTALLED:
+            return Response(
+                {
+                    "detail": "Install the tracking snippet and open the website before scanning scripts.",
+                    "code": "snippet_required",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         import secrets as _secrets
-        import requests as _requests
 
         url = website.domain if website.domain.startswith("http") else f"https://{website.domain}"
         bust = _secrets.token_hex(8)
         fetch_url = f"{url}{'&' if '?' in url else '?'}_dvv={bust}"
 
-        from apps.common.ssrf import BlockedURLError, assert_public_url
-        try:
-            assert_public_url(url)
-        except BlockedURLError as e:
-            return Response({"detail": str(e)}, status=400)
+        result, error = _fetch_page(
+            fetch_url, website=website, what="scan", read_bytes=_SCAN_READ_BYTES
+        )
+        if error is not None:
+            return error
 
-        _BROWSER_HEADERS = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate",
-            "Cache-Control": "no-cache, no-store",
-            "Pragma": "no-cache",
-        }
+        if result.status_code >= 400:
+            # `blocked_by` names the WAF when one is identifiable. Saying which
+            # one, and that the site itself is fine, is the difference between a
+            # message someone can act on and one that sends them re-checking a
+            # domain that was never wrong.
+            vendor = result.blocked_by
+            if vendor:
+                return Response(
+                    {
+                        "detail": (
+                            f"{vendor} answered instead of {website.domain} "
+                            f"(HTTP {result.status_code}), so we never saw the page. "
+                            "Allowlist our scanner "
+                            "(https://digivault.digilatics.co/bot) and try again."
+                        ),
+                        "code": "blocked",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response(
+                {"detail": f"Could not fetch the page (HTTP {result.status_code})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        try:
-            resp = _requests.get(fetch_url, headers=_BROWSER_HEADERS, timeout=20, allow_redirects=True)
-            resp.raise_for_status()
-            html = resp.text
-            # Strip the cache-buster from the stored page URL.
-            final_url = resp.url.replace(f"_dvv={bust}", "").rstrip("?&")
-        except _requests.HTTPError as e:
-            return Response({"detail": f"Could not fetch the page (HTTP {e.response.status_code})."}, status=400)
-        except Exception as e:
-            logger.warning("Scan fetch failed for website %s: %s", website.pk, e)
-            return Response({"detail": "Could not reach the site. Check the domain is correct and publicly accessible."}, status=400)
+        html = result.body
+        if result.truncated:
+            # A partial read is the same failure mode as a partial snapshot: the
+            # scripts past the cut look exactly like scripts that are not there.
+            # The scan feeds process_ingest_payload, which would record that as
+            # an observation, so refuse rather than under-report.
+            logger.warning(
+                "Scan of website %s truncated at %d bytes", website.pk, _SCAN_READ_BYTES
+            )
+            return Response(
+                {
+                    "detail": (
+                        "The page is larger than we can read in one scan, so the "
+                        "result would be incomplete. The tracking snippet reports "
+                        "this page in full on the next visit."
+                    ),
+                    "code": "page_too_large",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Strip the cache-buster from the stored page URL.
+        final_url = result.final_url.replace(f"_dvv={bust}", "").rstrip("?&")
 
         # Detect the CMS / site builder from the fetched page and persist it.
         # Done before the script check so platform is set even for pages with
         # no external scripts.
         from apps.websites.platform_detect import detect_platform
 
-        detected = detect_platform(html, dict(resp.headers))
+        detected = detect_platform(html, result.headers)
         if detected and detected != website.platform:
             website.platform = detected
             website.save(update_fields=["platform"])
@@ -721,6 +906,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             for src in script_urls
         ]
 
+        from apps.scripts.models import ScriptSnapshot
         from apps.scripts.tasks import process_ingest_payload
         from apps.site_health.tasks import run_security_scan
 
@@ -729,7 +915,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "scripts": scripts,
             "forms": forms,
             "user_agent": "Digivault-Scanner/1.0",
-            "snippet_version": "server-scan",
+            "snippet_version": ScriptSnapshot.SERVER_SCAN_VERSION,
         }
         process_ingest_payload.delay(website.site_id, payload)
 
@@ -772,7 +958,6 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
            is missing" — doing so sent users re-pasting HTML that was correct.
         """
         import secrets as _secrets
-        import requests as _requests
 
         from apps.scripts.models import ScriptSnapshot
 
@@ -790,7 +975,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         # 1. Ingest traffic is authoritative — check it before touching the network.
         traffic = (
             ScriptSnapshot.objects.filter(website=website)
-            .exclude(snippet_version="server-scan")
+            .exclude(snippet_version=ScriptSnapshot.SERVER_SCAN_VERSION)
             .order_by("-captured_at")
             .first()
         )
@@ -803,31 +988,28 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                 ),
             )
 
-        from apps.common.ssrf import BlockedURLError, assert_public_url
-        try:
-            assert_public_url(url)
-        except BlockedURLError as e:
-            return Response({"verified": False, "reason": "unreachable", "error": str(e)})
-
         # Append a random cache-buster so CDNs/proxies return a fresh response.
         bust = _secrets.token_hex(8)
         fetch_url = f"{url}{'&' if '?' in url else '?'}_dvv={bust}"
 
-        try:
-            resp = _requests.get(
-                fetch_url,
-                headers=_VERIFY_HEADERS,
-                timeout=15,
-                allow_redirects=True,
-            )
-            html = resp.text
-        except Exception as e:
-            logger.warning("Snippet verify failed for website %s: %s", website.pk, e)
+        result, error = _fetch_page(
+            fetch_url, website=website, what="verify", read_bytes=_SCAN_READ_BYTES
+        )
+        if error is not None:
+            # This endpoint answers 200 with `verified: false` rather than an
+            # HTTP error, because "we could not look" is an answer the setup
+            # page renders, not a request failure. Carry the reason across.
+            detail = error.data.get("detail", "") if isinstance(error.data, dict) else ""
             return Response({
                 "verified": False,
                 "reason": "unreachable",
-                "error": "Could not reach the site. Check the domain is correct and publicly accessible.",
+                "error": detail or (
+                    "Could not reach the site. Check the domain is correct and "
+                    "publicly accessible."
+                ),
             })
+
+        html = result.body
 
         # Match on the site ID alone, not on `data-site="<id>"` — HTML minifiers
         # and page builders re-quote attributes, and the ID is a 43-char random
@@ -835,18 +1017,30 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         if website.site_id in html:
             return _verified("html_match")
 
+        from apps.common.outbound import egress_ips
+
+        ips = egress_ips()
+        # The block is on *our* server's request, not on the snippet — visitors'
+        # browsers load it fine. The old wording ("add the snippet to your
+        # allowlist") asked for something no firewall offers.
         blocked_note = (
-            " Add the snippet to your firewall/CDN allowlist, or just wait — once a "
-            "visitor loads the page, the snippet reports in and this verifies itself."
+            " This does not affect the snippet itself — visitors' browsers are not "
+            "blocked. It verifies itself as soon as a visitor loads the page. To let "
+            "our checks through, allowlist our monitor"
+            + (f" (IP {', '.join(ips)})" if ips else "")
+            + " — see https://digivault.digilatics.co/bot."
         )
 
-        if resp.status_code >= 400:
+        if result.status_code >= 400:
+            # `blocked_by` names the vendor when the headers or body identify
+            # one; unattributed stays unattributed rather than guessing.
+            who = result.blocked_by or "the site's firewall or CDN"
             return Response({
                 "verified": False,
                 "reason": "blocked",
                 "error": (
-                    f"{url} answered our check with HTTP {resp.status_code}, so we never saw "
-                    f"your page — this is the site's firewall or CDN blocking us, not a "
+                    f"{url} answered our check with HTTP {result.status_code}, so we never saw "
+                    f"your page — this is {who} blocking us, not a "
                     f"problem with your snippet.{blocked_note}"
                 ),
             })

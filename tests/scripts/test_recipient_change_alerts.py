@@ -151,7 +151,7 @@ class TestWritersHookIn:
             "form_name": "New Form", "detection_type": "native",
             "fields": [{"name": "email"}], "recipients": {},
         }
-        form.fingerprint = DetectedForm.compute_fingerprint(payload)
+        form.fingerprint = DetectedForm.compute_fingerprint(payload, PAGE)
         form.save(update_fields=["fingerprint"])
 
         _upsert_form(form.website, PAGE, payload)

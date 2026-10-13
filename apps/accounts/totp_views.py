@@ -13,14 +13,18 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import permissions, status
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
+from apps.common.client_ip import client_ip
 from apps.credentials.encryption import decrypt, encrypt
 
 
@@ -366,6 +370,91 @@ class LoginView(APIView):
         return Response({"requires_setup": True, "session_key": session_key})
 
 
+class PasswordTokenObtainPairView(TokenObtainPairView):
+    """POST /api/v1/auth/token/ — email + password only.
+
+    A JWT from here carries no second factor, and 2FA is mandatory for the
+    dashboard and API. This used to be plain `TokenObtainPairView`, so any
+    script that knew a password skipped the TOTP the dashboard enforces. It now
+    answers only where `LoginView` would skip 2FA too — the local-development
+    bypass, which the test settings inherit. Everywhere else, sign in through
+    `/auth/login/` and `/auth/2fa/verify/`. (The extension has its own route,
+    `ExtensionTokenObtainPairView`.)
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not getattr(settings, "ALLOW_2FA_BYPASS", False):
+            return Response(
+                {"detail": "Sign in through /api/v1/auth/login/ — password-only tokens skip 2FA."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().post(request, *args, **kwargs)
+
+
+def _audit_team(user):
+    """The team to file `user`'s auth events under: active, else their first."""
+    if user is None:
+        return None
+    if user.active_team_id:
+        return user.active_team
+    membership = user.memberships.select_related("team").order_by("created_at").first()
+    return membership.team if membership else None
+
+
+class ExtensionLoginThrottle(AnonRateThrottle):
+    scope = "extension_login"
+
+
+class ExtensionTokenObtainPairView(TokenObtainPairView):
+    """POST /api/extension/token/ — the browser extension's sign-in.
+
+    Email + password, no TOTP: a product decision, so the extension signs in
+    the way a teammate expects a browser add-on to. Usually it never gets here
+    at all — signing in to the dashboard hands the session over
+    (`ExtensionAuthBridge`). What stands in for the missing second factor is a
+    dedicated per-IP throttle, refusing accounts still on an admin-issued temp
+    password, and an audit row for every attempt, so a password used from
+    somewhere unexpected is visible.
+    """
+
+    throttle_classes = [ExtensionLoginThrottle]
+
+    def post(self, request, *args, **kwargs):
+        from apps.accounts.models import User
+
+        email = (request.data.get("email") or "").strip().lower()
+        user = User.objects.filter(email__iexact=email).first() if email else None
+        # An audit row needs a team. Failures for a known account are logged to
+        # that account's team, so guessing at a teammate's password shows up in
+        # the team's own log rather than nowhere.
+        team = _audit_team(user)
+
+        # A wrong password surfaces as a raised AuthenticationFailed (DRF turns
+        # it into the 401), not as a returned response.
+        try:
+            response = super().post(request, *args, **kwargs)
+        except (AuthenticationFailed, InvalidToken):
+            AuditService.log(
+                actor=None, action=ActivityLog.Action.AUTH_LOGIN_FAILED, team=team,
+                description=f"Failed extension sign-in for {email}",
+                ip_address=_get_ip(request),
+            )
+            raise
+
+        if user is not None and user.must_change_password:
+            return Response(
+                {"detail": "Set your password on the Digivault dashboard first."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        AuditService.log(
+            actor=user, action=ActivityLog.Action.AUTH_LOGIN, team=team,
+            description="Signed in to the browser extension (password only)",
+            ip_address=_get_ip(request),
+        )
+        return response
+
+
 class FirstPasswordView(APIView):
     """POST /api/v1/auth/first-password/ — set the initial password for a user
     flagged must_change_password, using the pre-auth session key from login.
@@ -478,7 +567,6 @@ class TotpVerifyView(APIView):
 
 
 def _get_ip(request) -> str | None:
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR")
+    # Resolved once, by uvicorn — see apps/common/client_ip.py for why this
+    # no longer reads X-Forwarded-For itself.
+    return client_ip(request)

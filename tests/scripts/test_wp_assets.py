@@ -114,6 +114,23 @@ class TestDiffAssets:
         after = [s(P.format("wpforms", "1.8"))]
         assert diff_assets(before, after) == []
 
+    def test_unversioned_asset_does_not_replace_known_version(self):
+        before = [s(P.format("elementor-pro", "4.0.1"))]
+        after = [
+            s(P.format("elementor-pro", "4.0.1")),
+            s("https://site.example/wp-content/plugins/elementor-pro/js/loader.js"),
+        ]
+        events = diff_assets(before, after)
+        assert events == []
+
+    def test_highest_valid_version_wins_when_assets_disagree(self):
+        before = [s(P.format("elementor-pro", "4.0.1"))]
+        after = [
+            s(P.format("elementor-pro", "1.2.1")),
+            s(P.format("elementor-pro", "4.0.1")),
+        ]
+        assert diff_assets(before, after) == []
+
     def test_third_party_scripts_are_ignored_entirely(self):
         assert diff_assets(
             [s("https://connect.facebook.net/en_US/fbevents.js")],

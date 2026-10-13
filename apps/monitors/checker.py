@@ -40,13 +40,43 @@ _CLOUDFLARE_ORIGIN_ERRORS = {
 _ALLOWLIST_PAGE = "https://digivault.digilatics.co/bot"
 
 
+# Where each vendor's allowlist lives, because "allowlist our monitor" is a dead
+# end for a vendor that gives its customers no allowlist. SiteGround is the
+# case that forced this: its anti-bot has no customer-side setting at all, so
+# the only route is its support desk — and "set the expected status to 202"
+# would report the site up while it was down, since the challenge page is
+# served whatever state the origin is in.
+_VENDOR_FIX = {
+    "SiteGround": (
+        "SiteGround's bot protection has no customer allowlist: open a ticket "
+        "with SiteGround support asking them to allowlist our monitor's IP for "
+        "this site"
+    ),
+    "Cloudflare": (
+        "In Cloudflare, allowlist our monitor with a WAF custom rule that skips "
+        "bot protection for user-agent \"Digivault-Monitor\""
+    ),
+    "Wordfence": "In Wordfence → Firewall → Blocking, allowlist our monitor's IP",
+    "Sucuri": "In the Sucuri dashboard → Access Control, allowlist our monitor's IP",
+    "Imunify360": "Ask the host to allowlist our monitor's IP in Imunify360",
+}
+
+
 def _block_message(vendor: str, status_code: int) -> str:
     """Say who stopped us and what the operator can do about it."""
+    fix = _VENDOR_FIX.get(vendor) or (
+        "Ask the host to allowlist our monitor's IP — an answer this uniform "
+        "is usually a server firewall (Imunify360, CSF, ModSecurity) that has "
+        "blocked the IP rather than the site being down"
+    )
+    from apps.common.outbound import egress_ips
+
+    ips = egress_ips()
+    ip_text = f"our IP is {', '.join(ips)}" if ips else "our IP"
     return (
-        f"Blocked by {vendor} (HTTP {status_code}) — the edge answered, so the "
-        "site is serving visitors, but we could not reach the origin to confirm "
-        f"it. Allowlist our monitor ({_ALLOWLIST_PAGE}), or set this monitor's "
-        f"expected status to {status_code}."
+        f"Blocked by {vendor} (HTTP {status_code}) — we received the firewall's "
+        f"page, not the site's, so this is not an outage. {fix}; {ip_text}. "
+        f"Details: {_ALLOWLIST_PAGE}"
     )
 
 
@@ -139,6 +169,16 @@ def check_http(url: str, method: str = "GET", expected_status: int = 200,
         return {"status": "down", "response_time_ms": None, "status_code": None,
                 "error_message": _transport_message(exc, url, timeout)[:300]}
 
+    outcome = _classify_http(result, expected_status, keyword)
+    if result.host_fallback:
+        # The name we were given is not served but its www twin is. Report the
+        # twin's answer, and hand the working URL back so the caller can adopt
+        # it instead of failing a handshake on every check.
+        outcome["resolved_url"] = outbound.sibling_url(url)
+    return outcome
+
+
+def _classify_http(result, expected_status: int, keyword: str) -> dict:
     code = result.status_code
     elapsed = result.elapsed_ms
 
@@ -158,7 +198,7 @@ def check_http(url: str, method: str = "GET", expected_status: int = 200,
     vendor = result.blocked_by
     if vendor:
         return {"status": "blocked", "response_time_ms": elapsed, "status_code": code,
-                "error_message": _block_message(vendor, code)[:300]}
+                "error_message": _block_message(vendor, code)}
 
     if 200 <= code < 400:
         if _keyword_missing():
@@ -206,7 +246,32 @@ def check_port(host: str, port: int, timeout: int = 10) -> dict:
         return {"status": "down", "response_time_ms": None, "status_code": None, "error_message": str(e)[:300]}
 
 
+def _ssl_twin(url: str) -> str | None:
+    """The www-toggled form of an SSL monitor's target, in the form it was given."""
+    if url.startswith(("http://", "https://")):
+        return outbound.sibling_url(url)
+    twin = outbound.sibling_url(f"https://{url}")
+    return twin[len("https://"):] if twin else None
+
+
 def check_ssl(host: str, timeout: int = 10) -> dict:
+    result = _check_ssl(host, timeout)
+    if result["status"] != "down" or not result.pop("name_failure", False):
+        return result
+    # Same rule as check_http: a certificate served on only one of example.com
+    # and www.example.com is the site's setup, and the twin's certificate is the
+    # one visitors actually get.
+    twin = _ssl_twin(host)
+    if twin is None:
+        return result
+    twin_result = _check_ssl(twin, timeout)
+    if twin_result.pop("name_failure", False):
+        return result
+    twin_result["resolved_url"] = twin
+    return twin_result
+
+
+def _check_ssl(host: str, timeout: int = 10) -> dict:
     host = host.replace("https://", "").replace("http://", "").split("/")[0]
     try:
         ctx = ssl.create_default_context()
@@ -228,7 +293,11 @@ def check_ssl(host: str, timeout: int = 10) -> dict:
                 return {"status": "degraded", "response_time_ms": elapsed, "status_code": None, "error_message": f"SSL expires in {days_left} days"}
         return {"status": "up", "response_time_ms": elapsed, "status_code": None, "error_message": ""}
     except ssl.SSLError as e:
-        return {"status": "down", "response_time_ms": None, "status_code": None, "error_message": f"SSL error: {e}"}
+        return {"status": "down", "response_time_ms": None, "status_code": None,
+                "error_message": f"SSL error: {e}", "name_failure": True}
+    except (socket.gaierror, ConnectionRefusedError) as e:
+        return {"status": "down", "response_time_ms": None, "status_code": None,
+                "error_message": str(e)[:300], "name_failure": True}
     except Exception as e:
         return {"status": "down", "response_time_ms": None, "status_code": None, "error_message": str(e)[:300]}
 

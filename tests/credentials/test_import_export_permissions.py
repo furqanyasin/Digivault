@@ -78,7 +78,10 @@ def test_export_round_trips_through_import(owner, team):
     assert resp["Content-Type"].startswith("text/csv")
     body = resp.content.decode("utf-8-sig")
     assert "Acme WordPress" in body and "pw1" in body
-    assert "Website Credentials" in body and "Hosting & General" in body
+    # The exact type and the website link, not a two-value grouping the importer
+    # would have to guess back from.
+    assert "Acme WordPress,wordpress,acme.io," in body
+    assert "Hostinger,hostinger,," in body
 
     # Feeding the export straight back in updates, never duplicates.
     from django.core.files.uploadedfile import SimpleUploadedFile

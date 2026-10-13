@@ -19,22 +19,36 @@
   // scripts, forms and errors never reached the backend. fetch() with
   // credentials omitted matches the server's `*` policy; keepalive keeps the
   // page-unload survival that was sendBeacon's reason for existing.
-  function post(url, payload) {
+  // `onStatus`, when given, is called with the HTTP status once the response
+  // arrives. Only the heatmap uses it, and only to hear "stop": collection is
+  // opt-in per site and the server is the only thing that knows, since this
+  // file is one cached asset shared by every client site.
+  function post(url, payload, onStatus) {
     if (typeof fetch === 'function') {
       try {
-        fetch(url, {
+        var p = fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: payload,
           credentials: 'omit',
           keepalive: true
         });
+        if (onStatus && p && typeof p.then === 'function') {
+          p.then(function (res) {
+            try { onStatus(res.status); } catch (err) { }
+          }, function () { /* network error — say nothing, try again later */ });
+        }
         return;
       } catch (err) { /* fall through to XHR */ }
     }
     var xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
+    if (onStatus) {
+      xhr.onload = function () {
+        try { onStatus(xhr.status); } catch (err) { }
+      };
+    }
     xhr.send(payload);
   }
 
@@ -50,13 +64,64 @@
   // backend could not tell apart from those tags having been uninstalled.
   var seenScripts = {};
 
+  // Every URL the browser has fetched, from Resource Timing. A <script src> in
+  // the DOM is not proof the script runs here: markup inserted through
+  // innerHTML or DOMParser — a page that previews another site's HTML, a
+  // "check your tags" tool, a CMS rendering stored markup — carries <script>
+  // elements the browser never fetches or executes. Collected blindly, one such
+  // page reported another company's whole stack as this site's, then reported
+  // it removed when the preview changed, on repeat.
+  //
+  // `fetched` stays null (and every tag is trusted, the old behaviour) when the
+  // API is missing, or when the timeline buffer was already full before this
+  // snippet loaded, since entries dropped by a full buffer are unknowable.
+  var fetched = null;
+  try {
+    if (typeof PerformanceObserver === 'function' && window.performance &&
+        typeof performance.getEntriesByType === 'function') {
+      var buffered = performance.getEntriesByType('resource');
+      if (buffered.length < 250) {
+        fetched = {};
+        for (var r = 0; r < buffered.length; r++) fetched[stripHash(buffered[r].name)] = true;
+        new PerformanceObserver(function (list) {
+          var entries = list.getEntries();
+          for (var e = 0; e < entries.length; e++) fetched[stripHash(entries[e].name)] = true;
+        }).observe({ type: 'resource', buffered: true });
+      }
+    }
+  } catch (err) { fetched = null; }
+
+  function stripHash(url) {
+    var h = (url || '').indexOf('#');
+    return h === -1 ? url : url.slice(0, h);
+  }
+
+  // A consent manager parks a tag as <script type="text/plain" src=...> until
+  // the visitor opts in. It is installed, just not running for this visitor, so
+  // it is reported as present — the same answer the visitor who accepted gives.
+  function isExecutableType(t) {
+    var type = (t.getAttribute('type') || '').trim().toLowerCase();
+    return !type || type === 'module' || type.indexOf('javascript') !== -1 ||
+      type.indexOf('ecmascript') !== -1;
+  }
+
+  var awaitingFetch = false;
+
   function collectScripts() {
+    awaitingFetch = false;
     var tags = document.querySelectorAll('script');
     for (var i = 0; i < tags.length; i++) {
       var t = tags[i];
       var src = (t.src || '').trim();
       if (!src) continue;
       if (isWpCore(src)) continue;
+      // Not fetched (yet): either inert markup or still in flight. Skipped
+      // rather than remembered, so a slow async tag is picked up by a later post.
+      if (fetched && !seenScripts[src] && isExecutableType(t) &&
+          !fetched[stripHash(src)]) {
+        awaitingFetch = true;
+        continue;
+      }
       var loc = 'unknown';
       if (document.head && document.head.contains(t)) loc = 'head';
       else if (document.body && document.body.contains(t)) loc = 'body';
@@ -307,9 +372,29 @@
       scripts: scripts,
       forms: forms,
       user_agent: navigator.userAgent,
-      snippet_version: '1.12'
+      snippet_version: '1.14'
     });
     post(ingestUrl, payload);
+    sentScriptCount = scripts.length;
+    if (awaitingFetch) scheduleFetchRecheck();
+  }
+
+  // A tag GTM injects is posted 400ms after it appears, usually before its
+  // download has finished, so collectScripts skips it as not-yet-fetched. With
+  // no later mutation there would be no later post, and the tag would read as
+  // absent from the whole load. Re-check a few times and post only if something
+  // new has finished loading — inert markup that never loads costs no posts.
+  var sentScriptCount = 0;
+  var fetchRechecks = 0;
+  var fetchRecheckTimer = null;
+  function scheduleFetchRecheck() {
+    if (fetchRecheckTimer || fetchRechecks >= 5) return;
+    fetchRecheckTimer = setTimeout(function () {
+      fetchRecheckTimer = null;
+      fetchRechecks++;
+      if (collectScripts().length > sentScriptCount) send();
+      else if (awaitingFetch) scheduleFetchRecheck();
+    }, 2000);
   }
 
   var hasSent = false;
@@ -496,7 +581,10 @@
       if (!control) return;
       if (!isSubmitControl(control)) return;
       var desc = trackedFormFor(control);
-      if (desc) sendFormSubmission(desc);
+      if (desc) {
+        sendFormSubmission(desc);
+        beginFormWatch(control.form || null, desc);
+      }
     } catch (err) { /* never break the host page */ }
   }, true);
 
@@ -527,7 +615,13 @@
     return 'unknown';
   }
 
-  var FAILURE_RE = /(submission failed|failed to send|could not be sent|could not send|server error|internal error|error occurred|try again later|mail .{0,30}fail|smtp|\b50[0-4]\b)/i;
+  // Must stay in step with IMPORTANT_FORM_ERROR_KEYWORDS in
+  // apps/scripts/form_errors.py — the server filters again on the same phrases,
+  // so anything only one side knows about is either dropped silently or never
+  // sent. Every phrase here names a *delivery* failure; validation text ("this
+  // field is required", "there was a problem with your submission") is the
+  // visitor's problem, not the agency's, and is deliberately absent.
+  var FAILURE_RE = /(submission failed|failed to send|failed to submit|could not be sent|could not send|unable to send|sending failed|was not sent|were not sent|error submitting|server error|internal error|error occurred|try again later|mail .{0,30}fail|smtp|\b50[0-4]\b)/i;
 
   // Contact Form 7 fires explicit DOM events — the highest-quality signal.
   document.addEventListener('wpcf7mailfailed', function (e) {
@@ -538,30 +632,31 @@
 
   // Generic path: after any submit, watch newly rendered text for ~20s.
   var watchForm = null;
+  var watchDescriptor = null;
   var watchUntil = 0;
   var errObserver = null;
 
-  function checkErrorText(text) {
-    if (!text || Date.now() > watchUntil) return;
-    var t = String(text).trim();
-    // Skip empty fragments and whole-page containers — status messages are short.
-    if (t.length < 6 || t.length > 600) return;
-    if (FAILURE_RE.test(t)) {
-      var form = watchForm;
-      var fid = form ? (form.id || form.getAttribute('name') || '') : '';
-      sendFormError(formSource(form), fid, t.slice(0, 500));
-    }
+  // Torn down when the window closes rather than left attached for the life of
+  // the page: this observes the whole document subtree including character data,
+  // which on a single-page app or a long-lived tab is a permanent cost for a
+  // callback that can no longer report anything.
+  var watchTimer = null;
+
+  function stopFormWatch() {
+    watchTimer = null;
+    if (!errObserver) return;
+    try { errObserver.disconnect(); } catch (err) { }
+    errObserver = null;
   }
 
-  function scanNode(node) {
-    if (node.nodeType === 3) { checkErrorText(node.nodeValue); return; }
-    if (node.nodeType === 1) checkErrorText(node.textContent);
-  }
-
-  document.addEventListener('submit', function (e) {
-    watchForm = e.target && e.target.tagName === 'FORM' ? e.target : null;
+  function beginFormWatch(form, desc) {
+    watchForm = form || null;
+    watchDescriptor = desc || null;
     watchUntil = Date.now() + 20000;
-    if (watchForm) sendFormSubmission(trackedFormFor(watchForm) || null);
+    // A second submit inside the window extends it rather than starting a
+    // second observer.
+    if (watchTimer) clearTimeout(watchTimer);
+    watchTimer = setTimeout(stopFormWatch, 20500);
     if (errObserver || typeof MutationObserver === 'undefined') return;
     errObserver = new MutationObserver(function (mutations) {
       if (Date.now() > watchUntil) return;
@@ -572,6 +667,32 @@
       }
     });
     errObserver.observe(document.documentElement, { childList: true, characterData: true, subtree: true });
+  }
+
+  function checkErrorText(text) {
+    if (!text || Date.now() > watchUntil) return;
+    var t = String(text).trim();
+    // Skip empty fragments and whole-page containers — status messages are short.
+    if (t.length < 6 || t.length > 600) return;
+    if (FAILURE_RE.test(t)) {
+      var form = watchForm;
+      var desc = watchDescriptor;
+      var fid = desc ? (desc.form_id || desc.form_name || '') :
+        (form ? (form.id || form.getAttribute('name') || '') : '');
+      sendFormError(desc && desc.provider ? desc.provider : formSource(form), fid, t.slice(0, 500));
+    }
+  }
+
+  function scanNode(node) {
+    if (node.nodeType === 3) { checkErrorText(node.nodeValue); return; }
+    if (node.nodeType === 1) checkErrorText(node.textContent);
+  }
+
+  document.addEventListener('submit', function (e) {
+    watchForm = e.target && e.target.tagName === 'FORM' ? e.target : null;
+    var desc = watchForm ? trackedFormFor(watchForm) : null;
+    if (watchForm) sendFormSubmission(desc || null);
+    beginFormWatch(watchForm, desc);
   }, true);
 
   // ── Uncaught JavaScript errors ─────────────────────────────────────────────
@@ -621,7 +742,7 @@
         e && e.colno,
         err && err.stack
       );
-    } catch (_) {}
+    } catch (_) { }
   });
 
   window.addEventListener('unhandledrejection', function (e) {
@@ -629,7 +750,7 @@
       var r = e && e.reason;
       var msg = r && r.message ? r.message : String(r);
       sendJsError('Unhandled promise rejection: ' + msg, '', null, null, r && r.stack);
-    } catch (_) {}
+    } catch (_) { }
   });
 
   // ── Heatmap interaction tracking ─────────────────────────────────────────
@@ -646,6 +767,7 @@
   var heatmapCellEls = {};        // cell key -> best-effort element descriptor
   var heatmapTotalClicks = 0;
   var heatmapMaxVisible = 0;      // deepest page-fraction revealed, 0..1
+  var heatmapSentMaxVisible = -1; // deepest fraction already reported
   var heatmapLastMove = 0;
   var heatmapLastScroll = 0;
   // Rage-click burst tracker: rapid, repeated clicks on the same cell signal a
@@ -656,34 +778,146 @@
   var RAGE_THRESHOLD = 3;         // identical-cell clicks inside the window
   var RAGE_MAX_TRACKED = 500;     // guard against pathological bursting pages
 
+  // Both segment dimensions are properties of the *visit*, so they are resolved
+  // once at load and reused for every flush. visitor_type especially must not be
+  // recomputed: reading it is what marks the visitor as seen, so calling it
+  // again mid-visit would report the same pageview as "returning".
+  // (Function declarations hoist, so these run correctly despite being above
+  // the definitions.)
+  var heatmapVisitorBucket = heatmapVisitorType();
+  var heatmapSourceBucket = heatmapSource();
+
+  // ── opt-in gate ──────────────────────────────────────────────────────────
+  // Behaviour analytics is enabled per site in Digivault, the way Hotjar is.
+  // The authoritative gate is server-side (the ingest answers 204 and stores
+  // nothing), because this file is cached and shared by every client and so
+  // cannot be the thing that decides — but a disabled site should not be
+  // paying for listeners and timers either, so the first 204 of a visit
+  // disarms everything below and is remembered for the rest of the session.
+  //
+  // `data-heatmap="off"` on the script tag is a local override for anyone who
+  // wants the tag itself to say no. There is deliberately no "on" value: the
+  // dashboard toggle is the switch, and a page attribute that could turn
+  // collection *on* would put that decision back in the client's markup.
+  var HEATMAP_OFF_KEY = '_dv_hm_off_' + siteId;
+  var heatmapOff = (el.getAttribute('data-heatmap') || '').toLowerCase() === 'off';
+  var heatmapTimer = null;
+  if (!heatmapOff) {
+    try {
+      if (window.sessionStorage && sessionStorage.getItem(HEATMAP_OFF_KEY)) {
+        heatmapOff = true;
+      }
+    } catch (err) { /* blocked storage — probe once per page instead */ }
+  }
+
+  function heatmapDisarm() {
+    heatmapOff = true;
+    heatmapCells = {};
+    heatmapCellEls = {};
+    heatmapRageBurst = {};
+    heatmapTotalClicks = 0;
+    if (heatmapTimer) { clearTimeout(heatmapTimer); heatmapTimer = null; }
+    try {
+      if (window.sessionStorage) sessionStorage.setItem(HEATMAP_OFF_KEY, '1');
+    } catch (err) { }
+  }
+
+  // The server said "stop" (collection off) or "this site is gone". Anything
+  // else — a 5xx, a throttle, a network blip — is transient and must not
+  // disarm, or one bad minute would switch a customer's heatmap off until
+  // every visitor's session expired.
+  function heatmapOnStatus(status) {
+    if (status === 204 || status === 404) heatmapDisarm();
+  }
+
   function heatmapDevice() {
     var touch = ('ontouchstart' in window) ||
       (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
     return (touch && (window.innerWidth || 1024) < 1025) ? 'mobile' : 'desktop';
   }
 
+  // Full document height in CSS pixels. Every normalised y is a fraction of
+  // this, so the dashboard needs it too: without it the overlay has no idea
+  // what aspect ratio to draw at and has to ask a human to guess with a slider.
+  // Reported alongside viewport_width on every flush.
+  function heatmapPageHeight() {
+    var d = document.documentElement;
+    var b = document.body;
+    return Math.max(
+      (d ? d.scrollHeight : 0), (d ? d.offsetHeight : 0),
+      (b ? b.scrollHeight : 0), (b ? b.offsetHeight : 0),
+      window.innerHeight || 0,
+      1
+    );
+  }
+
+  function heatmapScrollTop() {
+    return window.scrollY || window.pageYOffset ||
+      (document.documentElement ? document.documentElement.scrollTop : 0) || 0;
+  }
+
   function heatmapCoords(clientX, clientY) {
     var vw = window.innerWidth || 1;
-    var docH = Math.max(
-      (document.documentElement ? document.documentElement.scrollHeight : 0),
-      (document.body ? document.body.scrollHeight : 0),
-      vw
-    );
-    var sc = window.scrollY || window.pageYOffset ||
-      (document.documentElement ? document.documentElement.scrollTop : 0);
+    var docH = heatmapPageHeight();
+    var sc = heatmapScrollTop();
     var x = Math.min(100, Math.max(0, Math.round(clientX / vw * 100)));
     var y = Math.min(100, Math.max(0, Math.round((clientY + sc) / docH * 100)));
     return { x: x, y: y };
   }
 
   function heatmapVisibleFraction() {
-    var docH = window.document && document.documentElement ?
-      document.documentElement.scrollHeight : document.body ? document.body.scrollHeight : 1;
+    var docH = heatmapPageHeight();
     if (docH <= 0) return 0;
-    var sc = window.scrollY || window.pageYOffset ||
-      (document.documentElement ? document.documentElement.scrollTop : 0);
-    var visibleBottom = sc + (window.innerHeight || 1);
+    var visibleBottom = heatmapScrollTop() + (window.innerHeight || 1);
     return Math.min(1, visibleBottom / docH);
+  }
+
+  // Returning visitors are those we have seen on this site before. A first-party
+  // localStorage flag is enough — this never leaves the origin and carries no
+  // identifier, it is a single boolean, so it needs no consent banner of its own.
+  function heatmapVisitorType() {
+    try {
+      var KEY = '_dv_seen';
+      if (window.localStorage && localStorage.getItem(KEY)) return 'returning';
+      if (window.localStorage) localStorage.setItem(KEY, '1');
+    } catch (err) { /* private mode / blocked storage — treat as new */ }
+    return 'new';
+  }
+
+  // Traffic source bucketed from the referrer, matching HeatmapActivity.Source.
+  // An explicit utm_medium wins over the referrer host: an emailed link often
+  // arrives with no referrer at all and would otherwise read as "direct".
+  var SOCIAL_HOSTS = /(facebook|instagram|twitter|x\.com|linkedin|pinterest|reddit|tiktok|youtube|t\.co|whatsapp|telegram)\./i;
+  var SEARCH_HOSTS = /(google|bing|yahoo|duckduckgo|yandex|baidu|ecosia|brave)\./i;
+
+  function heatmapSource() {
+    try {
+      var medium = '';
+      try {
+        medium = (new URLSearchParams(window.location.search).get('utm_medium') || '').toLowerCase();
+      } catch (err) { /* no URLSearchParams — fall through to the referrer */ }
+      if (medium) {
+        if (medium.indexOf('email') > -1 || medium === 'newsletter') return 'email';
+        if (medium.indexOf('social') > -1 || medium === 'paid_social') return 'social';
+        if (medium === 'organic') return 'organic';
+        if (medium === 'referral') return 'referral';
+      }
+      var ref = document.referrer || '';
+      if (!ref) return 'direct';
+      var host = '';
+      try { host = new URL(ref).hostname; } catch (err) { return 'direct'; }
+      if (!host) return 'direct';
+      // Same-site navigation is not a new source — keep the visit "direct"
+      // rather than reporting every internal click-through as a referral.
+      if (host.replace(/^www\./, '') === location.hostname.replace(/^www\./, '')) {
+        return 'direct';
+      }
+      if (SOCIAL_HOSTS.test(host)) return 'social';
+      if (SEARCH_HOSTS.test(host)) return 'organic';
+      return 'referral';
+    } catch (err) {
+      return 'direct';
+    }
   }
 
   function heatmapAdd(kind, x, y, el) {
@@ -725,15 +959,25 @@
     } catch (err) { return ''; }
   }
 
+  // Per-visit scroll reach: 1 for every depth band this visit actually revealed,
+  // absent for the rest. It is deliberately binary — the *share* of visitors who
+  // got this far is a property of the population, not of one visit, so it can
+  // only be computed server-side by averaging these across visits.
+  //
+  // This used to write `maxVisible` into every reached bucket, which made the
+  // 5% band and the 80% band report the identical number. The dashboard renders
+  // the histogram as a gradient, so a flat histogram painted a single flat
+  // colour and the scroll map could never show a drop-off.
   function heatmapBuildHistogram(maxVisible) {
     var h = {};
     for (var b = 5; b <= 100; b += 5) {
-      if (maxVisible >= b / 100) h['' + b] = Math.round(maxVisible * 1000) / 1000;
+      if (maxVisible >= b / 100) h['' + b] = 1;
     }
     return h;
   }
 
   function heatmapSend(final) {
+    if (heatmapOff) return;
     var keys = Object.keys(heatmapCells);
     var cells = [];
     // Cap the number of cells per payload defensively — the 100x100 grid means
@@ -751,16 +995,30 @@
     }
     // On the final flush of a silent page (no clicks/moves/scroll) still send,
     // so the page appears in the dashboard and counts one visit + scroll depth.
-    if (!final && cells.length === 0 && heatmapTotalClicks === 0 && heatmapMaxVisible <= 0) {
+    // Otherwise skip a flush that would tell the server nothing it has not
+    // already been told: no new cells, no new clicks, and no deeper scroll than
+    // the last post reported. Now that the timer actually repeats, without this
+    // an idle open tab would post an identical payload every two minutes for as
+    // long as it stayed open.
+    if (
+      !final && cells.length === 0 && heatmapTotalClicks === 0 &&
+      heatmapMaxVisible <= heatmapSentMaxVisible
+    ) {
       heatmapSchedule();
       return;
     }
+    heatmapSentMaxVisible = heatmapMaxVisible;
     var payload = JSON.stringify({
       site_id: siteId,
       page_url: window.location.href,
       device: heatmapDevice(),
+      visitor_type: heatmapVisitorBucket,
+      source: heatmapSourceBucket,
       user_agent: navigator.userAgent,
       viewport_width: window.innerWidth || 0,
+      // Lets the dashboard draw the overlay at the page's real aspect ratio
+      // instead of asking the operator to guess it.
+      page_height: heatmapPageHeight(),
       final: !!final,
       total_clicks: heatmapTotalClicks,
       max_scroll_percent: Math.round(heatmapMaxVisible * 100),
@@ -774,15 +1032,40 @@
     heatmapCells = {};
     heatmapCellEls = {};
     try {
-      post(heatmapUrl, payload);
+      post(heatmapUrl, payload, heatmapOnStatus);
     } catch (err) { /* never break the host page */ }
+    // Keep the timer running. This used to reschedule only on the early-return
+    // path above, so the *first* flush that actually carried data was also the
+    // last: everything a visitor did after their first fifteen seconds sat in
+    // the buffer until unload, and a session ended by closing the laptop or by
+    // a browser that skips `pagehide` lost all of it. A long read reported one
+    // burst of activity at the top of the page and nothing below the fold.
+    if (!final) heatmapSchedule();
   }
 
+  // Periodic flush keeps near-real-time data flowing without waiting for page
+  // unload. The interval widens as a visit goes on — most sessions are short,
+  // so the early flushes are the ones that matter, and a reader who stays for
+  // twenty minutes should not cost forty posts.
+  var HEATMAP_FLUSH_MIN_MS = 15000;
+  var HEATMAP_FLUSH_MAX_MS = 120000;
+  var heatmapFlushDelay = HEATMAP_FLUSH_MIN_MS;
+
   function heatmapSchedule() {
-    // Periodic flush keeps near-real-time data flowing without waiting for page
-    // unload. Rescheduled from heatmapSend when there was nothing to send yet.
-    setTimeout(function () { heatmapSend(false); }, 15000);
+    if (heatmapOff) return;
+    if (heatmapTimer) clearTimeout(heatmapTimer);
+    heatmapTimer = setTimeout(function () {
+      heatmapTimer = null;
+      heatmapSend(false);
+    }, heatmapFlushDelay);
+    heatmapFlushDelay = Math.min(heatmapFlushDelay * 2, HEATMAP_FLUSH_MAX_MS);
   }
+
+  // The handlers below all guard on `heatmapOff` because a disarm can arrive
+  // mid-visit, but a site already known to be off skips *registration* too:
+  // a capturing mousemove listener that only ever early-returns is still a
+  // capturing mousemove listener on someone else's page.
+  if (heatmapOff) return;
 
   // Clicks (also covers taps on touch devices). Beyond counting every click,
   // we watch for rage bursts — the same cell hit RAGE_THRESHOLD+ times inside
@@ -790,6 +1073,7 @@
   // spotlight the spots where visitors clearly got stuck or frustrated.
   document.addEventListener('click', function (e) {
     try {
+      if (heatmapOff) return;
       heatmapTotalClicks++;
       var c = heatmapCoords(e.clientX, e.clientY);
       var elTag = heatmapElementTag(e.target);
@@ -813,50 +1097,76 @@
       var tracked = 0;
       for (var k in heatmapRageBurst) { tracked++; if (tracked > RAGE_MAX_TRACKED) break; }
       if (tracked > RAGE_MAX_TRACKED) heatmapRageBurst = {};
-    } catch (err) {}
+    } catch (err) { }
   }, true);
 
   // Mouse movement, sampled ~every 120ms (Hotjar samples at 100ms). Desktop
   // only in practice — touch devices have no mousemove.
   document.addEventListener('mousemove', function (e) {
     try {
+      if (heatmapOff) return;
       var now = Date.now();
       if (now - heatmapLastMove < 120) return;
       heatmapLastMove = now;
       var c = heatmapCoords(e.clientX, e.clientY);
       heatmapAdd('move', c.x, c.y);
-    } catch (err) {}
+    } catch (err) { }
   }, true);
 
   // Scroll: keep the deepest page-fraction revealed.
   function heatmapOnScroll() {
     try {
+      if (heatmapOff) return;
       var now = Date.now();
       if (now - heatmapLastScroll < 300) return;
       heatmapLastScroll = now;
       var vf = heatmapVisibleFraction();
       if (vf > heatmapMaxVisible) heatmapMaxVisible = vf;
-    } catch (err) {}
+    } catch (err) { }
   }
   window.addEventListener('scroll', heatmapOnScroll, true);
   window.addEventListener('resize', heatmapOnScroll, true);
   // One immediate sample in case the page loads pre-scrolled (e.g. deep links).
   setTimeout(function () { heatmapOnScroll(); }, 2500);
 
-  // Periodic flush for freshness.
+  // Periodic flush for freshness. Also the probe that learns whether this site
+  // has behaviour analytics switched on at all — a disabled site gets one small
+  // 204 in its first fifteen seconds and then goes quiet for the whole session.
   heatmapSchedule();
 
   // Final flush on unload / backgrounding, carrying remaining cells and the
   // visit count. bfcache-safe: reload after a back/forward does not lose data.
-  var heatmapFlushedPagehide = false;
+  //
+  // `final` is what increments the page's visit counter, so it may be sent at
+  // most once per pageview — but a *flush* has to be able to happen every time
+  // the tab is hidden. Conflating the two meant the first tab-away ended
+  // collection for good: a visitor who checked their email and came back read
+  // the rest of the page with every click going nowhere, and a page opened in
+  // a background tab counted its visit before it was ever looked at.
+  var heatmapVisitCounted = false;
   function heatmapFlushFinal() {
-    if (heatmapFlushedPagehide) return;
-    heatmapFlushedPagehide = true;
-    heatmapSend(true);
+    if (heatmapOff) return;
+    var countThis = !heatmapVisitCounted;
+    heatmapVisitCounted = true;
+    heatmapSend(countThis);
   }
   window.addEventListener('pagehide', heatmapFlushFinal);
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'hidden') heatmapFlushFinal();
+    if (document.visibilityState === 'hidden') {
+      heatmapFlushFinal();
+    } else {
+      // Back in the foreground: restart the timer the flush above consumed,
+      // from the short end of the backoff since this is effectively a fresh
+      // stretch of reading.
+      heatmapFlushDelay = HEATMAP_FLUSH_MIN_MS;
+      heatmapSchedule();
+    }
   });
+
+  // ── nothing below this line ──────────────────────────────────────────────
+  // The heatmap section ends the snippet, and it opens with a `return` guard
+  // for sites that have collection switched off. Anything appended here would
+  // be skipped on those sites without a word — put new sections above the
+  // "Heatmap interaction tracking" banner instead.
 
 })();

@@ -29,6 +29,11 @@ class Website(BaseModel):
         WARNING = "warning", "Warning"
         CRITICAL = "critical", "Critical"
 
+    class SnippetStatus(models.TextChoices):
+        NOT_INSTALLED = "not_installed", "Not installed"
+        INSTALLED = "installed", "Installed"
+        STALE = "stale", "Stale"
+
     team = models.ForeignKey(
         "accounts.Team",
         on_delete=models.CASCADE,
@@ -54,7 +59,16 @@ class Website(BaseModel):
     )
     notes = models.TextField(blank=True)
     tags = models.JSONField(default=list, blank=True)
+    # Compatibility timestamp for browser snippet activity. Server-side scans
+    # must never update this value because monitoring liveness uses it.
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    snippet_status = models.CharField(
+        max_length=20,
+        choices=SnippetStatus.choices,
+        default=SnippetStatus.NOT_INSTALLED,
+    )
+    snippet_first_seen_at = models.DateTimeField(null=True, blank=True)
+    snippet_last_seen_at = models.DateTimeField(null=True, blank=True)
     health_score = models.IntegerField(default=100)
     # Flagship / high-value sites, surfaced in their own dashboard section.
     # Per-site rather than per-client: a client often has one site that matters
@@ -62,6 +76,27 @@ class Website(BaseModel):
     is_vip = models.BooleanField(
         default=False,
         help_text="Surface this site in the dashboard's VIP section.",
+    )
+
+    # Behaviour analytics is opt-in per site, the way Hotjar is opt-in per site.
+    # The tracking snippet is one file shared by every client, so before this
+    # flag existed every site carrying the snippet streamed click, move and
+    # scroll data into the heatmap tables — data an agency has no mandate to
+    # collect on a client who never asked for it, and which buried the one site
+    # being studied under every other site on the account.
+    #
+    # The gate is enforced server-side (`HeatmapIngestView` answers 204 and
+    # queues nothing), never by re-pasting the snippet: a re-paste campaign
+    # across every client is the most expensive thing this codebase can ask
+    # for, so the toggle has to take effect on the next pageview without one.
+    # The snippet reads that 204 as "stop" and disarms itself for the rest of
+    # the visit, which is an optimisation on top of the gate, not the gate.
+    heatmap_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Collect click / move / scroll behaviour for this site's heatmap. "
+            "Off by default — enable it per site."
+        ),
     )
 
     SEO_INTERVAL_CHOICES = [
@@ -109,6 +144,22 @@ class Website(BaseModel):
     # which is worth far more than a recipient address. Cleared when someone
     # corrects the credential (see Credential.set_password).
     wp_api_auth_failed_at = models.DateTimeField(null=True, blank=True)
+    # Which WP Connect snippet version this site is running. 0 = never reported,
+    # meaning either no snippet or a pre-v2 one that predates version reporting.
+    # Drives the rollout badge: a re-paste campaign across every client is
+    # impossible to run without knowing who is still on the old snippet.
+    wp_connect_version = models.IntegerField(default=0)
+    wp_connect_last_ack = models.DateTimeField(null=True, blank=True)
+    # Highest buffer row id accepted from this site. A batch starting above
+    # last_seq + 1 means a flush was lost, and we ask for a resend.
+    wp_connect_last_seq = models.BigIntegerField(default=0)
+    # The snippet's heartbeat fetches the homepage from the site's own server
+    # every five minutes. A host firewall that blocks our monitor's IP never
+    # sees that request, so it is uptime evidence for exactly the sites we
+    # cannot probe ourselves (see apps/monitors/evidence.py).
+    wp_connect_loopback_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    wp_connect_loopback_ms = models.PositiveIntegerField(null=True, blank=True)
+    wp_connect_loopback_at = models.DateTimeField(null=True, blank=True)
 
     objects = TeamScopedQuerySet.as_manager()
 
@@ -346,10 +397,22 @@ class Website(BaseModel):
     def wp_sso_snippet(self) -> str:
         """PHP code snippet enabling one-click wp-admin login, with this site's
         secret baked in. Empty until a secret is generated. Pasted into the
-        same WPCode/Code Snippets tool used for the tracking script — no plugin."""
+        same WPCode/Code Snippets tool used for the tracking script — no plugin.
+
+        From v2 it also carries the activity collector, so it needs the site_id
+        and the ingest URL baked in alongside the secret."""
+        from django.conf import settings
+
         from apps.websites.wp_sso_snippet import build_wp_sso_snippet
 
-        return build_wp_sso_snippet(self.wp_sso_secret)
+        cdn_base = getattr(
+            settings, "SNIPPET_CDN_URL", "https://cdn.digivault.digilatics.co"
+        ).rstrip("/")
+        return build_wp_sso_snippet(
+            self.wp_sso_secret,
+            site_id=self.site_id,
+            ingest_url=f"{cdn_base}/wp-activity/",
+        )
 
     @property
     def snippet_instructions(self) -> dict:

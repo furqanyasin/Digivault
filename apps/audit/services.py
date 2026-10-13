@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from apps.common.client_ip import client_ip
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,10 +19,17 @@ def site_meta(obj, **extra) -> dict:
     Returns just `extra` when the record isn't tied to a website (a team-level
     credential, say), so it is always safe to call.
     """
+    meta = dict(extra)
     website_id = getattr(obj, "website_id", None)
     if website_id:
-        return {**extra, "website_id": str(website_id)}
-    return dict(extra)
+        meta["website_id"] = str(website_id)
+    # A credential can belong to a client with no website (their Search
+    # Console, their registrar), so it carries the client too — that is what
+    # lets the Activity Log's client filter find it.
+    client_id = getattr(obj, "client_id", None)
+    if client_id:
+        meta["client_id"] = str(client_id)
+    return meta
 
 
 class AuditService:
@@ -95,7 +104,6 @@ class AuditService:
 
 
 def _get_ip(request) -> str | None:
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.META.get("REMOTE_ADDR")
+    # Resolved once, by uvicorn — see apps/common/client_ip.py for why this
+    # no longer reads X-Forwarded-For itself.
+    return client_ip(request)

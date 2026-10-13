@@ -19,6 +19,19 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    # See the longer note in docker-compose.production.cloudpanel.yml. Redis is
+    # the Celery broker as well as the cache, the result backend and the
+    # Channels layer, and it shipped with neither a volume nor a memory policy:
+    # a restart dropped the task backlog, every login session and every
+    # outbound cooldown. `noeviction` matters more than `appendonly` — an
+    # evicted key here is a task that never runs, not a cache miss.
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory ${REDIS_MAXMEMORY:-512mb}
+      --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -30,6 +43,10 @@ services:
       context: .
       args:
         REQ: production.txt
+        # Headless Chromium for heatmap backdrop screenshots (~400MB). See the
+        # note on the same arg in the cloudpanel compose file.
+        # On by default; WITH_CHROMIUM=0 in the deploy shell or `.env` turns it off.
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
     restart: always
     # See docker-compose.production.cloudpanel.yml — daphne's single process
     # serialised concurrent requests; uvicorn workers remove that ceiling.
@@ -37,12 +54,22 @@ services:
       sh -c "python manage.py migrate --settings=config.settings.production &&
              python manage.py collectstatic --noinput --settings=config.settings.production &&
              uvicorn config.asgi:application --host 0.0.0.0 --port 8000
-             --workers ${UVICORN_WORKERS:-4} --proxy-headers --forwarded-allow-ips='*'"
+             --workers ${UVICORN_WORKERS:-4} --proxy-headers --forwarded-allow-ips='${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}'"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
     expose:
       - "8000"
+    healthcheck:
+      # Readiness, not liveness: an api container that cannot reach Postgres
+      # should be marked unhealthy so a deploy stops rather than continuing to
+      # roll forward. Generous start_period because the entrypoint runs
+      # `migrate` and `collectstatic` before uvicorn binds.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready/', timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     env_file:
       - .env.production
     environment:
@@ -58,8 +85,99 @@ services:
       context: .
       args:
         REQ: production.txt
+        # Headless Chromium for heatmap backdrop screenshots (~400MB). See the
+        # note on the same arg in the cloudpanel compose file.
+        # On by default; WITH_CHROMIUM=0 in the deploy shell or `.env` turns it off.
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
     restart: always
-    command: celery -A config worker -l warning --concurrency=2
+    # Queues, not one worker for everything — see CELERY_TASK_ROUTES and the
+    # longer note in docker-compose.production.cloudpanel.yml. This service
+    # takes `ingest` plus the default `celery` queue; celery-monitors and
+    # celery-slow take the rest. A routed queue with no consumer never runs.
+    command: >
+      celery -A config worker -l warning
+      -Q ingest,celery -n ingest@%h
+      --concurrency=${CELERY_INGEST_CONCURRENCY:-4}
+    volumes:
+      # See the note on the same mount in the cloudpanel compose file: the
+      # worker writes report PDFs and heatmap screenshots to MEDIA_ROOT, and
+      # the api (and nginx) serve them back from this shared volume.
+      - media_files:/app/media
+    healthcheck:
+      # `celery inspect ping` asks this worker specifically (-d ingest@$$HOSTNAME),
+      # not "some worker somewhere" — without the destination a healthy sibling
+      # answers for a wedged one and the container never restarts.
+      test: ["CMD-SHELL", "celery -A config inspect ping -d ingest@$$HOSTNAME -t 10 > /dev/null"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-monitors:
+    build:
+      context: .
+      args:
+        REQ: production.txt
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
+    restart: always
+    # Uptime checks only: the most time-sensitive work in the product, and the
+    # least tolerant of queueing behind a report or a PageSpeed call.
+    command: >
+      celery -A config worker -l warning
+      -Q monitors -n monitors@%h
+      --concurrency=${CELERY_MONITORS_CONCURRENCY:-4}
+    healthcheck:
+      # `celery inspect ping` asks this worker specifically (-d monitors@$$HOSTNAME),
+      # not "some worker somewhere" — without the destination a healthy sibling
+      # answers for a wedged one and the container never restarts.
+      test: ["CMD-SHELL", "celery -A config inspect ping -d monitors@$$HOSTNAME -t 10 > /dev/null"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-slow:
+    build:
+      context: .
+      args:
+        REQ: production.txt
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
+    restart: always
+    # Everything nobody is waiting for: PageSpeed, whois, SEO walks, passive
+    # scans, Chromium captures, monthly PDFs, nightly purges.
+    command: >
+      celery -A config worker -l warning
+      -Q slow -n slow@%h
+      --concurrency=${CELERY_SLOW_CONCURRENCY:-2}
+    volumes:
+      - media_files:/app/media
+    healthcheck:
+      # `celery inspect ping` asks this worker specifically (-d slow@$$HOSTNAME),
+      # not "some worker somewhere" — without the destination a healthy sibling
+      # answers for a wedged one and the container never restarts.
+      test: ["CMD-SHELL", "celery -A config inspect ping -d slow@$$HOSTNAME -t 10 > /dev/null"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     env_file:
       - .env.production
     environment:
@@ -75,6 +193,10 @@ services:
       context: .
       args:
         REQ: production.txt
+        # Headless Chromium for heatmap backdrop screenshots (~400MB). See the
+        # note on the same arg in the cloudpanel compose file.
+        # On by default; WITH_CHROMIUM=0 in the deploy shell or `.env` turns it off.
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
     restart: always
     command: celery -A config beat -l warning -s /tmp/celerybeat-schedule
     env_file:
@@ -117,6 +239,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   static_files:
   media_files:
   certbot_www:

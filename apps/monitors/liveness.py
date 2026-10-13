@@ -57,7 +57,7 @@ def corroborate_liveness(monitor) -> tuple[bool, str]:
     """
     try:
         website = monitor.website
-        if website is None or not website.last_seen_at:
+        if website is None or not website.snippet_last_seen_at:
             return False, ""
 
         if monitor.consecutive_blocks >= _max_suppressed():
@@ -70,7 +70,7 @@ def corroborate_liveness(monitor) -> tuple[bool, str]:
             return False, ""
 
         window = _window_seconds()
-        age = (timezone.now() - website.last_seen_at).total_seconds()
+        age = (timezone.now() - website.snippet_last_seen_at).total_seconds()
         if age > window:
             return False, ""
 

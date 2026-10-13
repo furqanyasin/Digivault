@@ -18,12 +18,16 @@ class EmailDelivery:
     @staticmethod
     def send(notification) -> None:
         change = notification.script_change
-        subject = (
-            f"[Digivault] {notification.website.name}: "
-            f"{change.severity.upper()} alert"
-            if change
-            else f"[Digivault] {notification.website.name}: alert"
-        )
+        event = notification.site_event
+        if change:
+            subject = (
+                f"[Digivault] {notification.website.name}: "
+                f"{change.severity.upper()} alert"
+            )
+        elif event:
+            subject = f"[Digivault] {notification.website.name}: {event.summary}"
+        else:
+            subject = f"[Digivault] {notification.website.name}: alert"
         body = _build_email_body(notification)
         from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
         recipients = _team_email_recipients(notification.team)
@@ -33,26 +37,58 @@ class EmailDelivery:
         send_mail(subject, body, from_email, recipients, fail_silently=False)
 
 
+# Hosts a Slack webhook may live on. `slack_webhook_url` is a URLField any team
+# member can write — there is no role gate on creating an alert rule — and it
+# used to be handed straight to `urllib.request.urlopen` with the default
+# opener. That is a server-side request to an attacker-chosen address with
+# unguarded redirects: cloud metadata at 169.254.169.254, Redis, or this very
+# API on 127.0.0.1:8000 were all one alert away.
+#
+# The allowlist is the real fix — an SSRF sink with a fixed destination is not a
+# sink. Routing through `outbound.fetch` on top of it is defence in depth: it
+# re-applies the SSRF guard on every redirect hop, so a `hooks.slack.com` that
+# someone has persuaded to 302 elsewhere still goes nowhere.
+SLACK_WEBHOOK_HOSTS = frozenset({"hooks.slack.com"})
+
+
 class SlackDelivery:
     @staticmethod
     def send(notification) -> None:
-        import urllib.request, json as _json
+        import json as _json
+        from urllib.parse import urlsplit
+
+        from apps.common import outbound
 
         rule = notification.rule
         if not rule or not rule.slack_webhook_url:
             logger.warning("SlackDelivery: no webhook URL for notification %s", notification.pk)
             return
 
+        host = (urlsplit(rule.slack_webhook_url).hostname or "").lower()
+        if host not in SLACK_WEBHOOK_HOSTS:
+            # Refused, not attempted. Raising would retry the same rejected URL
+            # on a schedule; this is a configuration error, and the log names it.
+            logger.error(
+                "SlackDelivery: refusing webhook on non-Slack host %r (rule %s) — "
+                "only %s is accepted",
+                host, rule.pk, ", ".join(sorted(SLACK_WEBHOOK_HOSTS)),
+            )
+            return
+
         payload = _build_slack_payload(notification)
-        data = _json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
+        result = outbound.fetch(
             rule.slack_webhook_url,
-            data=data,
-            headers={"Content-Type": "application/json"},
+            method="POST",
+            timeout=10,
+            data=_json.dumps(payload).encode("utf-8"),
+            extra_headers={"Content-Type": "application/json"},
+            # Slack is a third-party API, not a customer origin: the per-host
+            # budget exists to keep us off client WAF blocklists and pacing
+            # alert delivery at one per 20 seconds would be actively wrong.
+            bypass_budget=True,
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"Slack webhook returned {resp.status}")
+        if result.status_code != 200:
+            raise RuntimeError(f"Slack webhook returned {result.status_code}")
 
 
 class ClickUpDelivery:
@@ -144,8 +180,32 @@ def _build_email_body(notification) -> str:
             lines.append(f"Before: {change.old_value}")
         if change.new_value:
             lines.append(f"After: {change.new_value}")
+    lines += _site_event_lines(notification)
     lines.append("\nView in Digivault dashboard to acknowledge this alert.")
     return "\n".join(lines)
+
+
+def _site_event_lines(notification) -> list[str]:
+    """Describe a WordPress activity event.
+
+    Who, and from where, is the whole point of the attributed log — an alert
+    saying only "something changed on acme.test" is the alert people learn to
+    ignore.
+    """
+    event = getattr(notification, "site_event", None)
+    if event is None:
+        return []
+    lines = [
+        f"Event: {event.get_event_type_display()}",
+        f"Severity: {event.severity.upper()}",
+        f"What: {event.summary}",
+    ]
+    if event.actor:
+        lines.append(f"Who: {event.actor}")
+    if event.actor_ip:
+        lines.append(f"From: {event.actor_ip}")
+    lines.append(f"When: {event.occurred_at:%Y-%m-%d %H:%M UTC}")
+    return lines
 
 
 def _build_clickup_comment(notification) -> str:
@@ -155,6 +215,7 @@ def _build_clickup_comment(notification) -> str:
         lines.append(f"{change.get_change_type_display()} — {change.severity.upper()}")
         if change.description:
             lines.append(change.description)
+    lines += _site_event_lines(notification)
     return "\n".join(lines)
 
 
@@ -166,6 +227,12 @@ def _build_slack_payload(notification) -> dict:
     text = f"*{notification.website.name}* — {notification.website.domain}"
     if change:
         text += f"\n*{change.get_change_type_display()}* — {change.description}"
+    event = getattr(notification, "site_event", None)
+    if event is not None:
+        text += f"\n*{event.get_event_type_display()}* — {event.summary}"
+        if event.actor:
+            text += f" (by {event.actor}"
+            text += f" from {event.actor_ip})" if event.actor_ip else ")"
 
     return {
         "attachments": [

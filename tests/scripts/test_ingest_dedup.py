@@ -40,6 +40,18 @@ def _ingest(website, page_url, scripts, forms=None):
     )
 
 
+def _server_scan(website, page_url):
+    process_ingest_payload(
+        str(website.site_id),
+        {
+            "page_url": page_url,
+            "scripts": [],
+            "forms": [],
+            "snippet_version": "server-scan",
+        },
+    )
+
+
 GTM = "https://www.googletagmanager.com/gtm.js?id=GTM-TEST"
 
 
@@ -53,17 +65,17 @@ class TestSiteWideChangeDedupe:
         assert Script.objects.filter(website=website).count() == 1
 
     def test_ver_bump_creates_no_change_and_no_new_script(self, website):
-        url = "https://cdn.widget.com/w.js?ver=1.0"
+        url = "https://scripts.whatconverts.com/7654.js?ver=1.0"
         _ingest(website, "https://ingdedup.io/a", [_script(url)])
         ScriptChange.objects.filter(website=website).delete()
 
         _ingest(website, "https://ingdedup.io/a",
-                [_script("https://cdn.widget.com/w.js?ver=2.0")])
+                [_script("https://scripts.whatconverts.com/7654.js?ver=2.0")])
 
         assert ScriptChange.objects.filter(website=website).count() == 0
         script = Script.objects.get(website=website)
-        assert script.normalized_url == "https://cdn.widget.com/w.js"
-        assert script.src_url == "https://cdn.widget.com/w.js?ver=2.0"
+        assert script.normalized_url == "https://scripts.whatconverts.com/7654.js"
+        assert script.src_url == "https://scripts.whatconverts.com/7654.js?ver=2.0"
 
     def test_seen_on_pages_stores_normalized_urls(self, website):
         _ingest(website, "https://www.ingdedup.io/contact/?utm_source=x", [_script(GTM)])
@@ -118,3 +130,24 @@ class TestScriptLastSeen:
         _ingest(website, "https://ingdedup.io/a", [_script(GTM)])
 
         assert Script.objects.get(website=website).last_seen_at > stale
+
+
+class TestSnippetActivity:
+    def test_browser_ingest_marks_snippet_reporting(self, website):
+        before = timezone.now()
+
+        _ingest(website, "https://ingdedup.io/a", [_script(GTM)])
+
+        website.refresh_from_db()
+        assert website.snippet_status == Website.SnippetStatus.INSTALLED
+        assert website.snippet_first_seen_at >= before
+        assert website.snippet_last_seen_at == website.last_seen_at
+
+    def test_server_scan_does_not_mark_snippet_reporting(self, website):
+        _server_scan(website, "https://ingdedup.io/")
+
+        website.refresh_from_db()
+        assert website.snippet_status == Website.SnippetStatus.NOT_INSTALLED
+        assert website.snippet_first_seen_at is None
+        assert website.snippet_last_seen_at is None
+        assert website.last_seen_at is None

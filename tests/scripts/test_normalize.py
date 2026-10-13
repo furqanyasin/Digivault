@@ -205,8 +205,10 @@ class TestTimestampedPathSegments:
 
     def test_hubspot_analytics_timestamp_is_volatile(self):
         assert (
+            # A monitored vendor's file is keyed by the tag it belongs to — the
+            # portal's loader — so the epoch segment cannot split it either.
             normalize_script_url("https://js.hs-analytics.net/analytics/1785996600000/46377927.js")
-            == "https://js.hs-analytics.net/analytics/46377927.js"
+            == "https://js.hs-scripts.com/46377927.js"
         )
 
     def test_every_rotation_yields_the_same_identity(self):
@@ -266,7 +268,17 @@ class TestMetaPixelRuntimeParams:
         b = normalize_script_url("https://connect.facebook.net/signals/config/123?v=2.9.371")
         assert a == b == "https://connect.facebook.net/signals/config/123"
 
-    def test_experiment_list_is_volatile(self):
+    def test_nothing_in_the_querystring_is_identity(self):
+        """The pixel id is in the path, so every param drops — not just `ex_m`.
+
+        This used to assert that `domain=` and `r=` survived, which was the
+        denylist's behaviour before `connect.facebook.net` was moved into
+        `_IDENTITY_PARAMS` with an empty set. Keeping `r=` is what split one
+        pixel across three rows — Meta serves the config from `r=stable` and
+        `r=c2`, plus an occasional `im=1` — each of which then took its turn
+        going missing and produced a fabricated "Meta Pixel URL changed" every
+        couple of days.
+        """
         out = normalize_script_url(
             "https://connect.facebook.net/signals/config/7847387958713764"
             "?v=2.9.370&r=stable&domain=digilatics.com"
@@ -275,8 +287,16 @@ class TestMetaPixelRuntimeParams:
         )
         assert out == (
             "https://connect.facebook.net/signals/config/7847387958713764"
-            "?domain=digilatics.com&r=stable"
         )
+
+    def test_release_channel_does_not_split_one_pixel(self):
+        stable = normalize_script_url(
+            "https://connect.facebook.net/signals/config/123?r=stable"
+        )
+        c2 = normalize_script_url(
+            "https://connect.facebook.net/signals/config/123?r=c2&im=1"
+        )
+        assert stable == c2 == "https://connect.facebook.net/signals/config/123"
 
 
 class TestLibraryVersionPathSegments:

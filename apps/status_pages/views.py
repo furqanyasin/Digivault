@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import IsTeamMember
+from apps.common.permissions import IsTeamMember, TeamRolePermission
 from apps.monitors.models import Monitor
 from apps.status_pages.models import (
     MaintenanceWindow,
@@ -23,7 +23,7 @@ from apps.status_pages.serializers import (
 class _PageScopedChildMixin:
     """Shared team-scoped access to a status page's child objects."""
 
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
     child_model = None
     child_related = None  # related_name on StatusPage
     # Audit action codes set per subclass.
@@ -130,7 +130,7 @@ class StatusPageListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
 
     queryset = StatusPage.objects.all()
     serializer_class = StatusPageSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def perform_create(self, serializer):
         from apps.audit.models import ActivityLog
@@ -148,7 +148,7 @@ class StatusPageDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIVie
 
     queryset = StatusPage.objects.all()
     serializer_class = StatusPageSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def perform_destroy(self, instance):
         from apps.audit.models import ActivityLog
@@ -167,7 +167,7 @@ class StatusPageMonitorListCreateView(generics.ListCreateAPIView):
     """
 
     serializer_class = StatusPageMonitorSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def _get_page(self):
         team = self.request.user.active_team
@@ -193,7 +193,7 @@ class StatusPageMonitorDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v1/status-pages/<page_pk>/monitors/<pk>/"""
 
     serializer_class = StatusPageMonitorSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team

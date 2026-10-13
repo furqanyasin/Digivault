@@ -23,7 +23,7 @@ function statusInfo(s: StatusPage["overall_status"]) {
 export default async function StatusPagesPage() {
   const token = await getAccessToken();
   const pages = await api
-    .get<StatusPage[]>("/api/v1/status-pages/", token ?? "")
+    .getAll<StatusPage>("/api/v1/status-pages/", token ?? "")
     .catch(() => [] as StatusPage[]);
 
   return (

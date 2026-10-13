@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Users, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InvitationAcceptClient } from "@/components/invitation-accept-client";
+import { roleLabel } from "@/lib/roles";
 
 interface InviteData {
   id: string;
@@ -48,7 +49,7 @@ export default async function InvitePage({
           <CardContent className="space-y-3">
             <Row label="Team" value={invite.team_name} />
             <Row label="Your email" value={invite.email} mono />
-            <Row label="Role" value={invite.role} capitalize />
+            <Row label="Role" value={roleLabel(invite.role)} />
             <Row label="Invited by" value={invite.invited_by} />
           </CardContent>
         </Card>

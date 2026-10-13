@@ -130,29 +130,49 @@ def merge_duplicate_forms(detected_form_model) -> int:
 
     groups: dict[tuple, list] = defaultdict(list)
     for form in detected_form_model.objects.all().order_by("first_seen_at"):
-        fingerprint = DetectedForm.compute_fingerprint({
-            "detection_type": form.detection_type,
-            "form_id": form.form_id,
-            "form_name": form.form_name,
-            "form_action": form.form_action,
-            "fields": form.fields or [],
-        })
+        # The row's own page is what its action resolves against, so a scan-
+        # written row whose stored action is "" or "/submit" recomputes to the
+        # same identity as the browser-written row for the same form.
+        fingerprint = DetectedForm.compute_fingerprint(
+            {
+                "detection_type": form.detection_type,
+                "form_id": form.form_id,
+                "form_name": form.form_name,
+                "form_action": form.form_action,
+                "fields": form.fields or [],
+            },
+            form.page_url,
+        )
         groups[(form.website_id, form.page_url, fingerprint)].append(form)
 
     deleted = 0
-    for (_, _, fingerprint), dupes in groups.items():
+    for (_, page_url, fingerprint), dupes in groups.items():
         keeper, rest = dupes[0], dupes[1:]
         submissions = sum(d.submission_count or 0 for d in dupes)
         last_submission = max(
             (d.last_submission_at for d in dupes if d.last_submission_at), default=None
         )
         last_seen = max((d.last_seen_at for d in dupes if d.last_seen_at), default=None)
+        # The keeper is the earliest row, which on a scan/browser pair is often
+        # the one that read nothing: the scan's regex extractor skips inputs
+        # without a `name` and cannot see a JS-rendered form at all. Merging onto
+        # its empty descriptor would throw away the fields and the resolved
+        # action the browser did report, so take the richest reading in the
+        # group — the same "an absence is not evidence" rule `_upsert_form` and
+        # `_apply_page_recipients` apply on the way in.
+        fields = max((d.fields or [] for d in dupes), key=len)
+        action = next(
+            (d.form_action for d in dupes if d.form_action and d.form_action != page_url),
+            keeper.form_action or page_url,
+        )
         for dup in rest:
             dup.delete()
             deleted += 1
         # .update() bypasses auto_now on last_seen_at, preserving the true value.
         detected_form_model.objects.filter(pk=keeper.pk).update(
             fingerprint=fingerprint,
+            form_action=action,
+            fields=fields,
             submission_count=submissions,
             last_submission_at=last_submission,
             last_seen_at=last_seen,

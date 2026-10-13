@@ -210,17 +210,27 @@ class TestExtractForms:
 @pytest.mark.django_db
 class TestScanQueuesForms:
     def _patch_fetch(self, html):
-        resp = Mock()
-        resp.status_code = 200
-        resp.text = html
-        resp.url = "https://example.com/"
-        resp.headers = {}
-        return resp
+        """The shared outbound client's result, not a `requests` response.
+
+        `scan` used to call `requests.get` directly, skipping the per-host
+        budget, the cooldown and the SSRF guard that `outbound` re-applies on
+        every redirect hop. Patching `outbound.fetch` keeps that fixed: a
+        rewrite that reaches for `requests` again stops being covered here.
+        """
+        from apps.common.outbound import FetchResult
+
+        return FetchResult(
+            status_code=200,
+            body=html,
+            headers={},
+            elapsed_ms=12,
+            final_url="https://example.com/",
+        )
 
     def _scan(self, auth_client, website, html):
         resp = self._patch_fetch(html)
         ingest_mock = Mock()
-        with patch("requests.get", return_value=resp), \
+        with patch("apps.websites.views.outbound.fetch", return_value=resp), \
              patch("apps.scripts.tasks.process_ingest_payload", ingest_mock), \
              patch("apps.site_health.tasks.run_security_scan"), \
              patch("apps.site_health.tasks.run_seo_check"):
@@ -229,7 +239,17 @@ class TestScanQueuesForms:
 
     def _website(self, team):
         from apps.websites.models import Website
-        return Website.objects.create(team=team, name="Example", domain="example.com")
+
+        # `snippet_status` must be INSTALLED or the endpoint answers 409 before
+        # it fetches anything. That gate was added to `scan` well after these
+        # tests were written and the fixture was never updated, so all three
+        # have been failing since — invisibly, because nothing runs the suite.
+        return Website.objects.create(
+            team=team,
+            name="Example",
+            domain="example.com",
+            snippet_status=Website.SnippetStatus.INSTALLED,
+        )
 
     def test_scan_payload_includes_forms(self, auth_client, team):
         website = self._website(team)

@@ -1,7 +1,7 @@
 """Real visitors outrank our probe.
 
-The platform already records `website.last_seen_at` on every ingest, and ingest
-arrives from a real browser loading the client's page. If our single-IP probe
+The platform records `website.snippet_last_seen_at` when a real browser loads
+the client's page. If our single-IP probe
 cannot reach a site that was serving people ninety seconds ago, the site is up
 and we are the ones being blocked.
 """
@@ -49,7 +49,7 @@ def monitor(team, website):
 
 def _seen(website, seconds_ago):
     Website.objects.filter(pk=website.pk).update(
-        last_seen_at=timezone.now() - timezone.timedelta(seconds=seconds_ago)
+        snippet_last_seen_at=timezone.now() - timezone.timedelta(seconds=seconds_ago)
     )
 
 
@@ -78,7 +78,7 @@ def test_stale_last_seen_does_not_corroborate(monitor, website):
 
 @pytest.mark.django_db
 def test_website_never_seen_does_not_corroborate(monitor, website):
-    Website.objects.filter(pk=website.pk).update(last_seen_at=None)
+    Website.objects.filter(pk=website.pk).update(snippet_last_seen_at=None)
     monitor.refresh_from_db()
     assert corroborate_liveness(monitor)[0] is False
 

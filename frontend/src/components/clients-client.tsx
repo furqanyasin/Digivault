@@ -16,6 +16,7 @@ import {
   HOSTING_OPTIONS, ACCESS_LEVEL_OPTIONS,
 } from "@/lib/client-fields";
 import { cn } from "@/lib/utils";
+import { ClientRowMenu } from "@/components/client-row-menu";
 import type { ClientRecord } from "@/app/(dashboard)/clients/page";
 
 const HOSTING_LABELS: Record<string, string> = {
@@ -36,15 +37,20 @@ const COLUMN_COUNT = 11;
 /* ---------------------------------------------------------------------------
    Sticky geometry.
 
-   Three sticky layers overlap in this table, so the z-order is explicit: the
-   corner cells (pinned both ways) sit above the header rows, which sit above
-   the pinned first column, or they overlap during diagonal scrolling. Every
-   sticky cell needs an opaque background or rows show through underneath.
+   Horizontal only. The page is what scrolls vertically, and the table wrapper
+   that owns the sideways scroll is exactly as tall as the table — so a
+   `sticky top-0` header would pin to the top of its own wrapper and never
+   move. There is nothing for it to stick to, so it isn't declared; the header
+   scrolls away with the rows. Restoring a sticky header means restoring a
+   fixed-height scroll pane around the table, not adding `top-0` back.
 
-   The header is two rows — labels, then filter controls — so the labels align
-   across columns instead of each cell sizing itself around whatever control it
-   carries. The filter row pins directly under the label row, hence top-9
-   matching the label row's h-9.
+   What remains is the pinned first column: header cells pin at z-30 so they
+   stay above the pinned body cells (z-10) during horizontal scrolling. Every
+   pinned cell needs an opaque background or rows show through underneath.
+
+   The header is still two rows — labels, then filter controls — so the labels
+   align across columns instead of each cell sizing itself around whatever
+   control it carries.
    --------------------------------------------------------------------------- */
 const CLIENT_COL = "min-w-[264px] w-[264px] max-w-[264px]";
 /** Table auto-layout treats a cell's `width` as a suggestion and grows the
@@ -59,14 +65,14 @@ const PIN_EDGE = "after:absolute after:inset-y-0 after:right-0 after:w-px after:
 
 const HEAD_CELL =
   "h-9 bg-muted px-4 align-middle whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
-const HEAD_LABEL = `sticky top-0 z-20 ${HEAD_CELL}`;
-const HEAD_LABEL_PINNED = `sticky left-0 top-0 z-30 ${HEAD_CELL} ${CLIENT_COL} ${PIN_EDGE}`;
+const HEAD_LABEL = HEAD_CELL;
+const HEAD_LABEL_PINNED = `sticky left-0 z-30 ${HEAD_CELL} ${CLIENT_COL} ${PIN_EDGE}`;
 
 /** Inset shadow rather than border-b for the same collapsed-border reason. */
 const FILTER_CELL =
   "h-12 bg-muted px-4 py-0 align-middle shadow-[inset_0_-1px_0_var(--border)]";
-const FILTER_ROW = `sticky top-9 z-20 ${FILTER_CELL}`;
-const FILTER_ROW_PINNED = `sticky left-0 top-9 z-30 ${FILTER_CELL} ${CLIENT_COL} ${PIN_EDGE}`;
+const FILTER_ROW = FILTER_CELL;
+const FILTER_ROW_PINNED = `sticky left-0 z-30 ${FILTER_CELL} ${CLIENT_COL} ${PIN_EDGE}`;
 
 /** Body cells inherit the row's background so the pinned column picks up the
  *  zebra stripe and the hover tint instead of punching a flat card-coloured
@@ -390,20 +396,29 @@ export function ClientsClient({ initialClients }: Props) {
     }
   }
 
+  /** Reload after a row action. A delete that emptied the current page steps
+   *  back one, so the table never shows a blank page the pager says exists. */
+  async function handleRowChanged(what: "deleted" | "status") {
+    const next = what === "deleted" && pageClients.length === 1 && page > 1 ? page - 1 : page;
+    if (next !== page) setPage(next);
+    await fetchClients(next, pageSize, "", statusFilter);
+  }
+
   function handleStatusFilter(s: "" | "active" | "paused" | "offboarded") {
     setStatusFilter(s);
     setPage(1);
   }
 
   return (
-    // Viewport-tall column that never scrolls itself — only the table pane
-    // below does. That keeps the table's horizontal scrollbar at the bottom of
-    // the screen instead of below the last row, where 100 rows put it off
-    // screen. h-dvh (not h-screen) so mobile browser chrome can't push the
-    // scrollbar out of view.
-    // Height subtracts the chat safe area that <main> pads by, so the two add
-    // back up to exactly one viewport and the page still never scrolls.
-    <div className="h-[calc(100dvh-var(--chat-safe-area))] flex flex-col overflow-hidden p-8 gap-5">
+    // The page scrolls, not a pane inside it: every row of the current page
+    // renders at its natural height and the browser window is what you scroll.
+    // The cost is that the table's horizontal scrollbar lives below the last
+    // row rather than pinned to the bottom of the screen, and the header
+    // scrolls away with the rows — both follow from the table wrapper, rather
+    // than a fixed-height pane, owning the horizontal overflow (see <Table>).
+    // <main> already pads by the chat safe area, so the launcher cannot cover
+    // the pagination controls at the end of the list.
+    <div className="flex flex-col p-8 gap-5">
       <div className="shrink-0 flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
@@ -440,15 +455,13 @@ export function ClientsClient({ initialClients }: Props) {
         <p className="shrink-0 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2">{importMsg}</p>
       )}
 
-      {/* One card holds the whole table surface: toolbar, scrolling grid, and
-          pagination. Splitting them across three floating blocks was what made
-          the page read as unfinished.
+      {/* One card holds the whole table surface: toolbar, grid, and pagination.
+          Splitting them across three floating blocks was what made the page read
+          as unfinished.
 
-          min-h-0 on the Card and the scroll pane is load-bearing: flex items
-          default to min-height:auto and refuse to shrink below their content, so
-          without it the Card grows to the full height of every row and the inner
-          overflow-auto never engages. */}
-      <Card className="flex-1 min-h-0 flex flex-col overflow-hidden py-0 gap-0">
+          overflow-hidden is for corner clipping only — the card is as tall as its
+          rows and scrolls nothing. */}
+      <Card className="flex flex-col overflow-hidden py-0 gap-0">
         {/* Toolbar */}
         <div className="shrink-0 flex flex-wrap items-center gap-3 border-b px-4 py-3">
           <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
@@ -488,217 +501,213 @@ export function ClientsClient({ initialClients }: Props) {
           </div>
         </div>
 
-        <CardContent className="p-0 flex-1 min-h-0">
-          {/* The client name is pinned left and everything else scrolls, so a
-              row stays identifiable however far across you are. The scroll lives
-              on this pane — not the page — so the sidebar and toolbar never
-              move. */}
-          <div className="h-full overflow-auto">
-            {/* overflow-visible on Table's own wrapper is required: by default it
-                is a scroll container as tall as every row, so it would own the
-                horizontal scrollbar and park it below the last row. Opting out
-                hands both scroll axes to the pane above. */}
-            <Table wrapperClassName="overflow-visible" className="min-w-[1500px]">
-              <TableHeader className="[&_tr]:border-b-0">
+        <CardContent className="p-0">
+          {/* The client name is pinned left and everything else scrolls
+              horizontally, so a row stays identifiable however far across you
+              are. That sideways scroll is the <Table> wrapper's default
+              overflow-auto; vertical scrolling belongs to the page. */}
+          <Table className="min-w-[1500px]">
+            <TableHeader className="[&_tr]:border-b-0">
+              <TableRow className="hover:bg-transparent">
+                <TableHead className={HEAD_LABEL_PINNED}>Client</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[120px]`}>Package</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[250px]`}>Departments</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[140px]`}>Hosting</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[140px]`}>Hosting renewal</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[200px]`}>Domain access</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[150px]`}>Website access</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[130px]`}>Built by us</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[150px]`}>Maintained by us</TableHead>
+                <TableHead className={`${HEAD_LABEL} min-w-[110px]`}>Status</TableHead>
+                <TableHead className={`${HEAD_LABEL} w-24 text-right`}>Actions</TableHead>
+              </TableRow>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className={FILTER_ROW_PINNED}>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="search"
+                      aria-label="Filter by client name or domain"
+                      placeholder="Search name or domain…"
+                      value={colFilters.name}
+                      onChange={(e) => setColFilter("name", e.target.value)}
+                      className={`${FILTER_CONTROL} pl-7`}
+                    />
+                  </div>
+                </TableHead>
+                <TableHead className={FILTER_ROW}>
+                  <FilterSelect
+                    label="Package" value={colFilters.tier}
+                    onChange={(v) => setColFilter("tier", v)} options={TIER_OPTIONS}
+                  />
+                </TableHead>
+                <TableHead className={FILTER_ROW}>
+                  <FilterSelect
+                    label="Departments" value={colFilters.department}
+                    onChange={(v) => setColFilter("department", v)} options={DEPARTMENT_OPTIONS}
+                  />
+                </TableHead>
+                <TableHead className={FILTER_ROW}>
+                  <FilterSelect
+                    label="Hosting" value={colFilters.hosting}
+                    onChange={(v) => setColFilter("hosting", v)} options={HOSTING_OPTIONS}
+                  />
+                </TableHead>
+                <TableHead className={FILTER_ROW} />
+                <TableHead className={FILTER_ROW} />
+                <TableHead className={FILTER_ROW}>
+                  <FilterSelect
+                    label="Website Access" value={colFilters.access}
+                    onChange={(v) => setColFilter("access", v)} options={ACCESS_LEVEL_OPTIONS}
+                  />
+                </TableHead>
+                <TableHead className={FILTER_ROW} />
+                <TableHead className={FILTER_ROW} />
+                <TableHead className={FILTER_ROW} />
+                <TableHead className={FILTER_ROW} />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading && (
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className={HEAD_LABEL_PINNED}>Client</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[120px]`}>Package</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[250px]`}>Departments</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[140px]`}>Hosting</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[140px]`}>Hosting renewal</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[200px]`}>Domain access</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[150px]`}>Website access</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[130px]`}>Built by us</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[150px]`}>Maintained by us</TableHead>
-                  <TableHead className={`${HEAD_LABEL} min-w-[110px]`}>Status</TableHead>
-                  <TableHead className={`${HEAD_LABEL} w-20 text-right`}>Edit</TableHead>
+                  <TableCell colSpan={COLUMN_COUNT} className="py-16 text-center text-sm text-muted-foreground">
+                    Loading clients…
+                  </TableCell>
                 </TableRow>
+              )}
+              {!loading && pageClients.length === 0 && (
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className={FILTER_ROW_PINNED}>
-                    <div className="relative">
-                      <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                      <input
-                        type="search"
-                        aria-label="Filter by client name or domain"
-                        placeholder="Search name or domain…"
-                        value={colFilters.name}
-                        onChange={(e) => setColFilter("name", e.target.value)}
-                        className={`${FILTER_CONTROL} pl-7`}
-                      />
+                  <TableCell colSpan={COLUMN_COUNT} className="py-16">
+                    <div className="flex flex-col items-center gap-2 text-center">
+                      <div className="rounded-full bg-muted p-3">
+                        <Users className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm font-medium">No clients match these filters</p>
+                      <p className="text-sm text-muted-foreground">
+                        Clear a filter above, or add a client to get started.
+                      </p>
                     </div>
-                  </TableHead>
-                  <TableHead className={FILTER_ROW}>
-                    <FilterSelect
-                      label="Package" value={colFilters.tier}
-                      onChange={(v) => setColFilter("tier", v)} options={TIER_OPTIONS}
-                    />
-                  </TableHead>
-                  <TableHead className={FILTER_ROW}>
-                    <FilterSelect
-                      label="Departments" value={colFilters.department}
-                      onChange={(v) => setColFilter("department", v)} options={DEPARTMENT_OPTIONS}
-                    />
-                  </TableHead>
-                  <TableHead className={FILTER_ROW}>
-                    <FilterSelect
-                      label="Hosting" value={colFilters.hosting}
-                      onChange={(v) => setColFilter("hosting", v)} options={HOSTING_OPTIONS}
-                    />
-                  </TableHead>
-                  <TableHead className={FILTER_ROW} />
-                  <TableHead className={FILTER_ROW} />
-                  <TableHead className={FILTER_ROW}>
-                    <FilterSelect
-                      label="Website Access" value={colFilters.access}
-                      onChange={(v) => setColFilter("access", v)} options={ACCESS_LEVEL_OPTIONS}
-                    />
-                  </TableHead>
-                  <TableHead className={FILTER_ROW} />
-                  <TableHead className={FILTER_ROW} />
-                  <TableHead className={FILTER_ROW} />
-                  <TableHead className={FILTER_ROW} />
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading && (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={COLUMN_COUNT} className="py-16 text-center text-sm text-muted-foreground">
-                      Loading clients…
-                    </TableCell>
-                  </TableRow>
-                )}
-                {!loading && pageClients.length === 0 && (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={COLUMN_COUNT} className="py-16">
-                      <div className="flex flex-col items-center gap-2 text-center">
-                        <div className="rounded-full bg-muted p-3">
-                          <Users className="h-5 w-5 text-muted-foreground" />
-                        </div>
-                        <p className="text-sm font-medium">No clients match these filters</p>
-                        <p className="text-sm text-muted-foreground">
-                          Clear a filter above, or add a client to get started.
-                        </p>
+              )}
+              {!loading && pageClients.map((c) => (
+                <TableRow
+                  key={c.id}
+                  className={cn(
+                    // Zebra stripe carries the eye across eleven columns, and
+                    // the pinned cell picks it up via bg-inherit so it stripes
+                    // and highlights with the rest of the row.
+                    //
+                    // Every one of these must be FULLY OPAQUE. An alpha value
+                    // (bg-muted/40) reaches the pinned cell as a translucent
+                    // background and the scrolling columns then show through
+                    // it. muted/accent are opaque and correctly spaced in
+                    // light mode; in dark mode they sit far enough from card
+                    // to band the table, so the dark steps are opaque colours
+                    // picked to land between the two — not alpha.
+                    "bg-card even:bg-muted hover:bg-accent",
+                    "dark:even:bg-[oklch(0.215_0.014_290)] dark:hover:bg-[oklch(0.25_0.035_290)]",
+                    c.status === "offboarded" && "[&>td]:text-muted-foreground"
+                  )}
+                >
+                  <TableCell className={`${BODY_PINNED} py-2.5`}>
+                    <div className="flex items-center gap-3">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-semibold uppercase",
+                          monogramTone(c.name || c.domain || c.id)
+                        )}
+                      >
+                        {(c.name || c.domain || "?").charAt(0)}
+                      </span>
+                      <div className={CLIENT_TEXT_COL}>
+                        <div className="truncate text-sm font-medium" title={c.name}>{c.name}</div>
+                        {c.domain ? (
+                          <a
+                            href={`https://${c.domain}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+                          >
+                            <span className="truncate">{c.domain}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                          </a>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/60">No domain</span>
+                        )}
                       </div>
-                    </TableCell>
-                  </TableRow>
-                )}
-                {!loading && pageClients.map((c) => (
-                  <TableRow
-                    key={c.id}
-                    className={cn(
-                      // Zebra stripe carries the eye across eleven columns, and
-                      // the pinned cell picks it up via bg-inherit so it stripes
-                      // and highlights with the rest of the row.
-                      //
-                      // Every one of these must be FULLY OPAQUE. An alpha value
-                      // (bg-muted/40) reaches the pinned cell as a translucent
-                      // background and the scrolling columns then show through
-                      // it. muted/accent are opaque and correctly spaced in
-                      // light mode; in dark mode they sit far enough from card
-                      // to band the table, so the dark steps are opaque colours
-                      // picked to land between the two — not alpha.
-                      "bg-card even:bg-muted hover:bg-accent",
-                      "dark:even:bg-[oklch(0.215_0.014_290)] dark:hover:bg-[oklch(0.25_0.035_290)]",
-                      c.status === "offboarded" && "[&>td]:text-muted-foreground"
-                    )}
-                  >
-                    <TableCell className={`${BODY_PINNED} py-2.5`}>
-                      <div className="flex items-center gap-3">
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-semibold uppercase",
-                            monogramTone(c.name || c.domain || c.id)
-                          )}
-                        >
-                          {(c.name || c.domain || "?").charAt(0)}
-                        </span>
-                        <div className={CLIENT_TEXT_COL}>
-                          <div className="truncate text-sm font-medium" title={c.name}>{c.name}</div>
-                          {c.domain ? (
-                            <a
-                              href={`https://${c.domain}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 truncate text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    </div>
+                  </TableCell>
+
+                  <TableCell className="px-4 py-2.5">
+                    {c.tier ? (
+                      <Pill tone={TIER_TONE[c.tier] ?? "neutral"} className="capitalize">{c.tier}</Pill>
+                    ) : <Dash />}
+                  </TableCell>
+
+                  <TableCell className="px-4 py-2.5">
+                    {c.departments?.length ? (
+                      <div className="flex flex-nowrap items-center gap-1">
+                        {c.departments.slice(0, MAX_DEPT_TAGS).map((d) => (
+                          <Pill key={d} tone="violet">{DEPARTMENT_LABELS[d] ?? d}</Pill>
+                        ))}
+                        {/* The overflowed departments stay readable on hover,
+                            so collapsing them doesn't hide data. */}
+                        {c.departments.length > MAX_DEPT_TAGS && (
+                          <Pill tone="neutral" className="cursor-default">
+                            <span
+                              title={c.departments
+                                .slice(MAX_DEPT_TAGS)
+                                .map((d) => DEPARTMENT_LABELS[d] ?? d)
+                                .join(", ")}
                             >
-                              <span className="truncate">{c.domain}</span>
-                              <ExternalLink className="h-3 w-3 shrink-0" />
-                            </a>
-                          ) : (
-                            <span className="text-xs text-muted-foreground/60">No domain</span>
-                          )}
-                        </div>
+                              +{c.departments.length - MAX_DEPT_TAGS}
+                            </span>
+                          </Pill>
+                        )}
                       </div>
-                    </TableCell>
+                    ) : <Dash />}
+                  </TableCell>
 
-                    <TableCell className="px-4 py-2.5">
-                      {c.tier ? (
-                        <Pill tone={TIER_TONE[c.tier] ?? "neutral"} className="capitalize">{c.tier}</Pill>
-                      ) : <Dash />}
-                    </TableCell>
+                  <TableCell className="px-4 py-2.5 text-sm">
+                    {hostingLabel(c) || <Dash />}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap px-4 py-2.5 text-sm">
+                    <RenewalDate value={c.hosting_renewal_date} />
+                  </TableCell>
 
-                    <TableCell className="px-4 py-2.5">
-                      {c.departments?.length ? (
-                        <div className="flex flex-nowrap items-center gap-1">
-                          {c.departments.slice(0, MAX_DEPT_TAGS).map((d) => (
-                            <Pill key={d} tone="violet">{DEPARTMENT_LABELS[d] ?? d}</Pill>
-                          ))}
-                          {/* The overflowed departments stay readable on hover,
-                              so collapsing them doesn't hide data. */}
-                          {c.departments.length > MAX_DEPT_TAGS && (
-                            <Pill tone="neutral" className="cursor-default">
-                              <span
-                                title={c.departments
-                                  .slice(MAX_DEPT_TAGS)
-                                  .map((d) => DEPARTMENT_LABELS[d] ?? d)
-                                  .join(", ")}
-                              >
-                                +{c.departments.length - MAX_DEPT_TAGS}
-                              </span>
-                            </Pill>
-                          )}
-                        </div>
-                      ) : <Dash />}
-                    </TableCell>
+                  <TableCell className="max-w-[220px] px-4 py-2.5 text-sm">
+                    {c.domain_access_location ? (
+                      <span className="block truncate" title={c.domain_access_location}>
+                        {c.domain_access_location}
+                      </span>
+                    ) : <Dash />}
+                  </TableCell>
 
-                    <TableCell className="px-4 py-2.5 text-sm">
-                      {hostingLabel(c) || <Dash />}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap px-4 py-2.5 text-sm">
-                      <RenewalDate value={c.hosting_renewal_date} />
-                    </TableCell>
-
-                    <TableCell className="max-w-[220px] px-4 py-2.5 text-sm">
-                      {c.domain_access_location ? (
-                        <span className="block truncate" title={c.domain_access_location}>
-                          {c.domain_access_location}
-                        </span>
-                      ) : <Dash />}
-                    </TableCell>
-
-                    <TableCell className="px-4 py-2.5">
-                      {c.website_access_level ? (
-                        <Pill tone={ACCESS_TONE[c.website_access_level] ?? "neutral"} shape="state">
-                          {ACCESS_LEVEL_TABLE_LABELS[c.website_access_level] ?? c.website_access_level}
-                        </Pill>
-                      ) : <Dash />}
-                    </TableCell>
-
-                    <TableCell className="px-4 py-2.5">
-                      <YesNo value={c.website_built_by_digi} />
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5">
-                      <YesNo value={c.website_maintained_by_digi} />
-                    </TableCell>
-
-                    <TableCell className="px-4 py-2.5">
-                      <Pill tone={STATUS_TONE[c.status] ?? "neutral"} shape="state" className="capitalize">
-                        {c.status}
+                  <TableCell className="px-4 py-2.5">
+                    {c.website_access_level ? (
+                      <Pill tone={ACCESS_TONE[c.website_access_level] ?? "neutral"} shape="state">
+                        {ACCESS_LEVEL_TABLE_LABELS[c.website_access_level] ?? c.website_access_level}
                       </Pill>
-                    </TableCell>
+                    ) : <Dash />}
+                  </TableCell>
 
-                    <TableCell className="px-4 py-2.5 text-right">
+                  <TableCell className="px-4 py-2.5">
+                    <YesNo value={c.website_built_by_digi} />
+                  </TableCell>
+                  <TableCell className="px-4 py-2.5">
+                    <YesNo value={c.website_maintained_by_digi} />
+                  </TableCell>
+
+                  <TableCell className="px-4 py-2.5">
+                    <Pill tone={STATUS_TONE[c.status] ?? "neutral"} shape="state" className="capitalize">
+                      {c.status}
+                    </Pill>
+                  </TableCell>
+
+                  <TableCell className="px-4 py-2.5 text-right">
+                    <div className="flex items-center justify-end gap-0.5">
                       <Link
                         href={`/clients/${c.id}`}
                         title={`Edit ${c.name}`}
@@ -707,12 +716,18 @@ export function ClientsClient({ initialClients }: Props) {
                         <Pencil className="h-3.5 w-3.5" />
                         <span className="sr-only">Edit {c.name}</span>
                       </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                      <ClientRowMenu
+                        id={c.id}
+                        name={c.name}
+                        status={c.status}
+                        onChanged={handleRowChanged}
+                      />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
 
         {/* Pagination lives inside the card so the range and the controls that

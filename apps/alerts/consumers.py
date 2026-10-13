@@ -18,12 +18,33 @@ Push flow (server → client):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 logger = logging.getLogger(__name__)
+
+#: Close code for "your access has been revoked", distinct from 4001 ("you never
+#: had it") so the client can tell a removed member from a bad token.
+CLOSE_AUTH_FAILED = 4001
+CLOSE_MEMBERSHIP_REVOKED = 4003
+
+#: How often an open connection re-checks that its holder is still a member of
+#: the team it is subscribed to.
+#:
+#: A WebSocket was authorised exactly once, at connect, and then lived as long as
+#: the tab did. The access token it presented expires in fifteen minutes; the
+#: subscription did not expire at all. So a member removed from a team — or moved
+#: to another one — went on receiving that team's alerts, including script
+#: changes and site names, for as long as they left the page open. Days, in
+#: practice, because the dashboard is something people leave open.
+#:
+#: Five minutes rather than tighter: this is one indexed membership lookup per
+#: open connection per interval, and revocation that takes a few minutes to
+#: propagate is a different thing from revocation that never does.
+MEMBERSHIP_RECHECK_SECONDS = 300
 
 
 def _team_group_name(team_id) -> str:
@@ -37,7 +58,7 @@ class AlertConsumer(AsyncWebsocketConsumer):
         token_str, subprotocol = self._extract_token(self.scope)
         user, team = await self._authenticate(token_str)
         if user is None or team is None:
-            await self.close(code=4001)
+            await self.close(code=CLOSE_AUTH_FAILED)
             return
 
         self.user = user
@@ -52,9 +73,48 @@ class AlertConsumer(AsyncWebsocketConsumer):
             await self.accept()
         await self.send(text_data=json.dumps({"type": "connection_established"}))
 
+        self._recheck_task = asyncio.create_task(self._recheck_membership_loop())
+
     async def disconnect(self, close_code):
+        task = getattr(self, "_recheck_task", None)
+        if task is not None:
+            task.cancel()
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def _recheck_membership_loop(self):
+        """Drop the connection once its holder is no longer in the team.
+
+        Authorisation at connect time only is not authorisation for the life of
+        the connection; see MEMBERSHIP_RECHECK_SECONDS.
+        """
+        from channels.db import database_sync_to_async
+
+        try:
+            while True:
+                await asyncio.sleep(MEMBERSHIP_RECHECK_SECONDS)
+                still_member = await database_sync_to_async(self._is_still_member)()
+                if not still_member:
+                    logger.info(
+                        "alerts ws: closing connection for user %s — no longer a "
+                        "member of team %s",
+                        self.user.pk, self.team.pk,
+                    )
+                    await self.close(code=CLOSE_MEMBERSHIP_REVOKED)
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A failed re-check must not take down a working connection: the
+            # database being briefly unreachable is not evidence of revocation.
+            logger.exception("alerts ws: membership re-check failed")
+
+    def _is_still_member(self) -> bool:
+        from apps.accounts.models import TeamMembership
+
+        return TeamMembership.objects.filter(
+            user_id=self.user.pk, team_id=self.team.pk
+        ).exists()
 
     async def receive(self, text_data=None, bytes_data=None):
         # Client → server messages are not expected; silently ignore.
@@ -124,12 +184,19 @@ class AlertConsumer(AsyncWebsocketConsumer):
         """Synchronous JWT validation — called via database_sync_to_async."""
         try:
             from rest_framework_simplejwt.tokens import AccessToken
-            from apps.accounts.models import User
+            from apps.accounts.models import TeamMembership, User
 
             token = AccessToken(token_str)
             user = User.objects.select_related("active_team").get(pk=token["user_id"])
             team = user.active_team
             if team is None:
+                return None, None
+            # `active_team` is a pointer the user carries, not proof they are in
+            # that team: removing someone from a team does not clear it, so a
+            # valid token plus a stale pointer was enough to subscribe to a
+            # team's alert feed. Every HTTP path checks membership; this one did
+            # not, and it is the path that stays open.
+            if not TeamMembership.objects.filter(user=user, team=team).exists():
                 return None, None
             return user, team
         except Exception:

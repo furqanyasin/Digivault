@@ -90,6 +90,27 @@ def test_rollup_is_idempotent(monitor):
 
 
 @pytest.mark.django_db
+def test_rollup_excludes_blocked_checks_from_uptime(monitor):
+    from apps.monitors.tasks import rollup_daily_uptime
+
+    day = (timezone.now() - datetime.timedelta(days=1)).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    )
+    target = day.date()
+    _make_check(monitor, "up", day, response_time_ms=100)
+    _make_check(monitor, "blocked", day, response_time_ms=50)
+    _make_check(monitor, "down", day)
+
+    rollup_daily_uptime(target_date=target.isoformat())
+
+    rollup = MonitorUptimeRollup.objects.get(monitor=monitor, date=target)
+    assert rollup.checks_total == 2
+    assert rollup.checks_up == 1
+    assert rollup.uptime_pct == 50.0
+    assert rollup.avg_response_time_ms == 100.0
+
+
+@pytest.mark.django_db
 def test_rollup_defaults_to_yesterday(monitor):
     from apps.monitors.tasks import rollup_daily_uptime
 

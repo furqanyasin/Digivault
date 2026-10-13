@@ -2,6 +2,8 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
+from apps.common.health import HealthView, ReadyView
+
 from apps.scripts.urls import ingest_urlpatterns, script_urlpatterns
 from apps.site_health.urls import urlpatterns as site_health_urlpatterns
 from apps.site_health.urls import website_urlpatterns as site_health_website_urlpatterns
@@ -11,6 +13,11 @@ from apps.heatmap.urls import ingest_urlpatterns as heatmap_ingest_urlpatterns
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Liveness and readiness. Under /api/ because production nginx only proxies
+    # /api/... to Django — a health endpoint nginx routes to the Next.js
+    # frontend would report the wrong process entirely.
+    path("api/health/", HealthView.as_view(), name="health"),
+    path("api/ready/", ReadyView.as_view(), name="ready"),
     # Auth + teams
     path("api/v1/auth/", include("apps.accounts.urls")),
     # Websites CRUD

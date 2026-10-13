@@ -7,7 +7,10 @@ from apps.common.querysets import TeamScopedQuerySet
 class Client(BaseModel):
     """Tracks a client's hosting, access, and operational details.
 
-    Soft-deleted via status=OFFBOARDED — never hard-deleted.
+    Retired via status=OFFBOARDED, which is reversible and keeps the history.
+    An offboarded client can then be hard-deleted (DELETE on the detail
+    endpoint) to clear out rows that should never have existed - a client
+    filed twice under different capitalisation, say. An active one cannot.
     """
 
     class Status(models.TextChoices):

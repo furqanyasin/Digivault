@@ -16,8 +16,8 @@ async function getData(token: string) {
   // sequential round trips on a real agency account, all before first paint.
   const [notificationsResult, rulesResult, websitesResult, changesResult] =
     await Promise.allSettled([
-      api.get<Notification[]>("/api/v1/notifications/", token),
-      api.get<AlertRule[]>("/api/v1/alert-rules/", token),
+      api.getAll<Notification>("/api/v1/notifications/", token),
+      api.getAll<AlertRule>("/api/v1/alert-rules/", token),
       api.getAll<Website>("/api/v1/websites/", token),
       api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
     ]);

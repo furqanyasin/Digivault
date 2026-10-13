@@ -18,7 +18,7 @@ class TestNoiseFilter:
         assert _should_track_script("https://digilaticsvps.digilatics.co/y.js", "client.com") is False
 
     def test_real_provider_still_tracked(self):
-        assert _should_track_script("https://www.googletagmanager.com/gtm.js", "client.com") is True
+        assert _should_track_script("https://www.googletagmanager.com/gtm.js?id=GTM-ABC1", "client.com") is True
 
 
 @pytest.fixture

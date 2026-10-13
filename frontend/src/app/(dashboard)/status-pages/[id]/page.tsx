@@ -20,7 +20,7 @@ export default async function StatusPageDetailPage({
 
   const [page, entries, monitors] = await Promise.all([
     api.get<StatusPage>(`/api/v1/status-pages/${id}/`, token ?? "").catch(() => null),
-    api.get<StatusPageMonitor[]>(`/api/v1/status-pages/${id}/monitors/`, token ?? "").catch(() => [] as StatusPageMonitor[]),
+    api.getAll<StatusPageMonitor>(`/api/v1/status-pages/${id}/monitors/`, token ?? "").catch(() => [] as StatusPageMonitor[]),
     // getAll: the monitor picker must list every monitor, and the list pages at 25.
     api.getAll<Monitor>("/api/v1/monitors/", token ?? "").catch(() => [] as Monitor[]),
   ]);

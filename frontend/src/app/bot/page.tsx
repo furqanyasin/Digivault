@@ -25,8 +25,11 @@ async function getInfo(): Promise<MonitoringInfo | null> {
     const res = await fetch(`${API_BASE}/api/v1/monitoring-info/`, {
       next: { revalidate: 3600 },
     });
+    // An error answer is JSON too ({data: null, errors: [...]}); rendered as
+    // info it crashed the prerender, and with it `next build`.
+    if (!res.ok) return null;
     const envelope = await res.json();
-    return (envelope?.data ?? envelope) as MonitoringInfo;
+    return (envelope?.data ?? null) as MonitoringInfo | null;
   } catch {
     return null;
   }

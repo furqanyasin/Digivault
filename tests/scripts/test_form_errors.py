@@ -22,11 +22,21 @@ def website(db):
 
 class TestImportanceFilter:
     @pytest.mark.parametrize("msg", [
+        # Contact Form 7
         "There was an error trying to send your message. Please try again later.",
+        # Elementor Forms
         "Your submission failed because of a server error.",
         "Mail failed: SMTP connect() failed",
         "Request failed with status 503",
         "Internal error — could not be sent",
+        # WPForms
+        "Something went wrong while performing this action. Please try again later.",
+        # Forminator, and Ninja Forms. Neither matched any keyword, so a real
+        # mail failure on either plugin was discarded at this filter and the
+        # site reported 100% form success while nothing was being delivered.
+        "Error: Your message was not sent. Try again later.",
+        "There was an error submitting your form.",
+        "Unable to send your message at this time.",
     ])
     def test_important_messages_pass(self, msg):
         assert is_important_form_error(msg) is True
@@ -36,6 +46,10 @@ class TestImportanceFilter:
         "Please fill in the required fields.",
         "Please enter a valid email address.",
         "The captcha was not solved correctly.",
+        # Gravity Forms' validation summary. It is about the visitor's input,
+        # not delivery, and widening the filter must not start alerting on it.
+        "There was a problem with your submission. Errors have been "
+        "highlighted below.",
         "",
     ])
     def test_validation_noise_rejected(self, msg):

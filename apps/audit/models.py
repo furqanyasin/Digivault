@@ -28,6 +28,15 @@ class ActivityLog(BaseModel):
         CREDENTIAL_UNSHARED = "credential.unshared", "Credential unshared"
         CREDENTIAL_IMPORTED = "credential.imported", "Credentials imported"
         CREDENTIAL_EXPORTED = "credential.exported", "Credentials exported"
+        CREDENTIAL_GROUP_GRANTED = "credential.group_granted", "Credential granted to a group"
+        CREDENTIAL_GROUP_REVOKED = "credential.group_revoked", "Group credential grant revoked"
+        CREDENTIAL_ACCESS_REQUESTED = "credential.access_requested", "Credential access requested"
+        CREDENTIAL_ACCESS_APPROVED = "credential.access_approved", "Credential access approved"
+        CREDENTIAL_ACCESS_DENIED = "credential.access_denied", "Credential access denied"
+        CREDENTIAL_HANDOVER = "credential.handover", "Credentials handed over"
+        CREDENTIAL_TOTP_READ = "credential.totp_read", "Authenticator code read"
+        CREDENTIAL_REPORTED_BROKEN = "credential.reported_broken", "Credential reported broken"
+        CREDENTIAL_MARKED_FIXED = "credential.marked_fixed", "Credential marked fixed"
         # Websites
         WEBSITE_CREATED = "website.created", "Website created"
         WEBSITE_DELETED = "website.deleted", "Website deleted"
@@ -51,6 +60,10 @@ class ActivityLog(BaseModel):
         TEAM_MEMBER_ROLE_CHANGED = "team.member_role_changed", "Member role changed"
         TEAM_MEMBER_REMOVED = "team.member_removed", "Member removed"
         TEAM_CREATED = "team.created", "Team/department created"
+        TEAM_GROUP_CREATED = "team.group_created", "Group created"
+        TEAM_GROUP_UPDATED = "team.group_updated", "Group updated"
+        TEAM_GROUP_DELETED = "team.group_deleted", "Group deleted"
+        TEAM_MEMBER_GROUP_CHANGED = "team.member_group_changed", "Member group changed"
         # Settings
         SETTINGS_TEAM_NAME_CHANGED = "settings.team_name_changed", "Team name changed"
         SETTINGS_INTEGRATION_UPDATED = "settings.integration_updated", "Integration updated"
@@ -61,6 +74,7 @@ class ActivityLog(BaseModel):
         CLIENT_SYNCED = "client.synced", "Client synced from ClickUp"
         CLIENT_IMPORTED = "client.imported", "Clients imported"
         CLIENT_EXPORTED = "client.exported", "Clients exported"
+        CLIENT_DELETED = "client.deleted", "Client deleted"
         # Alerts
         ALERT_RULE_CREATED = "alert.rule_created", "Alert rule created"
         ALERT_RULE_UPDATED = "alert.rule_updated", "Alert rule updated"
@@ -86,6 +100,7 @@ class ActivityLog(BaseModel):
         WEBSITE_SNIPPET_REGENERATED = "website.snippet_regenerated", "Snippet regenerated"
         WEBSITE_WP_LOGIN = "website.wp_login", "WP admin login link issued"
         WEBSITE_WP_SSO_SECRET_ROTATED = "website.wp_sso_secret_rotated", "WP SSO secret rotated"
+        WEBSITE_WP_SNIPPET_VIEWED = "website.wp_snippet_viewed", "WP Connect snippet viewed"
         # Domains / performance
         DOMAIN_REFRESHED = "domain.refreshed", "Domain info refreshed"
         PERFORMANCE_CHECK_RUN = "performance.check_run", "Performance check run"

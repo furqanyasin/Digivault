@@ -9,11 +9,10 @@ from __future__ import annotations
 import logging
 
 from apps.alerts.models import AlertRule, AlertSuppression, Notification
+from apps.common.severity import meets as severity_meets
 from apps.scripts.models import ScriptChange
 
 logger = logging.getLogger(__name__)
-
-_SEVERITY_LEVELS = {"high": 3, "medium": 2, "low": 1}
 
 
 class AlertService:
@@ -72,10 +71,12 @@ class AlertService:
 
     @staticmethod
     def _rule_matches(rule: AlertRule, change: ScriptChange) -> bool:
-        # Severity gate
-        required = _SEVERITY_LEVELS.get(rule.min_severity, 1)
-        actual = _SEVERITY_LEVELS.get(change.severity, 0)
-        if actual < required:
+        # Severity gate. Ranked by apps.common.severity so the model's
+        # vocabulary and the rule's minimum cannot drift apart again: the local
+        # rank map this replaced had no entry for `critical`, which scored it
+        # below every rule minimum and made the highest severity the only one
+        # that could never be delivered.
+        if not severity_meets(change.severity, rule.min_severity):
             return False
         # Change-type filter (empty list = all types)
         if rule.change_types and change.change_type not in rule.change_types:

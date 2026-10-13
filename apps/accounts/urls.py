@@ -1,10 +1,11 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from apps.accounts.totp_views import (
     AuthRateThrottle,
     FirstPasswordView,
     LoginView,
+    PasswordTokenObtainPairView,
     TotpConfirmView,
     TotpDisableView,
     TotpRegenerateBackupView,
@@ -22,7 +23,8 @@ from apps.accounts.views import (
     PasswordResetConfirmView,
     PasswordResetRejectView,
     PasswordResetRequestView,
-    RegisterView,
+    SubTeamDetailView,
+    SubTeamListCreateView,
     TeamCreateUserView,
     TeamDetailView,
     TeamInvitationDeleteView,
@@ -43,11 +45,14 @@ class ThrottledTokenRefreshView(TokenRefreshView):
 
 urlpatterns = [
     # Auth
-    path("register/", RegisterView.as_view(), name="auth-register"),
+    # No self-registration: Digivault is an internal tool, so accounts are
+    # created by an owner or manager (TeamCreateUserView / invitations). A
+    # public POST /auth/register/ used to create an account for anyone who
+    # found it, even after the sign-up page had been turned into a redirect.
     path("login/", LoginView.as_view(), name="auth-login"),
     path("first-password/", FirstPasswordView.as_view(), name="auth-first-password"),
-    # Legacy direct-token endpoint (used by API clients / tests; 2FA enforced at frontend layer)
-    path("token/", TokenObtainPairView.as_view(), name="auth-token-obtain"),
+    # Password-only tokens: refused outside the dev/test 2FA bypass (see view).
+    path("token/", PasswordTokenObtainPairView.as_view(), name="auth-token-obtain"),
     path("token/refresh/", ThrottledTokenRefreshView.as_view(), name="auth-token-refresh"),
     path("me/", MeView.as_view(), name="auth-me"),
     # 2FA
@@ -63,6 +68,10 @@ urlpatterns = [
     path("teams/<uuid:team_pk>/members/", TeamMemberListView.as_view(), name="team-members"),
     path("teams/<uuid:team_pk>/members/<uuid:pk>/", TeamMemberDetailView.as_view(), name="team-member-detail"),
     path("teams/<uuid:pk>/switch/", TeamSwitchView.as_view(), name="team-switch"),
+    # Credential-access groups ("Web Team", "SEO Team"). List is open to any
+    # team member so the UI can badge a member; writes are owner-only.
+    path("teams/<uuid:team_pk>/sub-teams/", SubTeamListCreateView.as_view(), name="sub-team-list-create"),
+    path("teams/<uuid:team_pk>/sub-teams/<uuid:pk>/", SubTeamDetailView.as_view(), name="sub-team-detail"),
     path("teams/<uuid:team_pk>/invite/", TeamInviteView.as_view(), name="team-invite"),
     path("teams/<uuid:team_pk>/users/", TeamCreateUserView.as_view(), name="team-create-user"),
     path("teams/<uuid:team_pk>/invitations/", TeamInvitationListView.as_view(), name="team-invitations"),

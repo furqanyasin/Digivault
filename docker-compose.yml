@@ -47,7 +47,12 @@ services:
 
   celery:
     build: .
-    command: celery -A config worker -l info
+    # Dev runs one worker across every queue: the isolation the production
+    # files buy is about one slow task not starving ingest under real load,
+    # which is not a thing that happens on a laptop. The `-Q` list still has
+    # to name them all, though — CELERY_TASK_ROUTES routes by queue, and a
+    # queue with no consumer silently never runs.
+    command: celery -A config worker -l info -Q ingest,monitors,slow,celery
     volumes:
       - .:/app
     environment:

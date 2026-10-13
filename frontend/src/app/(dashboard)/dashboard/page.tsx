@@ -38,10 +38,12 @@ interface RenewalRow {
   days_until_expiry: number | null;
 }
 
-/** `value` is null for days with no checks — see monitors.UptimeTrendView. */
+/** `value` is null for days with no checks — see monitors.UptimeTrendView.
+ *  `up`/`total` are the day's non-blocked checks; optional because the
+ *  frontend can deploy ahead of a backend that doesn't send them yet. */
 interface UptimeTrend {
   days: number;
-  points: { date: string; value: number | null }[];
+  points: { date: string; value: number | null; up?: number; total?: number }[];
 }
 
 interface TeamRow {
@@ -81,11 +83,11 @@ async function getData(token: string) {
     // getAll, not get: the list pages at 25, so a plain get silently dropped
     // monitors past the first page and under-reported how many were down.
     api.getAll<Monitor>("/api/v1/monitors/", token),
-    api.get<LogEntry[]>("/api/v1/logs/", token),
+    api.getAll<LogEntry>("/api/v1/logs/", token),
     // 90 days feeds the renewal forecast; the card's own figure filters to 30.
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-ssl/?days=90", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-domains/?days=90", token),
-    api.get<RenewalRow[]>("/api/v1/websites/expiring-hosting/?days=90", token),
+    api.getAll<RenewalRow>("/api/v1/websites/expiring-ssl/?days=90", token),
+    api.getAll<RenewalRow>("/api/v1/websites/expiring-domains/?days=90", token),
+    api.getAll<RenewalRow>("/api/v1/websites/expiring-hosting/?days=90", token),
     api.getAll<ScriptChange>("/api/v1/changes/?unacknowledged=true", token),
     api.get<UptimeTrend>(`/api/v1/monitors/uptime-trend/?${uptimeQuery}`, token),
     // These back the summary chunks for the sidebar sections that have no chart
@@ -97,7 +99,7 @@ async function getData(token: string) {
     // costs nothing extra. This used to fetch /auth/me/ and then, sequentially,
     // that team's members — two round trips in series after the parallel batch,
     // on every page load and every filter change.
-    api.get<TeamRow[]>("/api/v1/auth/teams/", token),
+    api.getAll<TeamRow>("/api/v1/auth/teams/", token),
     // Which of those teams is the active one — the role and feature grants that
     // decide what this page may show hang off it. In the same parallel batch,
     // so it costs no extra round trip.

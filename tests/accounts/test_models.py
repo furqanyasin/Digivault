@@ -69,7 +69,13 @@ class TestTeamMembership:
     def test_role_choices(self):
         roles = [r.value for r in TeamMembership.Role]
         # custom = per-member feature access; editor/seo retained as legacy.
-        assert set(roles) == {"owner", "manager", "developer", "viewer", "custom", "editor", "seo"}
+        # seo_executive is member-level for credential sharing but deliberately
+        # absent from the website assignment picker — it works across the whole
+        # client base rather than a slice of it.
+        assert set(roles) == {
+            "owner", "manager", "developer", "viewer",
+            "custom", "seo_executive", "editor", "seo",
+        }
 
 
 @pytest.mark.django_db

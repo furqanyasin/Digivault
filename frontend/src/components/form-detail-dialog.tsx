@@ -15,7 +15,9 @@ import {
   destinationCount,
   errorsForForm,
   fmtPct,
+  formAction,
   formLabel,
+  isFromWordPress,
   health,
   pagePath,
   successRate,
@@ -58,7 +60,11 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  */
 function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
   if (destinationCount(form) > 0) {
-    const fromWordPress = form.recipient_source === "wordpress";
+    // Both WordPress paths count. Testing only for "wordpress" missed
+    // `wp_api` — the source the live nightly sweep and the "Read recipients"
+    // button both write — and told the user an address read out of the site's
+    // WordPress had come from the page markup.
+    const fromWordPress = isFromWordPress(form);
     return (
       <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
         <p className="flex items-center gap-1.5 text-xs font-medium">
@@ -84,8 +90,8 @@ function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
         <p className="text-xs text-muted-foreground">
           {fromWordPress ? (
             <>
-              Read from this site&apos;s WordPress form settings over WP Connect — the
-              addresses the form plugin will actually send to, including copies.
+              Read from this site&apos;s own WordPress form settings — the addresses
+              the form plugin will actually send to, including copies.
             </>
           ) : (
             <>
@@ -118,9 +124,11 @@ function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
             recipient <code>data-</code> attribute, no hidden configuration field. That is
             normal: Contact Form 7, WPForms, Elementor, Gravity Forms, Formspree and
             Netlify all keep the address in the site&apos;s admin, where no in-page
-            script can reach it. On WordPress, set up{" "}
-            <span className="font-medium">WP Connect</span> in the Setup tab and
-            Digivault will read the real recipient from the form plugin itself.
+            script can reach it. On WordPress, save a credential for this site with
+            an{" "}
+            <span className="font-medium">Application Password</span> and Digivault
+            will read the real recipient from Elementor and Gravity Forms through
+            the site&apos;s own API.
           </>
         )}
       </p>
@@ -134,6 +142,7 @@ export function FormDetailDialog({ form, formErrors, embedded = false }: Props) 
   const errs = errorsForForm(form, formErrors);
   const rate = embedded ? null : successRate(form, formErrors);
   const state = embedded ? null : health(rate);
+  const action = formAction(form);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -200,8 +209,8 @@ export function FormDetailDialog({ form, formErrors, embedded = false }: Props) 
               </Row>
             )}
             <Row label="Action">
-              {form.form_action ? (
-                <code className="font-mono break-all">{form.form_action}</code>
+              {action ? (
+                <code className="font-mono break-all">{action}</code>
               ) : (
                 <span className="text-muted-foreground">
                   None — submitted by JavaScript, not a browser POST

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
+from apps.scripts.normalize import normalize_script_url
 from apps.scripts.models import (
     DetectedForm,
     FormSubmissionError,
@@ -184,6 +185,11 @@ class IngestPayloadSerializer(serializers.Serializer):
 
 
 class ScriptSerializer(BaseModelSerializer):
+    # Keep raw src_url for backwards compatibility, but expose a stable value
+    # for the UI. Legacy rows may contain a pre-normalization raw URL, so this
+    # is computed from the current source rather than trusting that row's old
+    # normalized_url value.
+    canonical_url = serializers.SerializerMethodField()
     # The vendor a reader recognises: "Google" rather than one row each for
     # Google Analytics 4, Google Tag Manager and Google Ads.
     provider_family = serializers.SerializerMethodField()
@@ -197,6 +203,7 @@ class ScriptSerializer(BaseModelSerializer):
         fields = (
             "id",
             "src_url",
+            "canonical_url",
             "src_domain",
             "provider",
             "provider_family",
@@ -228,8 +235,11 @@ class ScriptSerializer(BaseModelSerializer):
     def get_provider_family(self, obj) -> str:
         return _provider_family(obj.provider)
 
+    def get_canonical_url(self, obj) -> str:
+        return normalize_script_url(obj.src_url)
+
     def get_is_tracked(self, obj) -> bool:
-        return _is_tracked(obj.category, obj.is_suspicious)
+        return _is_tracked(obj.src_url, obj.suspicion_severity)
 
 
 class DetectedFormSerializer(BaseModelSerializer):

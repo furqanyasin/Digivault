@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, HelpCircle, Save } from "lucide-react";
+import { ArrowLeft, HelpCircle, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ import {
 import type { ClientRecord } from "@/app/(dashboard)/clients/page";
 import type { Website } from "@/lib/api";
 import { ClientWebsitesCard } from "@/components/client-websites-card";
+import { ClientDeleteDialog } from "@/components/client-delete-dialog";
 import { fmtDateTime } from "@/lib/utils";
 import {
   ACCESS_LEVEL_OPTIONS, ACCESS_LEVEL_TOOLTIP, DEPARTMENT_OPTIONS,
@@ -67,6 +68,8 @@ export function ClientDetailClient({ client: initial, websites }: Props) {
   const [departments, setDepartments] = useState<string[]>(initial.departments ?? []);
   const [notifyDesktop, setNotifyDesktop] = useState(initial.notify_desktop ?? true);
   const [notifyEmail, setNotifyEmail] = useState(initial.notify_email ?? true);
+
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
@@ -136,6 +139,22 @@ export function ClientDetailClient({ client: initial, websites }: Props) {
         <Badge variant={STATUS_BADGE[form.status] ?? "secondary"} className="capitalize">{form.status}</Badge>
         {form.tier !== "_none" && (
           <Badge variant="outline" className="capitalize">{form.tier}</Badge>
+        )}
+        {/* Keyed off the SAVED status rather than the form's: choosing
+            "Offboarded" in the dropdown without saving must not arm the
+            delete, since the backend reads the stored row and would refuse it
+            anyway. Offboard, save, and then the button appears. */}
+        {initial.status === "offboarded" && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+            Delete
+          </Button>
         )}
       </div>
 
@@ -265,6 +284,14 @@ export function ClientDetailClient({ client: initial, websites }: Props) {
           <span>Updated: {fmtDateTime(initial.updated_at)}</span>
         </CardContent>
       </Card>
+
+      <ClientDeleteDialog
+        id={initial.id}
+        name={initial.name}
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        onDeleted={() => router.push("/clients")}
+      />
     </div>
   );
 }

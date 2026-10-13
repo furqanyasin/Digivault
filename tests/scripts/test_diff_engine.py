@@ -136,14 +136,31 @@ class TestNormalizedDiffing:
                  "is_async": False, "is_defer": False, "is_inline": False}]
         assert DiffEngine.diff(prev, curr) == []
 
-    def test_gtm_container_swap_still_detected(self):
+    def test_container_id_swap_is_an_add_and_a_remove_not_a_move(self):
+        """A different container id is a different tag, not a moved one.
+
+        This used to assert a single `url_changed`, and that expectation was the
+        bug. On a tag host the engine cannot tell "this container was replaced"
+        apart from "one of the four tags this site runs went away and a
+        different one arrived" — both are one id out, one id in, on the same
+        loader path. A live site running four GA4 properties and three Google
+        Ads tags had the second case reported as the first: a high-severity
+        "Google Analytics 4 URL changed" describing two unrelated tags, which
+        also retired the survivor's row as though it had been superseded.
+
+        So `normalize.is_identity_host` hosts are kept out of swap pairing
+        entirely. An add plus a remove is the honest reading, and it keeps each
+        tag's history attached to the tag it belongs to.
+        """
         prev = [{"src": "https://www.googletagmanager.com/gtag/js?id=GTM-AAA", "location": "head",
                  "is_async": True, "is_defer": False, "is_inline": False}]
         curr = [{"src": "https://www.googletagmanager.com/gtag/js?id=GTM-BBB", "location": "head",
                  "is_async": True, "is_defer": False, "is_inline": False}]
         changes = DiffEngine.diff(prev, curr)
-        assert len(changes) == 1
-        assert changes[0].change_type == "url_changed"
+        assert {c.change_type for c in changes} == {
+            ScriptChange.ChangeType.ADDED, ScriptChange.ChangeType.REMOVED
+        }
+        assert not any(c.change_type == "url_changed" for c in changes)
 
     def test_volatile_param_duplicates_collapse(self):
         curr = [

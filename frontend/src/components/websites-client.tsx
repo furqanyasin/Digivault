@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronLeft, ChevronRight, Star, X } from "lucide-react";
+import { Globe, LayoutGrid, List, Search, AlertTriangle, Clock, ChevronDown, ChevronLeft, ChevronRight, Star, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,7 @@ export function WebsitesClient({
   // navigation.
   const searchParams = useSearchParams();
   const [vipOnly, setVipOnly] = useState(searchParams.get("vip") === "1");
+  const [missingOpen, setMissingOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -176,7 +177,15 @@ export function WebsitesClient({
       {missingFiltered.length > 0 && (
         <Card className="border-amber-300 bg-amber-50/40 dark:bg-amber-950/10">
           <CardContent className="p-0">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-200">
+            <button
+              type="button"
+              onClick={() => setMissingOpen((o) => !o)}
+              aria-expanded={missingOpen}
+              className={cn(
+                "flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-100/40 dark:hover:bg-amber-950/20",
+                missingOpen && "border-b border-amber-200"
+              )}
+            >
               <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
               <p className="text-sm font-medium">
                 {missingFiltered.length} client{missingFiltered.length !== 1 ? "s" : ""} not yet
@@ -185,32 +194,40 @@ export function WebsitesClient({
               <span className="text-xs text-muted-foreground">
                 — they have a website URL but no site here.
               </span>
-            </div>
-            <Table>
-              <TableBody>
-                {missingFiltered.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell>
-                      <span className="flex items-center gap-2 font-medium">
-                        <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
-                        {c.domain}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/clients/${c.id}`} className="text-primary hover:underline text-sm">
-                        {c.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="warning">Not added</Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <AddClientWebsiteButton clientId={c.id} clientName={c.name} domain={c.domain} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+              <ChevronDown
+                className={cn(
+                  "ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                  missingOpen && "rotate-180"
+                )}
+              />
+            </button>
+            {missingOpen && (
+              <Table>
+                <TableBody>
+                  {missingFiltered.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell>
+                        <span className="flex items-center gap-2 font-medium">
+                          <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
+                          {c.domain}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/clients/${c.id}`} className="text-primary hover:underline text-sm">
+                          {c.name}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="warning">Not added</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <AddClientWebsiteButton clientId={c.id} clientName={c.name} domain={c.domain} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       )}
@@ -247,6 +264,27 @@ export function WebsitesClient({
                         <Globe className="h-4 w-4 text-muted-foreground shrink-0" />
                         {site.domain}
                       </Link>
+                      {/* "absent" renders nothing on purpose: most sites have
+                          never pasted the snippet, so a badge on all of them is
+                          noise rather than a signal. */}
+                      {site.wp_connect_status === "outdated" && (
+                        <Badge
+                          variant="warning"
+                          className="ml-6 mt-1 text-xs h-5"
+                          title="This site runs an older WP Connect snippet. Re-paste it to enable activity tracking and the uptime heartbeat, which keeps uptime working when the host's firewall blocks our monitor."
+                        >
+                          Re-paste snippet
+                        </Badge>
+                      )}
+                      {site.wp_connect_status === "stale" && (
+                        <Badge
+                          variant="outline"
+                          className="ml-6 mt-1 text-xs h-5"
+                          title="No events received for over 7 days — the snippet has stopped collecting."
+                        >
+                          Snippet silent
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       {site.client_name ? (

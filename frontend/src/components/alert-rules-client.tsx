@@ -27,15 +27,20 @@ const CHANNEL_LABEL: Record<string, string> = {
   slack: "Slack",
 };
 
-// min_severity is the *floor* a change must clear, so "high" is the strictest
-// rule and reads as Critical in the table.
+// min_severity is the *floor* a change must clear, and these labels now use the
+// same words the backend does. They used to rename the scale — "high" was shown
+// as "Critical" — which was survivable only while `critical` was unreachable.
+// It is a real minimum now, so a table showing two different rules both called
+// "Critical" would be worse than no label at all.
 const SEVERITY_LABEL: Record<string, string> = {
-  high: "Critical",
-  medium: "Warning",
-  low: "Info",
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
 };
 
 const SEVERITY_VARIANT: Record<string, "destructive" | "warning" | "secondary"> = {
+  critical: "destructive",
   high: "destructive",
   medium: "warning",
   low: "secondary",
@@ -99,7 +104,7 @@ export function AlertRulesClient({ rules }: { rules: AlertRule[] }) {
   }, [rules]);
 
   const severityOptions = useMemo(() => {
-    const order: AlertRule["min_severity"][] = ["high", "medium", "low"];
+    const order: AlertRule["min_severity"][] = ["critical", "high", "medium", "low"];
     const seen = Array.from(new Set(rules.map((r) => r.min_severity)));
     return order
       .filter((s) => seen.includes(s))

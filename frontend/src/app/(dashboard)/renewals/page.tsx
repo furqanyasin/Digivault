@@ -7,7 +7,7 @@ export default async function RenewalsPage() {
   const token = await getAccessToken();
   const [user, teams] = await Promise.all([
     token ? api.get<User>("/api/v1/auth/me/", token).catch(() => null) : null,
-    token ? api.get<Team[]>("/api/v1/auth/teams/", token).catch(() => [] as Team[]) : [] as Team[],
+    token ? api.getAll<Team>("/api/v1/auth/teams/", token).catch(() => [] as Team[]) : [] as Team[],
   ]);
   const activeTeam = teams.find((t) => t.id === user?.active_team) ?? teams[0] ?? null;
   const role = activeTeam?.my_role ?? "developer";

@@ -18,7 +18,7 @@ interface TeamSettings {
 async function getData(token: string) {
   const [user, teams] = await Promise.all([
     api.get<User>("/api/v1/auth/me/", token).catch(() => null),
-    api.get<Team[]>("/api/v1/auth/teams/", token).catch(() => [] as Team[]),
+    api.getAll<Team>("/api/v1/auth/teams/", token).catch(() => [] as Team[]),
   ]);
 
   const activeTeam = teams.find((t) => t.id === user?.active_team) ?? teams[0] ?? null;

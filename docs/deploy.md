@@ -95,13 +95,91 @@ Save that password — goes into `.env` next.
 
 ---
 
+## 4b. Deploy key (server -> GitHub)
+
+The repo is private, so the server needs its own read-only SSH key.
+
+**The key belongs to the user that runs the deploy, which is `root`** — `.git`
+and `.env.production` are root-owned, and `./deploy.sh` does the `git pull`.
+Putting it in the site user's home looks right and fails: `su` is blocked for
+CloudPanel site users, and a pull as `digilatics-digivault` dies on "dubious
+ownership" before it ever reaches the network.
+
+A deploy key is scoped to one repository and **cannot be reused on a second repo
+anywhere on GitHub** — if this server already carried a key for a previous
+account's repo, generate a fresh one rather than re-adding the same public key.
+
+As root:
+
+```bash
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+# 1. Generate the keypair (no passphrase — deploy.sh runs unattended)
+ssh-keygen -t ed25519 -C "digivault-deploy@cloudpanel" -f /root/.ssh/digivault_deploy -N ""
+chmod 600 /root/.ssh/digivault_deploy
+
+# 2. Print the PUBLIC half — one line, starts `ssh-ed25519`
+cat /root/.ssh/digivault_deploy.pub
+```
+
+In GitHub: **website-a11y/digivault -> Settings -> Deploy keys -> Add deploy
+key**. Title it `CloudPanel VPS`, paste that single line, and leave **Allow write
+access unchecked** — the deploy only ever pulls. GitHub rejects anything else
+with "key is invalid": the randomart block, the private key, or a paste that
+wrapped across lines.
+
+```bash
+# 3. Route this repo to that key via a HOST ALIAS — not `Host github.com`.
+#    This server deploys several repos, each with its own deploy key, and
+#    /root/.ssh/config already carries `Host github-digilatics`,
+#    `Host github-digivault` and a `Host github.com`. ssh takes the FIRST
+#    match for each keyword, so appending a second `Host github.com` block is
+#    silently ignored and the pull authenticates as whichever repo owns the
+#    first one — which reports "Repository not found" against digivault while
+#    GitHub's deploy key page still reads "Never used".
+grep -A4 'Host github-digivault' /root/.ssh/config   # confirm it exists first
+
+# Only if it is missing, append it:
+cat >> /root/.ssh/config <<'EOF'
+
+Host github-digivault
+    HostName github.com
+    User git
+    IdentityFile /root/.ssh/digivault_deploy
+    IdentitiesOnly yes
+EOF
+chmod 600 /root/.ssh/config
+
+# 4. Verify against the ALIAS. The greeting must name this repo:
+#    "Hi website-a11y/digivault! You've successfully authenticated..."
+#    A different repo name means ssh matched another key — fix the config,
+#    do not proceed to the pull.
+ssh -T git@github-digivault
+```
+
+`IdentitiesOnly yes` matters: without it ssh offers every key it holds and GitHub
+authenticates as whichever matches first.
+
+**On a server already cloned over HTTPS** (or from a previous account), repoint
+the existing checkout rather than re-cloning:
+
+```bash
+cd /home/digilatics-digivault/htdocs/digivault.digilatics.co
+git remote set-url origin git@github-digivault:website-a11y/digivault.git
+git remote -v          # both lines: git@github-digivault:website-a11y/digivault.git
+git pull origin main
+```
+
+---
+
 ## 5. Clone repo and install Python packages
 
 ```bash
 su - digilatics-digivault
 cd /home/digilatics-digivault
 
-git clone https://github.com/furqanyasin/ScriptSentry.git scdb
+# Requires the repo deploy key to be installed first (see section 4b above).
+git clone git@github.com:website-a11y/digivault.git scdb
 cd scdb
 
 python3.12 -m venv .venv

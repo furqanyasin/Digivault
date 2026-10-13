@@ -5,6 +5,9 @@ from apps.heatmap.views import (
     HeatmapIngestView,
     HeatmapPageListView,
     HeatmapSiteSummaryView,
+    HeatmapSnapshotImageView,
+    HeatmapSnapshotRefreshView,
+    HeatmapSnapshotView,
 )
 
 # Ingest lives under /api/ingest/heatmap/ — the same public, version-free prefix
@@ -19,4 +22,16 @@ urlpatterns = [
     path("heatmap/pages/", HeatmapPageListView.as_view(), name="heatmap-pages"),
     path("heatmap/activity/", HeatmapCellListView.as_view(), name="heatmap-activity"),
     path("heatmap/summary/", HeatmapSiteSummaryView.as_view(), name="heatmap-summary"),
+    path("heatmap/snapshot/", HeatmapSnapshotView.as_view(), name="heatmap-snapshot"),
+    path(
+        "heatmap/snapshot/refresh/",
+        HeatmapSnapshotRefreshView.as_view(),
+        name="heatmap-snapshot-refresh",
+    ),
+    # The image is served by the API, not MEDIA_URL, so it stays team-scoped.
+    path(
+        "heatmap/snapshots/<uuid:pk>/image/",
+        HeatmapSnapshotImageView.as_view(),
+        name="heatmap-snapshot-image",
+    ),
 ]

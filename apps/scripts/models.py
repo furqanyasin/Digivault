@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from apps.common.models import BaseModel
 from apps.common.querysets import ActiveQuerySet, TeamScopedQuerySet
@@ -133,6 +134,14 @@ class ScriptSnapshot(BaseModel):
     Used as the source of truth for the diff engine.
     """
 
+    # `snippet_version` written by the server-side scan entry points. It marks a
+    # snapshot parsed out of static HTML rather than observed in a browser, and
+    # the diff windows are built per-source off it: a scan cannot see what GTM
+    # injects at runtime, so its absences prove nothing about a browser's page.
+    # Lives here, on the model that stores the column, because a drifting copy
+    # of this literal would silently mix the two sources back together.
+    SERVER_SCAN_VERSION = "server-scan"
+
     website = models.ForeignKey(
         "websites.Website",
         on_delete=models.CASCADE,
@@ -143,7 +152,13 @@ class ScriptSnapshot(BaseModel):
     scripts_data = models.JSONField()
     user_agent = models.TextField(blank=True)
     snippet_version = models.CharField(max_length=20, blank=True)
-    captured_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    # When the observation *arrived*, not when it was written. A default rather
+    # than auto_now_add, because auto_now_add overwrites any value passed in,
+    # and batched ingest (apps/scripts/ingest_batch.py) writes a page load's
+    # posts some seconds after they came in. Stamped with the flush time, posts
+    # would land in the wrong 60s load bucket, and the diff windows are built
+    # from those buckets.
+    captured_at = models.DateTimeField(default=timezone.now, db_index=True)
 
     class Meta:
         ordering = ["-captured_at"]
@@ -301,7 +316,7 @@ class DetectedForm(BaseModel):
         ]
 
     @staticmethod
-    def compute_fingerprint(form_data: dict) -> str:
+    def compute_fingerprint(form_data: dict, page_url: str = "") -> str:
         """Stable 32-char hash identifying a form within a page.
 
         Derived from detection type, identifiers and action, plus the set of
@@ -334,11 +349,19 @@ class DetectedForm(BaseModel):
         across the copies. Two forms that genuinely post to different query
         strings on one path now share an identity — a deliberate trade, since
         their ids and field sets still tell them apart.
+
+        `page_url` is what the form was seen on, and is what the action is
+        resolved against, exactly as a browser's `form.action` getter resolves
+        it. Callers that have it must pass it: without it a form with no action
+        attribute (or a relative one) hashes differently depending on whether
+        the browser snippet or the server-side scan reported it, and one form
+        stores two rows for one page. It defaults to "" so a caller with nothing
+        to resolve against still hashes exactly as it did before.
         """
         import hashlib
         import re
 
-        from apps.scripts.normalize import normalize_page_url
+        from apps.scripts.normalize import normalize_page_url, resolve_form_action
 
         volatile = re.compile(
             r"(nonce|honeypot|^hp-|^_wpcf7|^g-recaptcha|^h-captcha|^ct_|^ak_)",
@@ -358,9 +381,11 @@ class DetectedForm(BaseModel):
             form_data.get("detection_type", DetectedForm.DetectionType.NATIVE),
             form_id,
             form_name,
-            # Relative actions ("/submit") have no netloc and pass through
-            # unchanged — they are already free of the document URL.
-            normalize_page_url(form_data.get("form_action", "") or ""),
+            # Resolved first: an absent or relative attribute is the document
+            # URL to a browser, and only the scan sees it any other way.
+            normalize_page_url(
+                resolve_form_action(page_url, form_data.get("form_action", "") or "")
+            ),
             # Emptied rather than dropped for an identified form, so the segment
             # count stays fixed and an id can never hash the same as an
             # anonymous form whose field name sits in that position.

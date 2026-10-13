@@ -7,19 +7,13 @@ wrong list to put in front of an agency: the question the Scripts tab answers is
 "what is tracking my client's visitors", and a row for `code.jquery.com` is noise
 that pushes the answer off the screen.
 
-Two rules do the work:
+**Vendor allowlist.** A script is *tracked* when it is the installed tag of one
+of the monitored vendors — Google, HubSpot, Hotjar, WhatConverts, ClickUp,
+GoHighLevel — as decided by `monitored.tag_identity`, the same rule ingest uses
+to decide what to store. Everything else is off the inventory.
 
-**Category allowlist.** A script is *tracked* when its category is one an agency
-is accountable for — analytics, advertising, tag management, session recording,
-call tracking, chat, CRM, payment. `performance` (libraries, CDNs, fonts, maps,
-video players), `social` (share buttons, review widgets, embeds), `security`
-(reCAPTCHA, consent banners) and `unknown` are not. This is a category rule, not a
-provider list, so a new marketing tag added to the classifier is tracked the day
-it lands — nothing here has to be edited to keep up.
-
-The one exception is a script flagged `is_suspicious`: an injected payload is
-never in a tracked category (injections classify as `unknown` by definition), and
-hiding it would turn a noise filter into a security hole.
+The one exception is a script flagged with *high* suspicion: injected code is
+nobody's vendor, and hiding it would turn a noise filter into a security hole.
 
 **Provider families.** Google is not one entry in the classifier — it is Google
 Analytics 4, Google Tag Manager, Google Ads, Google AdSense, Google Optimize,
@@ -37,11 +31,13 @@ Bing UET (advertising), two unrelated products a reader needs to tell apart.
 from __future__ import annotations
 
 from apps.scripts.models import Script
+from apps.scripts.monitored import tag_identity
+from apps.scripts.suspicion import SEVERITY_HIGH
 
 _C = Script.Category
 
-# Categories that belong on the tracking inventory. Everything else is
-# infrastructure or decoration and is filtered out of the Scripts tab.
+# The category allowlist this module used before the vendor allowlist. Kept
+# because migration 0031 imports it; nothing live reads it.
 TRACKED_CATEGORIES: frozenset[str] = frozenset({
     _C.ANALYTICS,
     _C.ADVERTISING,
@@ -60,6 +56,9 @@ _FAMILY_PREFIXES: tuple[tuple[str, str], ...] = (
     ("HubSpot", "HubSpot"),
     ("Hotjar", "Hotjar"),
     ("WhatConverts", "WhatConverts"),
+    ("ClickUp", "ClickUp"),
+    ("LeadConnector", "GoHighLevel"),
+    ("GoHighLevel", "GoHighLevel"),
     ("Meta Pixel", "Meta"),
     ("Facebook", "Meta"),
     ("YouTube", "YouTube"),
@@ -82,12 +81,12 @@ def provider_family(provider: str) -> str:
     return provider
 
 
-def is_tracked(category: str, is_suspicious: bool = False) -> bool:
+def is_tracked(src_url: str, suspicion_severity: str = "") -> bool:
     """Return True when a script belongs on the tracking inventory.
 
-    `is_suspicious` overrides the category rule: injected code classifies as
-    `unknown`, and a noise filter must not be the thing that hides it.
+    Mirrors `tasks._should_track_script`, so the tab and the change log agree
+    about which rows exist.
     """
-    if is_suspicious:
+    if suspicion_severity == SEVERITY_HIGH:
         return True
-    return category in TRACKED_CATEGORIES
+    return tag_identity(src_url) is not None

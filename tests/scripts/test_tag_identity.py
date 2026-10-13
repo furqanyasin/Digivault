@@ -74,6 +74,28 @@ class TestGoogleTagIdentityIsTheContainerId:
             "https://www.googletagmanager.com/gtag/js?id=GTM-ABC"
         )
 
+    def test_digilatics_google_urls_keep_ids_but_drop_runtime_query(self):
+        urls = [
+            "https://www.googletagmanager.com/gtag/js?id=G-0KTJ15QBB5&cx=c&gtm=4e6920h2",
+            "https://www.googletagmanager.com/gtag/js?id=G-LC6FS8Y01E&cx=c&gtm=4e6911",
+            "https://www.googletagmanager.com/gtm.js?id=GTM-NDF77KHJ&gtm=4e6920h2",
+            "https://www.googletagmanager.com/gtm.js?id=GTM-N32TK6DJ&gtm=4e6911",
+        ]
+        normalized = [normalize_script_url(url) for url in urls]
+        assert normalized == [
+            "https://www.googletagmanager.com/gtag/js?id=G-0KTJ15QBB5",
+            "https://www.googletagmanager.com/gtag/js?id=G-LC6FS8Y01E",
+            "https://www.googletagmanager.com/gtm.js?id=GTM-NDF77KHJ",
+            "https://www.googletagmanager.com/gtm.js?id=GTM-N32TK6DJ",
+        ]
+
+    def test_same_google_id_with_runtime_variants_is_one_identity(self):
+        assert normalize_script_url(
+            "https://www.googletagmanager.com/gtag/js?id=G-LC6FS8Y01E&cx=c&gtm=4e6911"
+        ) == normalize_script_url(
+            "https://www.googletagmanager.com/gtag/js?id=G-LC6FS8Y01E&cx=c&gtm=4e6920h2&cst=1"
+        )
+
 
 class TestOtherIdentityOnlyHosts:
     def test_recaptcha_site_key_is_identity(self):
@@ -95,6 +117,11 @@ class TestOtherIdentityOnlyHosts:
         a = normalize_script_url("https://static.hotjar.com/c/hotjar-3065386.js?sv=6")
         b = normalize_script_url("https://static.hotjar.com/c/hotjar-3065386.js?sv=7")
         assert a == b
+
+    def test_hotjar_runtime_version_is_removed_from_identity(self):
+        assert normalize_script_url(
+            "https://script.hotjar.com/modules.e762be2b6b709245aabb.js?ver=0.20"
+        ) == "https://script.hotjar.com/modules.js"
 
     def test_two_hotjar_accounts_stay_separate(self):
         a = normalize_script_url("https://static.hotjar.com/c/hotjar-3065386.js?sv=6")
@@ -162,10 +189,12 @@ class TestRotationRaisesNoAlerts:
         # Each tag is announced exactly once, on its first sighting. Every
         # rotation after that is the same tag wearing a different query string,
         # and must be silent — that repeat is the daily alert nobody asked for.
+        # Descriptions carry the tag id, so one site's four GA4 properties read
+        # as four tags rather than as one event logged four times.
         added = ScriptChange.objects.filter(website=website, change_type="added")
         assert sorted(c.description for c in added) == [
-            "New script added: Google Analytics 4",
-            "New script added: Google Tag Manager",
+            "New script added: Google Analytics 4 (G-ROT01)",
+            "New script added: Google Tag Manager (GTM-ROT01)",
         ], [c.description for c in added]
 
         churn = ScriptChange.objects.filter(

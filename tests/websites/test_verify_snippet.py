@@ -14,9 +14,11 @@ only a real browser loading a page that carries the snippet can produce — is
 the authoritative signal and is checked first.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
+
+from apps.common.outbound import FetchResult
 
 
 @pytest.fixture
@@ -28,11 +30,23 @@ def website(team):
     )
 
 
-def _fetch(status_code, text):
-    resp = Mock()
-    resp.status_code = status_code
-    resp.text = text
-    return patch("requests.get", return_value=resp)
+def _fetch(status_code, text, headers=None):
+    """Stand in for the shared outbound client, not for `requests`.
+
+    Both this endpoint and `scan` used to call `requests.get` directly, which
+    skipped the per-host budget, the cooldown and — the part that mattered — the
+    SSRF guard that `outbound` re-applies on every redirect hop. Patching
+    `outbound.fetch` here is what keeps that true: a future rewrite that reaches
+    for `requests` again finds these tests no longer exercising it.
+    """
+    result = FetchResult(
+        status_code=status_code,
+        body=text,
+        headers=headers or {},
+        elapsed_ms=12,
+        final_url="https://totalhouseinspection.com/",
+    )
+    return patch("apps.websites.views.outbound.fetch", return_value=result)
 
 
 def _verify(auth_client, website):

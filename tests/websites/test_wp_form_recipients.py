@@ -14,6 +14,7 @@ import pytest
 
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
+from apps.credentials.models import Credential
 import json as _json
 import urllib.error
 
@@ -347,33 +348,59 @@ class TestEndpoint:
     def _url(website):
         return f"/api/v1/websites/{website.pk}/sync-form-recipients/"
 
-    def test_requires_wp_connect(self, client_for, website):
+    def test_requires_wordpress_api_credentials(self, client_for, website):
         website.wp_sso_secret = ""
         website.save(update_fields=["wp_sso_secret"])
         resp = client_for(website).post(self._url(website))
         assert resp.status_code == 409
 
-    def test_reports_how_many_rows_it_filled(self, client_for, website, reachable):
+    def test_reports_how_many_rows_it_filled(self, client_for, website, reachable, monkeypatch):
         form = _elementor_form(website)
-        resp_body = _Resp(payload={"forms": [{
-            "plugin": "elementor", "name": "New Form",
-            "recipients": ["website@digilatics.com"],
-        }]})
-        with patch("apps.websites.wp_forms.outbound.fetch", return_value=resp_body):
-            resp = client_for(website).post(self._url(website))
+        credential = Credential(
+            team=website.team,
+            website=website,
+            label="WordPress API",
+            credential_type=Credential.CredentialType.WORDPRESS_APP_PASSWORD,
+        )
+        credential.set_username("api-user")
+        credential.set_password("app-password")
+        credential.save()
+        monkeypatch.setattr(
+            "apps.websites.wp_api_forms.sync_website_detailed",
+            lambda site: {
+                "updated": 1,
+                "source": "wp_api",
+                "reason": "completed",
+            },
+        )
+        resp = client_for(website).post(self._url(website))
         assert resp.status_code == 200
         assert resp.data["updated"] == 1
-        form.refresh_from_db()
-        assert form.recipients["to"] == ["website@digilatics.com"]
+        assert resp.data["source"] == "wp_api"
 
-    def test_a_site_that_cannot_answer_reports_zero(self, client_for, website, reachable):
+    def test_a_site_that_cannot_answer_reports_zero(self, client_for, website, reachable, monkeypatch):
         _elementor_form(website)
-        with patch(
-            "apps.websites.wp_forms.outbound.fetch", return_value=_Resp(status_code=404)
-        ):
-            resp = client_for(website).post(self._url(website))
+        credential = Credential(
+            team=website.team,
+            website=website,
+            label="WordPress API",
+            credential_type=Credential.CredentialType.WORDPRESS_APP_PASSWORD,
+        )
+        credential.set_username("api-user")
+        credential.set_password("app-password")
+        credential.save()
+        monkeypatch.setattr(
+            "apps.websites.wp_api_forms.sync_website_detailed",
+            lambda site: {
+                "updated": 0,
+                "source": "wp_api",
+                "reason": "unsupported_plugin",
+            },
+        )
+        resp = client_for(website).post(self._url(website))
         assert resp.status_code == 200
         assert resp.data["updated"] == 0
+        assert resp.data["reason"] == "unsupported_plugin"
 
 
 @pytest.mark.django_db

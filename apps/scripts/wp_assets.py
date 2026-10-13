@@ -75,6 +75,15 @@ def version_of(url: str) -> str:
     return ""
 
 
+def _version_key(version: str) -> tuple:
+    """Sort ordinary plugin versions without treating build hashes as versions."""
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part.lower())
+        for part in re.split(r"[.+-]", version)
+        if part
+    )
+
+
 def _index(scripts: list[dict]) -> dict[tuple[str, str], str]:
     """Map (kind, slug) → best version seen across that asset's scripts."""
     found: dict[tuple[str, str], str] = {}
@@ -83,11 +92,14 @@ def _index(scripts: list[dict]) -> dict[tuple[str, str], str]:
         key = classify(url)
         if key is None:
             continue
-        # First non-empty version wins; a plugin shipping several files may stamp
-        # only some of them, and "" must not overwrite a known version.
-        if found.get(key):
-            continue
-        found[key] = version_of(url)
+        version = version_of(url)
+        # Keep a known version once found. A later asset may be unversioned, or
+        # may come from a stale cached page; neither is evidence that the plugin
+        # changed. This also makes the result independent of asset tag order.
+        if not version:
+            found.setdefault(key, "")
+        elif not found.get(key) or _version_key(version) > _version_key(found[key]):
+            found[key] = version
     return found
 
 

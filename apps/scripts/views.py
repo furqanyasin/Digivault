@@ -1,17 +1,19 @@
 import logging
 import os
+from datetime import timedelta
 
+from django.db.models import Q
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import IsTeamMember
+from apps.common.permissions import ROLE_MANAGER, IsTeamMember, TeamRolePermission
 from apps.scripts.js_errors import (
     browser_label,
     fingerprint as js_fingerprint,
@@ -22,6 +24,8 @@ from apps.scripts.form_errors import (
     sanitize_error_message,
     sanitize_page_url,
 )
+from apps.scripts import ingest_batch
+from apps.scripts.ingest_origin import origin_matches, page_matches, site_host
 from apps.scripts.models import DetectedForm, FormSubmissionError, JsError, Script, ScriptChange
 from apps.scripts.normalize import normalize_page_url
 from apps.scripts.serializers import (
@@ -61,21 +65,53 @@ class SnippetJsView(APIView):
         return response
 
 
-class ExtensionThrottle(AnonRateThrottle):
-    rate = "300/hour"
+class ExtensionThrottle(UserRateThrottle):
+    # No class-level `rate`: DRF only consults DEFAULT_THROTTLE_RATES when the
+    # attribute is unset, so hardcoding one here would silently ignore
+    # THROTTLE_EXTENSION.
     scope = "extension"
 
 
 class IngestThrottle(AnonRateThrottle):
-    """Rate limit per site_id so one site cannot starve others behind the same IP."""
-    rate = "2000/day"
-    scope = "ingest"
+    """Rate limit per site_id so one site cannot starve others behind the same IP.
+
+    Subclassed rather than shared, because the four public ingest endpoints do
+    not carry comparable traffic. `/api/ingest/` posts several times per
+    pageview — DOMContentLoaded, 2.5s, then a post per DOM-mutation burst for
+    30s, six or more on a GTM site — while a form submission happens once per
+    conversion and a form error once per broken submit.
+
+    On one shared bucket the loud endpoint spent the budget and the quiet ones
+    paid for it: past roughly 300 pageviews in a day every conversion and every
+    broken-form alarm was answered 429 and dropped, with nothing in the UI to
+    say so. Stale script data is a visible symptom; a form counter frozen at
+    zero looks exactly like a site where nobody filled anything in.
+    """
 
     def get_cache_key(self, request, view):
         site_id = (request.data.get("site_id") or "").strip()
         if site_id:
             return self.cache_format % {"scope": self.scope, "ident": site_id}
         return super().get_cache_key(request, view)
+
+
+class ScriptIngestThrottle(IngestThrottle):
+    scope = "ingest"
+
+
+class FormIngestThrottle(IngestThrottle):
+    """Submissions and form errors. Deliberately one bucket for both.
+
+    They are two halves of the same picture — submits observed and submits that
+    visibly failed — so a success rate computed from a budget that ran out on
+    one side but not the other would be worse than no number at all.
+    """
+
+    scope = "ingest_forms"
+
+
+class JsErrorIngestThrottle(IngestThrottle):
+    scope = "ingest_js_errors"
 
 
 class IngestView(APIView):
@@ -88,7 +124,7 @@ class IngestView(APIView):
 
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    throttle_classes = [IngestThrottle]
+    throttle_classes = [ScriptIngestThrottle]
 
     # Reject obviously-oversized bodies before parsing JSON.
     MAX_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
@@ -112,54 +148,64 @@ class IngestView(APIView):
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         # Domain-binding: verify the request origin matches the registered domain
-        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
-        if origin and website.domain:
-            from urllib.parse import urlparse
-            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
-            site_host = website.domain.lower().removeprefix("www.").removeprefix("https://").removeprefix("http://").split("/")[0]
-            if origin_host and site_host and origin_host != site_host:
-                import logging as _log
-                _log.getLogger(__name__).warning(
-                    "Ingest domain mismatch: site_id=%s origin=%s registered=%s",
-                    data["site_id"], origin_host, site_host,
-                )
-                return Response(status=status.HTTP_403_FORBIDDEN)
+        if not origin_matches(request, website):
+            logger.warning(
+                "Ingest domain mismatch: site_id=%s origin=%s registered=%s",
+                data["site_id"],
+                request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", ""),
+                website.domain,
+            )
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        if not page_matches(data["page_url"], website):
+            logger.warning(
+                "Ingest page mismatch: site_id=%s page_url=%s registered=%s",
+                data["site_id"], data["page_url"], website.domain,
+            )
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
-        process_ingest_payload.delay(
-            site_id=website.site_id,
-            payload={
-                "page_url": data["page_url"],
-                "scripts": [
-                    {
-                        "src": s["src"],
-                        "location": s["location"],
-                        "is_async": s["is_async"],
-                        "is_defer": s["is_defer"],
-                        "is_inline": s["is_inline"],
-                        "inline_hash": s["inline_hash"],
-                        "wp_plugin": s["wp_plugin"],
-                        "wp_post_id": s["wp_post_id"],
-                    }
-                    for s in data["scripts"]
-                ],
-                "forms": [
-                    {
-                        "form_id": f["form_id"],
-                        "form_name": f["form_name"],
-                        "form_action": f["form_action"],
-                        "form_method": f["form_method"],
-                        "detection_type": f["detection_type"],
-                        "provider": f["provider"],
-                        "recipient_email": f["recipient_email"],
-                        "recipients": f.get("recipients") or {},
-                        "fields": f["fields"],
-                    }
-                    for f in data.get("forms", [])
-                ],
-                "user_agent": data["user_agent"],
-                "snippet_version": data["snippet_version"],
-            },
-        )
+        payload = {
+            "page_url": data["page_url"],
+            "scripts": [
+                {
+                    "src": s["src"],
+                    "location": s["location"],
+                    "is_async": s["is_async"],
+                    "is_defer": s["is_defer"],
+                    "is_inline": s["is_inline"],
+                    "inline_hash": s["inline_hash"],
+                    "wp_plugin": s["wp_plugin"],
+                    "wp_post_id": s["wp_post_id"],
+                }
+                for s in data["scripts"]
+            ],
+            "forms": [
+                {
+                    "form_id": f["form_id"],
+                    "form_name": f["form_name"],
+                    "form_action": f["form_action"],
+                    "form_method": f["form_method"],
+                    "detection_type": f["detection_type"],
+                    "provider": f["provider"],
+                    "recipient_email": f["recipient_email"],
+                    "recipients": f.get("recipients") or {},
+                    "fields": f["fields"],
+                }
+                for f in data.get("forms", [])
+            ],
+            "user_agent": data["user_agent"],
+            "snippet_version": data["snippet_version"],
+        }
+
+        # Batched only for sites listed in INGEST_BATCH_SITES; see
+        # apps/scripts/ingest_batch.py. If the buffer cannot be written, the
+        # post still goes through the unbatched path rather than being lost.
+        if ingest_batch.enabled_for(website.site_id):
+            try:
+                ingest_batch.enqueue(str(website.site_id), payload)
+                return Response(status=status.HTTP_202_ACCEPTED)
+            except Exception:
+                logger.exception("Ingest batching failed for site_id=%s; processing unbatched", website.site_id)
+        process_ingest_payload.delay(site_id=website.site_id, payload=payload)
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
@@ -177,7 +223,7 @@ class JsErrorIngestView(APIView):
 
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    throttle_classes = [IngestThrottle]
+    throttle_classes = [JsErrorIngestThrottle]
 
     def post(self, request):
         serializer = JsErrorIngestSerializer(data=request.data)
@@ -189,16 +235,8 @@ class JsErrorIngestView(APIView):
         except Website.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
-        if origin and website.domain:
-            from urllib.parse import urlparse
-            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
-            site_host = (
-                website.domain.lower().removeprefix("www.")
-                .removeprefix("https://").removeprefix("http://").split("/")[0]
-            )
-            if origin_host and site_host and origin_host != site_host:
-                return Response(status=status.HTTP_403_FORBIDDEN)
+        if not origin_matches(request, website):
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
         message = data["message"]
         source_url = data.get("source_url", "")
@@ -244,7 +282,7 @@ class FormErrorIngestView(APIView):
 
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    throttle_classes = [IngestThrottle]
+    throttle_classes = [FormIngestThrottle]
 
     def post(self, request):
         serializer = FormErrorIngestSerializer(data=request.data)
@@ -256,13 +294,8 @@ class FormErrorIngestView(APIView):
         except Website.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
-        if origin and website.domain:
-            from urllib.parse import urlparse
-            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
-            site_host = website.domain.lower().removeprefix("www.").removeprefix("https://").removeprefix("http://").split("/")[0]
-            if origin_host and site_host and origin_host != site_host:
-                return Response(status=status.HTTP_403_FORBIDDEN)
+        if not origin_matches(request, website):
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
         if is_important_form_error(data["message"]):
             error = FormSubmissionError.objects.create(
@@ -292,7 +325,7 @@ class FormSubmissionIngestView(APIView):
 
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
-    throttle_classes = [IngestThrottle]
+    throttle_classes = [FormIngestThrottle]
 
     def post(self, request):
         serializer = FormSubmissionIngestSerializer(data=request.data)
@@ -304,23 +337,20 @@ class FormSubmissionIngestView(APIView):
         except Website.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
 
-        origin = request.META.get("HTTP_ORIGIN") or request.META.get("HTTP_REFERER", "")
-        if origin and website.domain:
-            from urllib.parse import urlparse
-            origin_host = urlparse(origin).netloc.lower().removeprefix("www.")
-            site_host = website.domain.lower().removeprefix("www.").removeprefix("https://").removeprefix("http://").split("/")[0]
-            if origin_host and site_host and origin_host != site_host:
-                return Response(status=status.HTTP_403_FORBIDDEN)
+        if not origin_matches(request, website):
+            return Response(status=status.HTTP_403_FORBIDDEN)
 
         from django.db.models import F
 
-        fingerprint = DetectedForm.compute_fingerprint(data["form"])
         # DetectedForm.page_url holds the *normalized* page identity (see
         # process_ingest_payload), while the snippet reports
         # window.location.href verbatim — carrying www., UTM params, a fragment
         # and a trailing slash. Matching those raw against each other silently
         # matched zero rows, so live sites sat at 0 submissions forever.
         page_url = normalize_page_url(data["page_url"])
+        # Same page_url the upsert fingerprints with, so the row this increments
+        # is the row the ingest wrote.
+        fingerprint = DetectedForm.compute_fingerprint(data["form"], page_url)
         updated = DetectedForm.objects.filter(
             website=website,
             page_url=page_url,
@@ -364,8 +394,21 @@ def _record_late_form_submission(
     )
 
 
+# How long a script that stopped loading stays on the tab as an "Inactive" row.
+# Matched to ScriptSnapshot retention: past it there is no longer any raw
+# observation to explain the row, so it is history rather than inventory.
+_INACTIVE_RETENTION = timedelta(days=90)
+
+
 class WebsiteScriptListView(generics.ListAPIView):
-    """GET /api/v1/websites/<website_pk>/scripts/ — active scripts for a site."""
+    """GET /api/v1/websites/<website_pk>/scripts/ — a site's script inventory.
+
+    Includes recently-inactive scripts, not just active ones. The Scripts tab
+    renders an "Inactive" badge so a tracking code that stopped loading stays
+    visible instead of silently vanishing — and with `.active()` here that badge
+    could never appear, because no inactive row ever left the API. Callers that
+    want live scripts only filter on `is_active`, which the serializer carries.
+    """
 
     serializer_class = ScriptSerializer
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
@@ -378,7 +421,10 @@ class WebsiteScriptListView(generics.ListAPIView):
         scripts = Script.objects.filter(
             website__team=team,
             website_id=self.kwargs["website_pk"],
-        ).active()
+        ).filter(
+            Q(is_active=True)
+            | Q(last_seen_at__gte=timezone.now() - _INACTIVE_RETENTION)
+        )
 
         category = self.request.query_params.get("category")
         provider = self.request.query_params.get("provider")
@@ -464,7 +510,7 @@ class TeamChangeListView(generics.ListAPIView):
 class AcknowledgeChangeView(APIView):
     """POST /api/v1/changes/<pk>/acknowledge/ — mark a change as reviewed."""
 
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def post(self, request, pk):
         team = request.user.active_team
@@ -508,7 +554,7 @@ class BulkAcknowledgeChangesView(APIView):
     of which sees the others' uncommitted acks, so the site stays 'critical'.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def post(self, request):
         team = request.user.active_team
@@ -553,7 +599,7 @@ class BulkAcknowledgeChangesView(APIView):
 class ScriptReviewView(APIView):
     """PATCH /api/v1/websites/<website_pk>/scripts/<pk>/review/ — update review_status."""
 
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     _ALLOWED = {s.value for s in Script.ReviewStatus}
 
@@ -604,7 +650,7 @@ class BulkScriptReviewView(APIView):
     Returns {"updated": <count>}.
     """
 
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     _ALLOWED = {s.value for s in Script.ReviewStatus}
 
@@ -741,13 +787,17 @@ class TeamFormErrorListView(generics.ListAPIView):
 class ExtensionLookupView(APIView):
     """GET /api/extension/lookup/?domain=example.com
 
-    Public endpoint for the browser extension.  No authentication required.
-    Returns a sanitised summary — full src URLs are deliberately omitted so
-    this endpoint cannot be used to enumerate a team's private script inventory.
+    The extension's toolbar badge: how many scripts Digivault watches on the
+    site in the current tab. Full src URLs are deliberately omitted.
+
+    Authenticated and scoped to the caller's active team. It used to be public,
+    which made it a free oracle for "is this domain a client of ours, and what
+    tags do they run" — and the extension called it, unauthenticated, with the
+    hostname of every page every user visited. The extension now asks only for
+    hosts in `ExtensionDomainsView`'s list.
     """
 
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
     throttle_classes = [ExtensionThrottle]
 
     # Maximum scripts returned in the truncated list
@@ -761,13 +811,16 @@ class ExtensionLookupView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Strip scheme/path if the extension sends full URLs by mistake
-        domain = domain.replace("https://", "").replace("http://", "").split("/")[0]
-
-        website = (
-            Website.objects.filter(domain__iexact=domain)
-            .only("id", "domain", "status")
-            .first()
+        domain = site_host(domain)
+        website = next(
+            (
+                w
+                for w in Website.objects.filter(team=request.user.active_team).only(
+                    "id", "domain", "status"
+                )
+                if site_host(w.domain) == domain
+            ),
+            None,
         )
 
         if website is None:
@@ -809,6 +862,26 @@ class ExtensionLookupView(APIView):
                 "scripts": truncated,
             }
         )
+
+
+class ExtensionDomainsView(APIView):
+    """GET /api/extension/domains/ — the active team's site hosts, bare.
+
+    The extension caches this and decides locally whether the tab is one of
+    ours, so browsing history never leaves the browser for sites that are not.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get(self, request):
+        hosts = {
+            site_host(d)
+            for d in Website.objects.filter(team=request.user.active_team).values_list(
+                "domain", flat=True
+            )
+        }
+        hosts.discard("")
+        return Response({"domains": sorted(hosts)})
 
 
 class WebsiteJsErrorListView(TeamScopedMixin, generics.ListAPIView):

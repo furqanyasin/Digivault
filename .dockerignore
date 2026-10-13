@@ -1,5 +1,16 @@
 .git
+.gitignore
+
+# Secrets. `.env` was already ignored; `.env.production` was not, and the
+# Dockerfile does `COPY . .` — so DJANGO_SECRET_KEY, DB_PASSWORD,
+# VAULT_ENCRYPTION_KEY and the SMTP key were baked into an image layer while
+# also being supplied correctly at runtime via `env_file`. The copy in the image
+# was pure leakage: nothing read it, and anyone with the image had the vault key.
 .env
+.env.*
+!.env.example
+!.env.production.example
+
 __pycache__
 *.pyc
 *.pyo
@@ -17,3 +28,28 @@ frontend/node_modules
 .DS_Store
 staticfiles/
 media/
+
+# Build caches and test artefacts — never needed at runtime, and .pytest_cache
+# in particular carries paths from the machine that last ran the suite.
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# A Redis dump committed to the repo. Whatever it holds, it is not something to
+# ship inside the API image.
+dump.rdb
+
+# Not part of the served application: docs, the packed browser extension, and
+# the agent tooling directories.
+#
+# `tests/` is deliberately NOT excluded — CI builds this same image and runs
+# pytest inside it, so dropping the suite would cost more than the few hundred
+# kilobytes it saves.
+docs/
+digivault-extension/
+digivault-extension.zip
+.claude/
+.agents/
+.superpowers/

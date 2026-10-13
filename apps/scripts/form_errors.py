@@ -10,11 +10,31 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # A message is stored only if it matches one of these — server-side failures
 # the agency must act on, not user typos.
+#
+# Kept in step with FAILURE_RE in apps/scripts/snippet.js. The snippet screens
+# first so a page's ordinary validation chatter never leaves the browser, and
+# this screens again so a hand-rolled POST to the public endpoint cannot store
+# arbitrary text. A phrase missing from either side is a failure nobody hears
+# about, so the two lists are edited together.
+#
+# Every entry names a *delivery* failure. Validation text — "this field is
+# required", "there was a problem with your submission" — is the visitor's
+# problem, not the agency's, and is deliberately absent: alerting on it would
+# page a developer every time someone mistyped an email address.
 IMPORTANT_FORM_ERROR_KEYWORDS = (
     "submission failed",
     "failed to send",
+    "failed to submit",
     "could not be sent",
     "could not send",
+    "unable to send",
+    "sending failed",
+    # Forminator ("your message was not sent") and Ninja Forms ("there was an
+    # error submitting your form") both report a mail failure in wording no
+    # other entry here matches, so both were being discarded at this filter.
+    "was not sent",
+    "were not sent",
+    "error submitting",
     "server error",
     "internal error",
     "mail failed",

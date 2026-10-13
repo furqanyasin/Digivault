@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   UserPlus, Trash2, Check, ShieldAlert, ShieldCheck, ShieldOff, X, ScrollText,
-  MoreHorizontal, Search, SlidersHorizontal, KeyRound,
+  MoreHorizontal, Search, SlidersHorizontal, KeyRound, Users, ArrowRightLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,16 +22,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { TeamMember } from "@/lib/api";
+import type { TeamMember, SubTeam } from "@/lib/api";
+import { TeamGroupsPanel } from "@/components/team-groups-panel";
+import { CredentialHandoverDialog } from "@/components/credential-handover-dialog";
+import { roleLabel } from "@/lib/roles";
 
-// Editor/Seo are retired — only these roles are offered now. (Legacy roles kept
-// valid in the backend so existing members still work; they just aren't listed.)
-const ROLES = ["viewer", "developer", "manager", "custom", "owner"] as const;
+// Editor and the legacy "seo" role are retired — only these are offered now.
+// (Legacy roles stay valid in the backend so existing members still work; they
+// just aren't listed.)
+const ROLES = ["viewer", "developer", "seo_executive", "manager", "custom", "owner"] as const;
 type Role = typeof ROLES[number];
 
 const ROLE_LEVELS: Record<string, number> = {
-  viewer: 1, developer: 2, custom: 2, editor: 2, seo: 2, manager: 3, owner: 4,
+  viewer: 1, developer: 2, custom: 2, editor: 2, seo: 2, seo_executive: 2,
+  manager: 3, owner: 4,
 };
+
 
 // Role pills carry a light and a dark treatment — the dashboard ships both
 // themes, and a single fixed palette washes out in one of them.
@@ -42,6 +48,7 @@ const ROLE_BADGE: Record<string, string> = {
   custom:    "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:border-indigo-500/25",
   editor:    "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-500/15 dark:text-purple-300 dark:border-purple-500/25",
   seo:       "bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-500/15 dark:text-teal-300 dark:border-teal-500/25",
+  seo_executive: "bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-500/15 dark:text-teal-300 dark:border-teal-500/25",
   viewer:    "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-400/15 dark:text-slate-300 dark:border-slate-400/25",
 };
 
@@ -53,6 +60,7 @@ const ROLE_AVATAR: Record<string, string> = {
   custom:    "bg-gradient-to-br from-indigo-400/30 to-indigo-600/10 text-indigo-700 dark:text-indigo-300",
   editor:    "bg-gradient-to-br from-purple-400/30 to-purple-600/10 text-purple-700 dark:text-purple-300",
   seo:       "bg-gradient-to-br from-teal-400/30 to-teal-600/10 text-teal-700 dark:text-teal-300",
+  seo_executive: "bg-gradient-to-br from-teal-400/30 to-teal-600/10 text-teal-700 dark:text-teal-300",
   viewer:    "bg-gradient-to-br from-slate-400/30 to-slate-600/10 text-slate-700 dark:text-slate-300",
 };
 
@@ -78,6 +86,7 @@ const ROLE_TAB_LABEL: Record<string, string> = {
   custom: "Custom access",
   editor: "Editors",
   seo: "SEO",
+  seo_executive: "SEO Executives",
 };
 
 const MONTH_YEAR = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric" });
@@ -114,6 +123,7 @@ interface Props {
   myMembershipId: string;
   initialMembers: TeamMember[];
   initialResetRequests: PasswordResetReq[];
+  initialGroups: SubTeam[];
 }
 
 export function TeamManagementClient({
@@ -124,6 +134,7 @@ export function TeamManagementClient({
   myMembershipId,
   initialMembers,
   initialResetRequests,
+  initialGroups,
 }: Props) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -131,6 +142,9 @@ export function TeamManagementClient({
   // Add member form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", email: "", password: "", role: "developer" as Role });
+  // Held apart from addForm because the POST body is built explicitly: sending
+  // sub_team at all is owner-only, so a manager must not send an empty one.
+  const [addGroup, setAddGroup] = useState("");
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState("");
   const [addResult, setAddResult] = useState<{ msg: string; link?: string; emailSent: boolean } | null>(null);
@@ -140,6 +154,7 @@ export function TeamManagementClient({
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [accessOpen, setAccessOpen] = useState<string | null>(null);
+  const [handoverFor, setHandoverFor] = useState<TeamMember | null>(null);
 
   // Password reset state
   const [resetRequests, setResetRequests] = useState<PasswordResetReq[]>(initialResetRequests);
@@ -147,6 +162,11 @@ export function TeamManagementClient({
 
   const myLevel = ROLE_LEVELS[myRole as Role] ?? 0;
   const canManage = myLevel >= ROLE_LEVELS["manager"];
+  // Groups and credential grants stay owner-only: a manager already reads every
+  // credential in the team, so what this gate withholds is the power to hand
+  // that reach to other people. Cover for an absent owner is a *second owner* —
+  // the role is assignable below — rather than every manager holding it.
+  const canManageGroups = myLevel >= ROLE_LEVELS["owner"];
 
   function refresh() {
     startTransition(() => router.refresh());
@@ -159,10 +179,15 @@ export function TeamManagementClient({
     setAddResult(null);
     setCopied(false);
     try {
+      // sub_team is included only when the owner actually chose a group. The
+      // backend refuses the key outright from a non-owner, so sending an empty
+      // string would break a manager's own create-user call.
+      const body: Record<string, unknown> = { ...addForm };
+      if (canManageGroups && addGroup) body.sub_team = addGroup;
       const res = await fetch(`/api/teams/${teamId}/users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(addForm),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -181,6 +206,7 @@ export function TeamManagementClient({
         emailSent: Boolean(data?.email_sent),
       });
       setAddForm({ name: "", email: "", password: "", role: "developer" });
+      setAddGroup("");
       setShowAddForm(false);
       refresh();
     } finally {
@@ -199,6 +225,26 @@ export function TeamManagementClient({
   }
 
   async function handleRoleChange(memberId: string, newRole: Role, featureAccess?: string[]) {
+    // Promotion to owner is confirmed, the way removal and disabling 2FA are.
+    // It is the one role change that hands over the whole vault — group access,
+    // credential grants, and the ability to name further owners — and it is a
+    // click away in a radio list of otherwise ordinary roles. Skipped when
+    // featureAccess is passed, since that path is a chip toggle re-sending the
+    // role the member already holds.
+    if (newRole === "owner" && featureAccess === undefined) {
+      const member = initialMembers.find((m) => m.id === memberId);
+      const who = member ? displayName(member) : "this member";
+      if (
+        !confirm(
+          `Make ${who} an owner?
+
+Owners see and manage everything in the team, including credential groups and who may access which credentials. They can also make further owners.
+
+You can demote them again later.`
+        )
+      )
+        return;
+    }
     const body: Record<string, unknown> = { role: newRole };
     // Omit feature_access on a plain role change so the backend applies that
     // role's default preset; send it only when toggling a specific chip.
@@ -207,6 +253,17 @@ export function TeamManagementClient({
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+    });
+    refresh();
+  }
+
+  async function handleGroupChange(member: TeamMember, groupId: string) {
+    // `role` is required on every PATCH to this endpoint, so it is resent
+    // unchanged. An empty groupId clears the member's group.
+    await fetch(`/api/teams/${teamId}/members/${member.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: member.role, sub_team: groupId || null }),
     });
     refresh();
   }
@@ -248,7 +305,12 @@ export function TeamManagementClient({
     }
   }
 
-  const assignableRoles = ROLES.filter((r) => ROLE_LEVELS[r] <= myLevel && r !== "owner");
+  // "Owner" is offered like any other role, which the level check alone already
+  // restricts to owners (owner is the top level, so nobody else can reach it).
+  // It used to be excluded outright, which made ownership a thing only Django
+  // admin could hand over — the whole reason group administration kept being
+  // asked to widen instead.
+  const assignableRoles = ROLES.filter((r) => ROLE_LEVELS[r] <= myLevel);
 
   // Only offer filters for roles somebody actually holds — a tab that always
   // returns nothing is noise.
@@ -347,11 +409,30 @@ export function TeamManagementClient({
                     </SelectTrigger>
                     <SelectContent>
                       {assignableRoles.map((r) => (
-                        <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+                        <SelectItem key={r} value={r}>{roleLabel(r)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+                {canManageGroups && initialGroups.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="add-group">Group</Label>
+                    <Select value={addGroup || "none"} onValueChange={(v) => setAddGroup(v === "none" ? "" : v)}>
+                      <SelectTrigger id="add-group">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No group</SelectItem>
+                        {initialGroups.map((g) => (
+                          <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Controls which credentials this person can see.
+                    </p>
+                  </div>
+                )}
               </div>
               {addError && <p className="text-sm text-red-600">{addError}</p>}
               <div className="flex gap-2">
@@ -394,6 +475,10 @@ export function TeamManagementClient({
           </CardContent>
         </Card>
       )}
+
+      {/* Credential-access groups. Read-only for non-owners; the panel itself
+          hides every write control. */}
+      <TeamGroupsPanel teamId={teamId} canManageGroups={canManageGroups} initialGroups={initialGroups} />
 
       {/* Filter tabs + search */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -441,7 +526,11 @@ export function TeamManagementClient({
           filtered.map((member, i) => {
             const isSelf = member.id === myMembershipId;
             const memberLevel = ROLE_LEVELS[member.role as Role] ?? 0;
-            const canModify = canManage && memberLevel <= myLevel && member.role !== "owner" && !isSelf;
+            // The primary owner — not every owner — is the row nothing may be
+            // done to: `Team.owner` is what holds the team together, while a
+            // co-owner is a membership an owner named and an owner can unname.
+            const canModify =
+              canManage && memberLevel <= myLevel && !member.is_primary_owner && !isSelf;
             const name = displayName(member);
             const features = member.effective_features ?? member.feature_access ?? [];
             const showAccess = accessOpen === member.id;
@@ -490,13 +579,22 @@ export function TeamManagementClient({
                     {member.totp_enabled ? "2FA on" : "No 2FA"}
                   </span>
 
+                  {/* Group, only once groups exist. Muted and uncoloured so it
+                      never competes with the role badge beside it: a group is
+                      not a rank. */}
+                  {initialGroups.length > 0 && (
+                    <span className="hidden lg:block shrink-0 text-xs text-muted-foreground truncate max-w-[9rem]">
+                      {member.sub_team_name ?? "No group"}
+                    </span>
+                  )}
+
                   <span
                     className={cn(
-                      "shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize",
+                      "shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium",
                       ROLE_BADGE[member.role] ?? ROLE_BADGE.viewer
                     )}
                   >
-                    {member.role}
+                    {member.is_primary_owner ? "Primary owner" : roleLabel(member.role)}
                   </span>
 
                   {canManage ? (
@@ -534,8 +632,30 @@ export function TeamManagementClient({
                                 onValueChange={(v) => handleRoleChange(member.id, v as Role)}
                               >
                                 {assignableRoles.map((r) => (
-                                  <DropdownMenuRadioItem key={r} value={r} className="capitalize">
-                                    {r}
+                                  <DropdownMenuRadioItem key={r} value={r}>
+                                    {roleLabel(r)}
+                                  </DropdownMenuRadioItem>
+                                ))}
+                              </DropdownMenuRadioGroup>
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
+                        )}
+
+                        {canManageGroups && member.role !== "owner" && initialGroups.length > 0 && (
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <Users className="h-4 w-4 mr-2" />
+                              Change group
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent>
+                              <DropdownMenuRadioGroup
+                                value={member.sub_team ?? "none"}
+                                onValueChange={(v) => handleGroupChange(member, v === "none" ? "" : v)}
+                              >
+                                <DropdownMenuRadioItem value="none">No group</DropdownMenuRadioItem>
+                                {initialGroups.map((g) => (
+                                  <DropdownMenuRadioItem key={g.id} value={g.id}>
+                                    {g.name}
                                   </DropdownMenuRadioItem>
                                 ))}
                               </DropdownMenuRadioGroup>
@@ -557,6 +677,13 @@ export function TeamManagementClient({
                           >
                             <ShieldOff className="h-4 w-4 mr-2" />
                             Disable 2FA
+                          </DropdownMenuItem>
+                        )}
+
+                        {canModify && (
+                          <DropdownMenuItem onSelect={() => setHandoverFor(member)}>
+                            <ArrowRightLeft className="h-4 w-4 mr-2" />
+                            Hand over credentials
                           </DropdownMenuItem>
                         )}
 
@@ -672,6 +799,14 @@ export function TeamManagementClient({
             ))}
           </div>
         </section>
+      )}
+
+      {handoverFor && (
+        <CredentialHandoverDialog
+          member={handoverFor}
+          members={initialMembers}
+          onClose={() => setHandoverFor(null)}
+        />
       )}
     </div>
   );

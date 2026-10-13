@@ -1,6 +1,6 @@
 import { getAccessToken } from "@/lib/server-token";
 import { api } from "@/lib/api";
-import type { User, Team, TeamMember } from "@/lib/api";
+import type { User, Team, TeamMember, SubTeam } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Users } from "lucide-react";
 import { TeamManagementClient } from "@/components/team-management-client";
@@ -16,7 +16,7 @@ interface PasswordResetReq {
 async function getData(token: string) {
   const [userResult, teamsResult] = await Promise.allSettled([
     api.get<User>("/api/v1/auth/me/", token),
-    api.get<Team[]>("/api/v1/auth/teams/", token),
+    api.getAll<Team>("/api/v1/auth/teams/", token),
   ]);
 
   const user = userResult.status === "fulfilled" ? userResult.value : null;
@@ -24,28 +24,34 @@ async function getData(token: string) {
 
   let members: TeamMember[] = [];
   let resetRequests: PasswordResetReq[] = [];
+  let groups: SubTeam[] = [];
   let activeTeam: Team | null = null;
 
   if (user && teams.length > 0) {
     activeTeam = teams.find((t) => t.id === user.active_team) ?? teams[0];
     if (activeTeam) {
-      const [membersResult, resetResult] = await Promise.allSettled([
-        api.get<TeamMember[]>(`/api/v1/auth/teams/${activeTeam.id}/members/`, token),
-        api.get<PasswordResetReq[]>("/api/v1/auth/password-reset/", token),
+      const [membersResult, resetResult, groupsResult] = await Promise.allSettled([
+        api.getAll<TeamMember>(`/api/v1/auth/teams/${activeTeam.id}/members/`, token),
+        api.getAll<PasswordResetReq>("/api/v1/auth/password-reset/", token),
+        api.getAll<SubTeam>(`/api/v1/auth/teams/${activeTeam.id}/sub-teams/`, token),
       ]);
       members = membersResult.status === "fulfilled" && Array.isArray(membersResult.value)
         ? membersResult.value : [];
       resetRequests = resetResult.status === "fulfilled" && Array.isArray(resetResult.value)
         ? resetResult.value : [];
+      // Tolerated as empty if the backend predates groups: the frontend
+      // deploys separately, so this page must still render without them.
+      groups = groupsResult.status === "fulfilled" && Array.isArray(groupsResult.value)
+        ? groupsResult.value : [];
     }
   }
 
-  return { user, members, resetRequests, activeTeam };
+  return { user, members, resetRequests, groups, activeTeam };
 }
 
 export default async function TeamPage() {
   const token = await getAccessToken();
-  const { user, members, resetRequests, activeTeam } = await getData(token ?? "");
+  const { user, members, resetRequests, groups, activeTeam } = await getData(token ?? "");
 
   const myMembership = user ? members.find((m) => m.user.id === user.id) : null;
   const myRole = activeTeam?.my_role ?? myMembership?.role ?? "viewer";
@@ -80,6 +86,7 @@ export default async function TeamPage() {
           myMembershipId={myMembershipId}
           initialMembers={members}
           initialResetRequests={resetRequests}
+          initialGroups={groups}
         />
       )}
     </div>

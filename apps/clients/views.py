@@ -6,6 +6,7 @@ from datetime import datetime
 from django.db.models import Count, Q
 from django.http import HttpResponse
 from rest_framework import generics, permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,6 +15,7 @@ from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.clients.models import Client
 from apps.clients.serializers import ClientLookupSerializer, ClientSerializer
+from apps.common.permissions import ROLE_MANAGER, IsTeamMember, TeamRolePermission
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +283,7 @@ class ClientListCreateView(generics.ListCreateAPIView):
     """GET /api/v1/clients/   POST /api/v1/clients/"""
 
     serializer_class = ClientSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
     pagination_class = None
 
     def get_queryset(self):
@@ -313,11 +315,11 @@ class ClientListCreateView(generics.ListCreateAPIView):
         )
 
 
-class ClientDetailView(generics.RetrieveUpdateAPIView):
-    """GET /api/v1/clients/<pk>/   PATCH /api/v1/clients/<pk>/"""
+class ClientDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """GET, PATCH and DELETE /api/v1/clients/<pk>/"""
 
     serializer_class = ClientSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         return Client.objects.for_team(_team(self.request))
@@ -339,11 +341,45 @@ class ClientDetailView(generics.RetrieveUpdateAPIView):
             resource_type="client", resource_id=client.pk,
         )
 
+    def perform_destroy(self, instance):
+        """Hard-delete a client, but only once it is offboarded.
+
+        Offboarding stays the normal way to retire a client: it is reversible
+        and it keeps the history. This is for rows that should never have
+        existed - the same client filed twice, which is easy to do because the
+        CSV import matches on `name` exactly, so "HomePro Chesapeake" and
+        "Homepro chesapeake" are two different clients as far as
+        `update_or_create` is concerned, and adding one by hand checks nothing
+        at all.
+
+        Requiring OFFBOARDED first is what keeps a live client from being one
+        mis-click from gone, and it is why the delete control only appears on
+        an offboarded row rather than on every row.
+
+        The monitored website is left behind rather than deleted:
+        Website.client is SET_NULL, so the site keeps its scripts, monitors and
+        history, and the surviving client adopts it on the next import or save
+        (_auto_create_website adopts a site whose client_id is NULL).
+        """
+        if instance.status != Client.Status.OFFBOARDED:
+            raise ValidationError(
+                "Only an offboarded client can be deleted. Set this client's "
+                "status to Offboarded first."
+            )
+        # Read these off the instance before the delete clears its pk.
+        name, pk = instance.name, instance.pk
+        instance.delete()
+        AuditService.log_request(
+            self.request, ActivityLog.Action.CLIENT_DELETED,
+            description=f"Deleted client '{name}'",
+            resource_type="client", resource_id=pk,
+        )
+
 
 class ClientActivateView(APIView):
     """POST /api/v1/clients/<pk>/activate/"""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def post(self, request, pk):
         try:
@@ -363,7 +399,7 @@ class ClientActivateView(APIView):
 class ClientDeactivateView(APIView):
     """POST /api/v1/clients/<pk>/deactivate/ — marks the client offboarded."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def post(self, request, pk):
         try:
@@ -383,7 +419,7 @@ class ClientDeactivateView(APIView):
 class ClientSearchView(APIView):
     """GET /api/v1/clients/search/?q=abc.com  — instant lookup for CSM queries."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get(self, request):
         q = request.query_params.get("q", "").strip().lower()
@@ -408,7 +444,9 @@ class ClientSearchView(APIView):
 class ClientImportView(APIView):
     """POST /api/v1/clients/import/ — import clients from a CSV export."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
+    write_role = ROLE_MANAGER
+    action_roles = {"GET": ROLE_MANAGER, "POST": ROLE_MANAGER}
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
@@ -523,7 +561,9 @@ class ClientImportView(APIView):
 class ClientExportView(APIView):
     """GET /api/v1/clients/export/ — download all clients as a re-importable CSV."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
+    write_role = ROLE_MANAGER
+    action_roles = {"GET": ROLE_MANAGER, "POST": ROLE_MANAGER}
 
     def get(self, request):
         clients = Client.objects.for_team(_team(request)).order_by("name")

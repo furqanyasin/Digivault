@@ -39,11 +39,23 @@ def recalculate_all_health() -> int:
     acknowledge, monitor flip, domain check) never fire for a site that has
     simply gone quiet, so without this sweep a site could drift past an expiry
     date while still reporting yesterday's score. Idempotent.
+
+    Deliberately **not** narrowed to sites with the snippet installed, which is
+    what it used to do. Every deduction this sweep exists to decay — domain,
+    SSL and hosting expiry — is discovered server-side and applies just as much
+    to a site that has never carried the snippet. Uptime monitoring, passive
+    scans and SEO checks all start the moment a Website is created, so a
+    snippet-less site accrues findings from day one; gating the recalculation on
+    `snippet_status=INSTALLED` meant those sites were the only ones whose score
+    could never move, and an expiring certificate on one of them was invisible
+    until somebody opened the page.
     """
     from apps.websites.models import Website
 
     count = 0
-    for website in Website.objects.exclude(status=Website.Status.INACTIVE).iterator():
+    for website in Website.objects.filter(
+        status__in=[Website.Status.ACTIVE, Website.Status.WARNING, Website.Status.CRITICAL],
+    ).iterator():
         try:
             website.recalculate_health_score()
             count += 1
@@ -53,31 +65,20 @@ def recalculate_all_health() -> int:
     return count
 
 
-@shared_task(name="websites.sync_wp_form_recipients")
-def sync_wp_form_recipients(website_pk: str | None = None) -> int:
-    """Ask WP Connect sites where their forms deliver. Returns rows written.
-
-    Skips sites with no snippet secret and sites with no detected forms — there
-    is nothing to sign a request with, or nothing to join the answer onto.
-    """
-    from apps.websites.models import Website
-    from apps.websites.wp_forms import sync_website
-
-    sites = Website.objects.exclude(wp_sso_secret="").exclude(
-        status=Website.Status.INACTIVE
-    )
-    if website_pk:
-        sites = sites.filter(pk=website_pk)
-    sites = sites.filter(detected_forms__isnull=False).distinct()
-
-    written = 0
-    for website in sites.iterator():
-        try:
-            written += sync_website(website)
-        except Exception:
-            logger.exception("sync_wp_form_recipients failed for %s", website.pk)
-    logger.info("sync_wp_form_recipients: updated %d form(s)", written)
-    return written
+# `websites.sync_wp_form_recipients` used to live here, named for the WP
+# Connect route it was written against. That route was retired, and the task was
+# repointed at `wp_api_forms.sync_website` — the same function
+# `sync_wp_api_form_recipients` below already calls. Two beat entries then ran
+# the identical sweep an hour apart, and the older one had never grown the
+# guard the newer one exists around: it did not skip sites whose credential had
+# already been rejected, so it spent every morning re-presenting a known-bad
+# Application Password from our single egress IP. Repeated 401s are how that IP
+# gets banned, and a ban costs uptime monitoring for every client — which is
+# the entire reason `wp_api_auth_failed_at` was added.
+#
+# Deleting a named task means a message already queued under the old name will
+# be rejected as unregistered once. That is a one-deploy cost, not a recurring
+# one, and it is cheaper than a sweep nobody knew was running.
 
 
 @shared_task(name="websites.sync_wp_api_form_recipients")
@@ -197,21 +198,19 @@ _PASSIVE_SCAN_MAX_AGE = timezone.timedelta(hours=20)
 def run_due_passive_scans() -> int:
     """Queue a server-side script scan for every site that has not had one today.
 
-    Without this, script detection only ever happened for sites carrying the
-    tracking snippet — a site added yesterday showed an empty Scripts tab
-    indefinitely, and the agency had no way to tell "no third-party scripts"
-    apart from "we have never looked". One homepage fetch per site per day is
-    enough to tell them apart.
-
-    It does not replace the snippet, which sees scripts GTM injects at runtime
-    and sees every page rather than just the homepage. It is the floor.
+    It runs only after a browser has reported the tracking snippet. The snippet
+    is the activation signal for script-dependent processing; this scan remains
+    a static homepage supplement and does not replace runtime collection.
     """
     from apps.site_health.models import SiteScanState
     from apps.websites.models import Website
 
     cutoff = timezone.now() - _PASSIVE_SCAN_MAX_AGE
     enqueued = 0
-    for website in Website.objects.exclude(status=Website.Status.INACTIVE).iterator():
+    for website in Website.objects.filter(
+        status__in=[Website.Status.ACTIVE, Website.Status.WARNING, Website.Status.CRITICAL],
+        snippet_status=Website.SnippetStatus.INSTALLED,
+    ).iterator():
         state = SiteScanState.objects.filter(website=website).first()
         if state and state.last_scanned_at and state.last_scanned_at > cutoff:
             continue
@@ -225,6 +224,7 @@ def run_due_passive_scans() -> int:
 @shared_task(name="websites.passive_scan_website")
 def passive_scan_website(website_pk: str) -> None:
     """Fetch one homepage server-side and feed it to the normal ingest pipeline."""
+    from apps.scripts.models import ScriptSnapshot
     from apps.scripts.tasks import process_ingest_payload
     from apps.site_health.models import SiteScanState
     from apps.websites.models import Website
@@ -234,6 +234,10 @@ def passive_scan_website(website_pk: str) -> None:
     try:
         website = Website.objects.get(pk=website_pk)
     except Website.DoesNotExist:
+        return
+
+    if website.snippet_status != Website.SnippetStatus.INSTALLED:
+        logger.info("passive scan: %s skipped until snippet reports", website.domain)
         return
 
     url = website.domain
@@ -294,7 +298,7 @@ def passive_scan_website(website_pk: str) -> None:
         ],
         "forms": forms,
         "user_agent": "Digivault-Scanner/1.0",
-        "snippet_version": "server-scan",
+        "snippet_version": ScriptSnapshot.SERVER_SCAN_VERSION,
     })
     logger.info(
         "passive scan: %s → %d scripts, %d forms",

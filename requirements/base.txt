@@ -5,7 +5,11 @@ djangorestframework-simplejwt==5.3.1
 django-environ==0.11.2
 django-cors-headers==4.4.0
 django-redis==5.4.0
-psycopg2-binary==2.9.9
+# psycopg 3, not psycopg2: Django's built-in connection pool (DB_POOL, see
+# config/settings/base.py) exists only for psycopg 3. The binary wheel bundles
+# libpq, so nothing here depends on the image's libpq-dev any more.
+psycopg[binary,pool]==3.2.3
+psycopg-pool==3.2.4
 celery==5.4.0
 redis==5.1.0
 cryptography==43.0.3

@@ -146,8 +146,10 @@
   /* The chat launcher is fixed at bottom-6 right-6 and sits above the page, so
      it covers whatever is in that corner — pagination "Next" buttons especially.
      Pages reserve this much space below their content so nothing ends up under
-     it. Used in two places that must stay in step: the dashboard <main> pads by
-     it, and any viewport-height page subtracts it (see the Clients table). */
+     it. The dashboard <main> pads by it, which covers every normally-scrolling
+     page. A page that instead pins itself to the viewport (h-100dvh) must
+     subtract it, or the two add up to more than one viewport and the page
+     scrolls by exactly this much. No page does that today. */
   --chat-safe-area: 5.5rem;
   --radius: 1rem;
 

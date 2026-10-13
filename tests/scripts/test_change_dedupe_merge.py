@@ -125,6 +125,16 @@ def test_an_acknowledged_change_is_history_and_is_left_alone(site, script):
     assert ScriptChange.objects.filter(website=site).count() == 2
 
 
+def test_open_duplicates_are_collapsed_against_existing_history(site, script):
+    """A later cleanup can remove duplicates created after the first migration."""
+    old = _change(site, script=script, hours_ago=3)
+    newest = _change(site, script=script, hours_ago=1)
+
+    assert _collapse() == 1
+    assert ScriptChange.objects.filter(pk=newest.pk).exists()
+    assert not ScriptChange.objects.filter(pk=old.pk).exists()
+
+
 def test_scriptless_changes_fall_back_to_the_description(site):
     """Mirrors the runtime dedupe, which keys on description when there is no Script."""
     _change(site, description="Critical script removed: Google Tag Manager", hours_ago=5)

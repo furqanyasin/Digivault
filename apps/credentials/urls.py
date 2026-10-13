@@ -1,19 +1,96 @@
 from django.urls import path
 
 from apps.credentials.views import (
+    AccessRequestCancelView,
+    AccessRequestDecideView,
+    AccessRequestListView,
     CredentialAccessLogView,
+    CredentialAccessRequestCreateView,
+    CredentialActivityView,
     CredentialDetailView,
     CredentialExportView,
+    CredentialGroupGrantListView,
     CredentialImportView,
     CredentialListCreateView,
+    CredentialMarkFixedView,
+    CredentialReportBrokenView,
     CredentialRevealView,
     CredentialShareDeleteView,
     CredentialShareListCreateView,
+    CredentialTotpView,
+    CredentialWhoHasAccessView,
+    MemberCredentialHandoverView,
+    MemberCredentialSummaryView,
+    PasswordHistoryListView,
+    PasswordHistoryRestoreView,
+    PasswordHistoryRevealView,
+    RequestableCredentialListView,
+    SubTeamGrantDeleteView,
+    SubTeamGrantListCreateView,
     TeamCredentialListCreateView,
+    VaultFolderDetailView,
+    VaultFolderListCreateView,
+    VaultFolderMembersView,
     WebsiteCredentialShareView,
 )
 
 urlpatterns = [
+    # Fixed paths before "credentials/<uuid:pk>/" so they never parse as a pk.
+    path(
+        "credentials/folders/",
+        VaultFolderListCreateView.as_view(),
+        name="credential-folders",
+    ),
+    path(
+        "credentials/folders/<uuid:pk>/members/",
+        VaultFolderMembersView.as_view(),
+        name="credential-folder-members",
+    ),
+    path(
+        "credentials/folders/<uuid:pk>/members/<uuid:user_id>/",
+        VaultFolderMembersView.as_view(),
+        name="credential-folder-member",
+    ),
+    path(
+        "credentials/folders/<uuid:pk>/",
+        VaultFolderDetailView.as_view(),
+        name="credential-folder-detail",
+    ),
+    path(
+        "credentials/requestable/",
+        RequestableCredentialListView.as_view(),
+        name="credential-requestable",
+    ),
+    path(
+        "credentials/access-requests/",
+        AccessRequestListView.as_view(),
+        name="credential-access-requests",
+    ),
+    path(
+        "credentials/access-requests/<uuid:pk>/decide/",
+        AccessRequestDecideView.as_view(),
+        name="credential-access-request-decide",
+    ),
+    path(
+        "credentials/access-requests/<uuid:pk>/cancel/",
+        AccessRequestCancelView.as_view(),
+        name="credential-access-request-cancel",
+    ),
+    path(
+        "credentials/<uuid:pk>/access-requests/",
+        CredentialAccessRequestCreateView.as_view(),
+        name="credential-access-request-create",
+    ),
+    path(
+        "credentials/members/<uuid:user_id>/summary/",
+        MemberCredentialSummaryView.as_view(),
+        name="credential-member-summary",
+    ),
+    path(
+        "credentials/members/<uuid:user_id>/handover/",
+        MemberCredentialHandoverView.as_view(),
+        name="credential-member-handover",
+    ),
     path(
         "credentials/",
         TeamCredentialListCreateView.as_view(),
@@ -45,6 +122,46 @@ urlpatterns = [
         name="credential-reveal",
     ),
     path(
+        "credentials/<uuid:pk>/password-history/",
+        PasswordHistoryListView.as_view(),
+        name="credential-password-history",
+    ),
+    path(
+        "credentials/<uuid:pk>/password-history/<uuid:entry_pk>/reveal/",
+        PasswordHistoryRevealView.as_view(),
+        name="credential-password-history-reveal",
+    ),
+    path(
+        "credentials/<uuid:pk>/password-history/<uuid:entry_pk>/restore/",
+        PasswordHistoryRestoreView.as_view(),
+        name="credential-password-history-restore",
+    ),
+    path(
+        "credentials/<uuid:pk>/access/",
+        CredentialWhoHasAccessView.as_view(),
+        name="credential-who-has-access",
+    ),
+    path(
+        "credentials/<uuid:pk>/activity/",
+        CredentialActivityView.as_view(),
+        name="credential-activity",
+    ),
+    path(
+        "credentials/<uuid:pk>/report-broken/",
+        CredentialReportBrokenView.as_view(),
+        name="credential-report-broken",
+    ),
+    path(
+        "credentials/<uuid:pk>/mark-fixed/",
+        CredentialMarkFixedView.as_view(),
+        name="credential-mark-fixed",
+    ),
+    path(
+        "credentials/<uuid:pk>/totp/",
+        CredentialTotpView.as_view(),
+        name="credential-totp",
+    ),
+    path(
         "websites/<uuid:website_pk>/credential-audit/",
         CredentialAccessLogView.as_view(),
         name="credential-audit",
@@ -53,6 +170,23 @@ urlpatterns = [
         "websites/<uuid:website_pk>/credentials/share/",
         WebsiteCredentialShareView.as_view(),
         name="website-credential-share",
+    ),
+    # Group grants. Created through the sub-team collection for all three
+    # scopes; the per-credential read is what the share dialog uses.
+    path(
+        "sub-teams/<uuid:sub_team_pk>/credential-grants/",
+        SubTeamGrantListCreateView.as_view(),
+        name="sub-team-grant-list-create",
+    ),
+    path(
+        "sub-teams/<uuid:sub_team_pk>/credential-grants/<uuid:pk>/",
+        SubTeamGrantDeleteView.as_view(),
+        name="sub-team-grant-delete",
+    ),
+    path(
+        "credentials/<uuid:pk>/group-grants/",
+        CredentialGroupGrantListView.as_view(),
+        name="credential-group-grants",
     ),
     path(
         "credentials/<uuid:pk>/shares/",

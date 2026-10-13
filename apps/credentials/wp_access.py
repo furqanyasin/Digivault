@@ -51,7 +51,7 @@ def resolve_wp_credential(website) -> WpCredential | None:
             username = cred.get_username()
             password = cred.get_password()
         except Exception:
-            logger.debug("wp_access: credential %s will not decrypt", cred.pk)
+            logger.warning("wp_access: credential %s could not be decrypted", cred.pk)
             continue
         if not username or not password:
             continue

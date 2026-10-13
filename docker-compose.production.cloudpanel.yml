@@ -1,5 +1,3 @@
-version: "3.9"
-
 # CloudPanel variant — backend services only.
 # Frontend is managed by CloudPanel's Node.js manager on port 3006.
 # CloudPanel Nginx proxies /api + /admin + /ws → 127.0.0.1:8000
@@ -24,6 +22,28 @@ services:
   redis:
     image: redis:7-alpine
     restart: always
+    # Redis is four things here at once — the Celery broker, the Celery result
+    # backend, the Django cache, and the Channels layer — and it shipped with
+    # no volume and no memory policy. A restart therefore dropped the queued
+    # task backlog, every pre-auth login session and 2FA device-trust token,
+    # every throttle counter, and every per-host outbound cooldown.
+    #
+    # `appendonly` makes the broker survive a restart. `maxmemory-policy
+    # noeviction` is the more important half: the default for a bounded Redis
+    # is to evict, and an evicted key here is not a cache miss — it is a task
+    # that will never run. Refusing writes when full is loud and recoverable;
+    # silently dropping uptime checks is neither.
+    #
+    # The four roles still share one instance but are separated by DB index
+    # (see REDIS_URL / CELERY_BROKER_URL / CHANNEL_REDIS_URL in .env.production)
+    # so a `cache.clear()` cannot take the broker with it.
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory ${REDIS_MAXMEMORY:-512mb}
+      --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -35,6 +55,14 @@ services:
       context: .
       args:
         REQ: production.txt
+        # Headless Chromium for heatmap backdrop screenshots (~400MB). On by
+        # default; WITH_CHROMIUM=0 in the deploy shell or `.env` turns it off — compose
+        # interpolates from those, NOT from .env.production, which is env_file
+        # and only reaches the container at runtime. The same value goes on all
+        # three services so they keep sharing one built image, and the api needs
+        # it as much as the worker: the api is what reports whether capture is
+        # available and answers 503 when it is not.
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
     restart: always
     # uvicorn, not daphne: daphne is a single process and Django runs sync views
     # under ASGI in one shared thread, so every concurrent request queued behind
@@ -42,16 +70,138 @@ services:
     # UVICORN_WORKERS in the deploy shell or putting it in `.env` — compose
     # interpolates from those, NOT from the .env.production below (that file is
     # env_file, which only reaches the container). Rule of thumb: 2x CPU cores.
+    #
+    # --forwarded-allow-ips lists the addresses nginx and Docker reach us from —
+    # private ranges only, never '*'. uvicorn then takes the client address as
+    # the rightmost X-Forwarded-For entry that is not ours, i.e. the one nginx
+    # appended. With '*' it took the *leftmost*, which is whatever the client
+    # sent, so any request could claim any IP (apps/common/client_ip.py). A
+    # real client never connects from a private range, so trusting them all is
+    # safe and survives Docker picking a different bridge subnet.
     command: >
       sh -c "python manage.py migrate --settings=config.settings.production &&
              python manage.py collectstatic --noinput --settings=config.settings.production &&
              uvicorn config.asgi:application --host 0.0.0.0 --port 8000
-             --workers ${UVICORN_WORKERS:-4} --proxy-headers --forwarded-allow-ips='*'"
+             --workers ${UVICORN_WORKERS:-4} --proxy-headers --forwarded-allow-ips='${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}'"
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
     ports:
       - "127.0.0.1:8000:8000"
+    healthcheck:
+      # Readiness, not liveness: an api container that cannot reach Postgres
+      # should be marked unhealthy so a deploy stops rather than continuing to
+      # roll forward. Generous start_period because the entrypoint runs
+      # `migrate` and `collectstatic` before uvicorn binds.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready/', timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      # Connection pool (see DATABASES in config/settings/base.py). uvicorn
+      # services only — never the Celery workers.
+      - DB_POOL=1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api-ingest:
+    build:
+      context: .
+      args:
+        REQ: production.txt
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
+    restart: always
+    # The same Django app, serving the *public* traffic: the snippet and every
+    # ingest endpoint client sites post to. It exists so that traffic cannot
+    # starve the dashboard. Both used to share the api's four uvicorn workers,
+    # so a spike on one client's site — six or more posts per pageview — slowed
+    # every page of Digivault for the whole team, and a slow dashboard query
+    # held up ingest in return. Separate processes, separate queues.
+    #
+    # Traffic reaches it only once the CloudPanel nginx vhost routes the public
+    # paths to 127.0.0.1:8001 (docs/runbooks/ingest-pool.md). Until
+    # then it sits idle and the api answers everything, exactly as before.
+    #
+    # No `migrate` / `collectstatic` here: the api runs them, and two
+    # containers migrating at once race each other. Waiting on the api being
+    # healthy means the schema is current before this binds.
+    command: >
+      uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+      --workers ${UVICORN_INGEST_WORKERS:-2} --proxy-headers --forwarded-allow-ips='${FORWARDED_ALLOW_IPS:-127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}'
+    ports:
+      - "127.0.0.1:8001:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/ready/', timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+      - DB_POOL=1
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build:
+      context: .
+      args:
+        REQ: production.txt
+        # Headless Chromium for heatmap backdrop screenshots (~400MB). On by
+        # default; WITH_CHROMIUM=0 in the deploy shell or `.env` turns it off — compose
+        # interpolates from those, NOT from .env.production, which is env_file
+        # and only reaches the container at runtime. The same value goes on all
+        # three services so they keep sharing one built image, and the api needs
+        # it as much as the worker: the api is what reports whether capture is
+        # available and answers 503 when it is not.
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
+    restart: always
+    # Consumes `ingest` and the default `celery` queue — the public,
+    # traffic-driven work (six or more posts per pageview across every client
+    # site) plus short jobs like alert delivery.
+    #
+    # The queues exist because this used to be one worker at concurrency 2
+    # carrying everything: a PageSpeed call, a whois lookup, a Chromium capture
+    # or a monthly PDF would each hold one of the two slots for a minute, and
+    # two at once stopped ingest and uptime checks dead. See CELERY_TASK_ROUTES.
+    #
+    # **This command and CELERY_TASK_ROUTES are one change.** A queue nothing
+    # consumes does not run slowly, it never runs at all.
+    command: >
+      celery -A config worker -l warning
+      -Q ingest,celery -n ingest@%h
+      --concurrency=${CELERY_INGEST_CONCURRENCY:-4}
+    volumes:
+      # The worker writes to MEDIA_ROOT and the api serves those files back:
+      # report PDFs (reports.generate_monthly runs here, on a schedule) and
+      # heatmap backdrop screenshots. Without this mount they land in the
+      # worker's own container filesystem and the api answers 404 for every one
+      # of them — a report the dashboard lists and cannot download, and a
+      # snapshot whose row says `ready` next to a "no screenshot yet" panel.
+      # Invisible in development, where docker-compose.yml bind-mounts the whole
+      # repo into all three services and they share one filesystem by accident.
+      - media_files:/app/media
+    healthcheck:
+      # `celery inspect ping` asks this worker specifically (-d ingest@$$HOSTNAME),
+      # not "some worker somewhere" — without the destination a healthy sibling
+      # answers for a wedged one and the container never restarts.
+      test: ["CMD-SHELL", "celery -A config inspect ping -d ingest@$$HOSTNAME -t 10 > /dev/null"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     env_file:
       - .env.production
     environment:
@@ -62,13 +212,71 @@ services:
       redis:
         condition: service_healthy
 
-  celery:
+  celery-monitors:
     build:
       context: .
       args:
         REQ: production.txt
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
     restart: always
-    command: celery -A config worker -l warning --concurrency=2
+    # Uptime checks only. Separated because they are the most time-sensitive
+    # work in the product and the least tolerant of queueing: a failure is
+    # confirmed by re-checking at 15s and 45s, and those re-checks are
+    # meaningless if they sit behind a report. They are also individually slow —
+    # a timing-out check holds its slot for the monitor's full `timeout` — so
+    # they need their own slots rather than a share of someone else's.
+    command: >
+      celery -A config worker -l warning
+      -Q monitors -n monitors@%h
+      --concurrency=${CELERY_MONITORS_CONCURRENCY:-4}
+    healthcheck:
+      # `celery inspect ping` asks this worker specifically (-d monitors@$$HOSTNAME),
+      # not "some worker somewhere" — without the destination a healthy sibling
+      # answers for a wedged one and the container never restarts.
+      test: ["CMD-SHELL", "celery -A config inspect ping -d monitors@$$HOSTNAME -t 10 > /dev/null"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    env_file:
+      - .env.production
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery-slow:
+    build:
+      context: .
+      args:
+        REQ: production.txt
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
+    restart: always
+    # Everything nobody is waiting for: PageSpeed, whois, SEO walks, passive
+    # scans, headless-Chromium captures, monthly PDFs and the nightly purges.
+    # Low concurrency on purpose — this is the queue that is allowed to be slow,
+    # and most of it draws on the shared per-host outbound budget anyway, so
+    # more workers would only queue harder against the same token bucket.
+    command: >
+      celery -A config worker -l warning
+      -Q slow -n slow@%h
+      --concurrency=${CELERY_SLOW_CONCURRENCY:-2}
+    volumes:
+      # Report PDFs and heatmap screenshots are written here and served by the
+      # api, so this worker needs the same mount the ingest worker has.
+      - media_files:/app/media
+    healthcheck:
+      # `celery inspect ping` asks this worker specifically (-d slow@$$HOSTNAME),
+      # not "some worker somewhere" — without the destination a healthy sibling
+      # answers for a wedged one and the container never restarts.
+      test: ["CMD-SHELL", "celery -A config inspect ping -d slow@$$HOSTNAME -t 10 > /dev/null"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     env_file:
       - .env.production
     environment:
@@ -84,6 +292,14 @@ services:
       context: .
       args:
         REQ: production.txt
+        # Headless Chromium for heatmap backdrop screenshots (~400MB). On by
+        # default; WITH_CHROMIUM=0 in the deploy shell or `.env` turns it off — compose
+        # interpolates from those, NOT from .env.production, which is env_file
+        # and only reaches the container at runtime. The same value goes on all
+        # three services so they keep sharing one built image, and the api needs
+        # it as much as the worker: the api is what reports whether capture is
+        # available and answers 503 when it is not.
+        WITH_CHROMIUM: ${WITH_CHROMIUM:-1}
     restart: always
     command: celery -A config beat -l warning -s /tmp/celerybeat-schedule
     env_file:
@@ -95,5 +311,6 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   static_files:
   media_files:

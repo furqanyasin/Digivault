@@ -8,6 +8,8 @@ import { api } from "@/lib/api";
 import type { Monitor } from "@/lib/api";
 import { MonitorActions } from "@/components/monitor-actions";
 import { MonitorSparkline } from "@/components/monitor-sparkline";
+import { BlockedSitesPanel, type BlockedGroup } from "@/components/blocked-sites-panel";
+import { checkedVia } from "@/lib/checked-via";
 
 function statusIcon(status: Monitor["status"]) {
   switch (status) {
@@ -49,7 +51,14 @@ export default async function MonitorsPage() {
   // getAll, not get: /api/v1/monitors/ pages at 25 (StandardPagination), so a
   // plain get silently truncated the table and every summary count once a team
   // passed 25 monitors.
-  const monitors = await api.getAll<Monitor>("/api/v1/monitors/", token ?? "").catch(() => [] as Monitor[]);
+  const [monitors, blockedSummary] = await Promise.all([
+    api.getAll<Monitor>("/api/v1/monitors/", token ?? "").catch(() => [] as Monitor[]),
+    // Falls back to nothing on an older backend; the panel then stays hidden.
+    api.get<{ egress_ips: string[]; second_opinion_enabled?: boolean; groups: BlockedGroup[] }>(
+      "/api/v1/monitors/blocked-summary/", token ?? "",
+    )
+      .catch(() => null),
+  ]);
 
   const up = monitors.filter((m) => m.status === "up").length;
   const down = monitors.filter((m) => m.status === "down").length;
@@ -123,6 +132,12 @@ export default async function MonitorsPage() {
         </Card>
       </div>
 
+      <BlockedSitesPanel
+        groups={blockedSummary?.groups ?? []}
+        egressIps={blockedSummary?.egress_ips ?? []}
+        secondOpinionEnabled={blockedSummary?.second_opinion_enabled}
+      />
+
       {/* Monitor table */}
       {monitors.length === 0 ? (
         <Card>
@@ -164,6 +179,7 @@ export default async function MonitorsPage() {
                         {statusIcon(m.status)}
                         <Badge variant={statusBadgeVariant(m.status) as never} className="capitalize text-xs">
                           {m.status}
+                          {checkedVia(m.last_checked_via) ? ` · via ${checkedVia(m.last_checked_via)!.short}` : ""}
                         </Badge>
                       </div>
                     </td>

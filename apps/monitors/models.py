@@ -166,6 +166,9 @@ class MonitorCheck(models.Model):
     response_time_ms = models.PositiveIntegerField(null=True, blank=True)
     status_code = models.PositiveIntegerField(null=True, blank=True)
     error_message = models.TextField(blank=True)
+    # "" = our own request; "google" = Google's PageSpeed run, used when a
+    # firewall blocks our IP (monitors.second_opinion).
+    checked_via = models.CharField(max_length=10, blank=True, default="")
     checked_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

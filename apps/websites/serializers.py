@@ -2,6 +2,12 @@ from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
 from apps.websites.models import Website
+from apps.websites.wp_sso_snippet import SNIPPET_VERSION
+
+# Matches the snippet's own dead-man switch: after this long with no accepted
+# flush the snippet has stopped collecting, so the dashboard must stop
+# implying the site is reporting.
+_SNIPPET_STALE_DAYS = 7
 
 
 class WebsiteSerializer(BaseModelSerializer):
@@ -17,6 +23,8 @@ class WebsiteSerializer(BaseModelSerializer):
     status_page = serializers.SerializerMethodField()
     uptime_30d = serializers.SerializerMethodField()
     ssl_days_until_expiry = serializers.SerializerMethodField()
+    wp_connect_status = serializers.SerializerMethodField()
+    snippet_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Website
@@ -30,9 +38,15 @@ class WebsiteSerializer(BaseModelSerializer):
             "health_score",
             # Writable — VIP is a user setting, not derived state.
             "is_vip",
+            # Writable — behaviour analytics is opt-in per site, and this is
+            # the switch. Off means the ingest answers 204 and stores nothing.
+            "heatmap_enabled",
             "notes",
             "tags",
             "last_seen_at",
+            "snippet_status",
+            "snippet_first_seen_at",
+            "snippet_last_seen_at",
             "snippet_html",
             "script_count",
             "unknown_script_count",
@@ -47,10 +61,21 @@ class WebsiteSerializer(BaseModelSerializer):
             "status_page",
             "uptime_30d",
             "ssl_days_until_expiry",
+            "wp_connect_version",
+            "wp_connect_status",
+            # The heartbeat (apps/monitors/evidence.py): when WordPress last
+            # reported in, and what it got loading its own homepage.
+            "wp_connect_last_ack",
+            "wp_connect_loopback_status",
+            "wp_connect_loopback_at",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "site_id", "health_score", "last_seen_at", "created_at", "updated_at")
+        read_only_fields = (
+            "id", "site_id", "health_score", "last_seen_at", "snippet_status",
+            "snippet_first_seen_at", "snippet_last_seen_at", "created_at", "updated_at",
+            "wp_connect_last_ack", "wp_connect_loopback_status", "wp_connect_loopback_at",
+        )
 
     def get_script_count(self, obj) -> int:
         return getattr(obj, "script_count", 0)
@@ -84,6 +109,39 @@ class WebsiteSerializer(BaseModelSerializer):
 
     def get_wp_sso_configured(self, obj) -> bool:
         return bool(obj.wp_sso_secret)
+
+    def get_wp_connect_status(self, obj) -> str:
+        """Where this site sits in the snippet rollout.
+
+        Exists because a re-paste campaign across every client is impossible
+        to run without knowing who is still on the old snippet — and nothing
+        else user-facing depends on it, so it is the easiest thing to forget.
+        """
+        from django.utils import timezone
+        from django.utils.timezone import timedelta
+
+        if not obj.wp_connect_version or obj.wp_connect_last_ack is None:
+            return "absent"
+        if obj.wp_connect_last_ack < timezone.now() - timedelta(days=_SNIPPET_STALE_DAYS):
+            return "stale"
+        if obj.wp_connect_version < SNIPPET_VERSION:
+            return "outdated"
+        # A v2 paste from before the uptime heartbeat (apps/monitors/evidence.py)
+        # reports the same version number, so the heartbeat is what tells the
+        # two apart. It is the reason to re-paste on firewall-blocked sites.
+        if obj.wp_connect_loopback_at is None:
+            return "outdated"
+        return "current"
+
+    def get_snippet_status(self, obj) -> str:
+        if not obj.snippet_last_seen_at:
+            return Website.SnippetStatus.NOT_INSTALLED
+        from django.utils import timezone
+        from django.utils.timezone import timedelta
+
+        if obj.snippet_last_seen_at < timezone.now() - timedelta(days=_SNIPPET_STALE_DAYS):
+            return Website.SnippetStatus.STALE
+        return Website.SnippetStatus.INSTALLED
 
     def get_uptime_30d(self, obj) -> float | None:
         monitor = next(iter(obj.monitors.all()), None)

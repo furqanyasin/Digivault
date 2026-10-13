@@ -11,20 +11,32 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.models import PasswordResetRequest, Team, TeamInvitation, TeamMembership, User
+from apps.accounts.models import (
+    PasswordResetRequest,
+    SubTeam,
+    Team,
+    TeamInvitation,
+    TeamMembership,
+    User,
+)
 from apps.accounts.serializers import (
     PasswordResetRequestSerializer,
+    SubTeamSerializer,
     TeamInvitationSerializer,
     TeamMembershipSerializer,
     TeamSerializer,
     TeamSettingsSerializer,
-    UserRegistrationSerializer,
     UserSerializer,
 )
 from apps.accounts.services import TeamService
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
-from apps.common.permissions import IsTeamMember
+from apps.common.permissions import (
+    ROLE_LEVELS,
+    ROLE_MANAGER,
+    IsTeamMember,
+    TeamRolePermission,
+)
 from apps.integrations.clickup import ClickUpClient, ClickUpError
 from apps.integrations.members import (
     set_member_link,
@@ -34,7 +46,13 @@ from apps.integrations.members import (
 
 logger = logging.getLogger(__name__)
 
-ROLE_LEVELS = {"viewer": 1, "developer": 2, "custom": 2, "editor": 2, "seo": 2, "manager": 3, "owner": 4}
+# ROLE_LEVELS is imported from apps.common.permissions rather than redefined.
+# There were two copies of this ladder — one here, one there — which is how the
+# permission class that reads the other copy ended up wired to four views while
+# this module went on making its own role decisions by hand.
+
+# Distinguishes "key absent" from an explicit null in a PATCH body.
+_UNSET = object()
 
 from apps.accounts.features import FEATURE_KEYS, default_features
 
@@ -45,6 +63,77 @@ def _my_level(user, team):
         return ROLE_LEVELS.get(m.role, 0), m
     except TeamMembership.DoesNotExist:
         return 0, None
+
+
+def _require_group_admin(request, team):
+    """None when the caller may administer credential groups, else a 403.
+
+    **Owner only** — meaning anyone holding the owner *role* in this team, which
+    is now a set of people rather than one. See
+    docs/superpowers/specs/2026-09-02-credential-sub-teams-design.md.
+
+    This briefly admitted managers, to answer the lockout the spec named and
+    accepted: with the owner unavailable nobody could create a group, grant
+    access, or even read the grant list. That cost was real, but paying it by
+    widening the gate charged it to the wrong account — a manager already reads
+    every credential in the team (`Credential.objects.visible_to`), so what they
+    gained was the power to hand that reach to *other* people, which is exactly
+    the power the spec set out to keep scarce.
+
+    The lockout is answered instead by letting a team have **more than one
+    owner** (`TeamMemberDetailView.patch` will assign the owner role, and
+    `Team.owner` marks the one primary owner who cannot be demoted). A second
+    owner is a deliberate, audit-logged act by an existing owner, so cover for
+    an absent owner is something a team opts into by naming a person, not
+    something every manager holds by default.
+
+    Everything done here stays attributable regardless: grants are written with
+    `granted_by`, and every create and revoke is audit-logged.
+    """
+    my_level, _ = _my_level(request.user, team)
+    if my_level < ROLE_LEVELS["owner"]:
+        return Response(
+            {"detail": "Team owner required."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return None
+
+
+#: Alias kept so nothing importing either name breaks. Both apply the same
+#: owner-only gate; `_require_group_admin` says what it is gating.
+_require_owner = _require_group_admin
+
+
+def _resolve_sub_team(request, team):
+    """Resolve an optional `sub_team` from the request body.
+
+    Returns `(value, error_response)`. The value is `_UNSET` when the key is
+    absent (leave the current group alone), None when explicitly null (clear
+    it), or a SubTeam.
+
+    Setting a group is owner-only, so anyone below that is refused the moment
+    they include the key rather than having it silently dropped: a silently
+    ignored permission change is worse than a visible refusal.
+    """
+    if "sub_team" not in request.data:
+        return _UNSET, None
+    err = _require_group_admin(request, team)
+    if err:
+        return None, err
+    raw = request.data.get("sub_team")
+    if raw in (None, "", "null"):
+        return None, None
+    try:
+        group = SubTeam.objects.filter(pk=raw, team=team).first()
+    except (DjangoValidationError, ValueError, TypeError):
+        # A malformed id is a client error, not a 500 out of the ORM.
+        group = None
+    if group is None:
+        return None, Response(
+            {"detail": "That group belongs to a different team."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return group, None
 
 
 def _issue_set_password_link(user, actor):
@@ -75,18 +164,6 @@ def _send_account_email(subject, body, recipient):
     except Exception as exc:
         logger.error("Failed to send account email to %s: %s", recipient, exc)
         return False
-
-
-class RegisterView(APIView):
-    """POST /api/v1/auth/register/"""
-
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        serializer = UserRegistrationSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
 class MeView(generics.RetrieveUpdateAPIView):
@@ -131,7 +208,10 @@ class TeamDetailView(generics.RetrieveUpdateAPIView):
     """GET/PATCH /api/v1/auth/teams/<pk>/"""
 
     serializer_class = TeamSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    # Renaming the department is a settings change, not day-to-day work, and it
+    # renames it for everyone. Reading stays open to every member.
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
+    write_role = ROLE_MANAGER
 
     def get_queryset(self):
         return Team.objects.filter(memberships__user=self.request.user)
@@ -163,7 +243,10 @@ class TeamMemberListView(generics.ListAPIView):
                 team_id=self.kwargs["team_pk"],
                 team__memberships__user=self.request.user,
             )
-            .select_related("user")
+            # `team` is joined for the serializer's `is_primary_owner`, which
+            # compares against `team.owner_id` — one query instead of one per
+            # member.
+            .select_related("user", "team")
             .distinct()
         )
 
@@ -208,9 +291,28 @@ class TeamMemberDetailView(APIView):
         if ROLE_LEVELS[target.role] > my_level:
             return Response({"detail": "Cannot modify a member with a higher role."}, status=status.HTTP_403_FORBIDDEN)
 
-        # Can't change the owner role (ownership transfer not supported here)
-        if target.role == "owner":
-            return Response({"detail": "Cannot change the owner's role."}, status=status.HTTP_403_FORBIDDEN)
+        # A team may hold several owners, so "is an owner" is no longer the
+        # thing that protects a membership — `Team.owner` is. That one primary
+        # owner is the account holder: `Team.save` keeps re-creating their
+        # owner-level membership, and `Team.owner` is PROTECTed, so demoting
+        # them would either silently revert or strand the team. Every *other*
+        # owner is a co-owner an owner named and an owner can unname.
+        if target.user_id == team.owner_id:
+            return Response({"detail": "Cannot change the primary owner's role."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Demoting yourself is refused rather than guarded by a count: with the
+        # primary owner undemotable there is always an owner left, but an owner
+        # who drops their own role cannot undo it, and nothing about a role
+        # change says "and lock me out of this page".
+        if target.user_id == request.user.pk and new_role != target.role:
+            return Response(
+                {"detail": "You cannot change your own role. Ask another owner."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        new_group, group_err = _resolve_sub_team(request, team)
+        if group_err:
+            return group_err
 
         old_role = target.role
         target.role = new_role
@@ -224,7 +326,30 @@ class TeamMemberDetailView(APIView):
             target.feature_access = [k for k in raw if k in FEATURE_KEYS]
         else:
             target.feature_access = default_features(new_role)
-        target.save(update_fields=["role", "feature_access", "updated_at"])
+
+        update_fields = ["role", "feature_access", "updated_at"]
+        old_group_name = target.sub_team.name if target.sub_team_id else None
+        if new_group is not _UNSET:
+            target.sub_team = new_group
+            update_fields.append("sub_team")
+        target.save(update_fields=update_fields)
+
+        if new_group is not _UNSET:
+            AuditService.log(
+                actor=request.user,
+                action=ActivityLog.Action.TEAM_MEMBER_GROUP_CHANGED,
+                team=team,
+                description=(
+                    f"Moved {target.user.email} from "
+                    f"{old_group_name or 'no group'} to "
+                    f"{new_group.name if new_group else 'no group'}"
+                ),
+                resource_type="team_membership", resource_id=str(target.pk),
+                metadata={
+                    "previous_group": old_group_name,
+                    "new_group": new_group.name if new_group else None,
+                },
+            )
         AuditService.log(
             actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_ROLE_CHANGED,
             team=team,
@@ -239,9 +364,17 @@ class TeamMemberDetailView(APIView):
         if err:
             return err
 
-        # Can't remove yourself as owner
-        if target.role == "owner":
-            return Response({"detail": "Cannot remove the team owner."}, status=status.HTTP_403_FORBIDDEN)
+        # The primary owner holds the team (`Team.owner` is PROTECTed and their
+        # membership is re-created by `Team.save`); a co-owner is an ordinary
+        # membership another owner can remove.
+        if target.user_id == team.owner_id:
+            return Response({"detail": "Cannot remove the primary team owner."}, status=status.HTTP_403_FORBIDDEN)
+
+        if target.user_id == request.user.pk:
+            return Response(
+                {"detail": "You cannot remove yourself from the team."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         # Can't remove someone with a higher role than yourself
         if ROLE_LEVELS[target.role] > my_level:
@@ -282,6 +415,139 @@ class TeamMemberDetailView(APIView):
             description=f"{removed_email} ({removed_role}) {outcome}",
             resource_type="team_membership", resource_id=str(pk),
             metadata={"role": removed_role, "permanent": permanent},
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SubTeamListCreateView(APIView):
+    """GET/POST /api/v1/auth/teams/<team_pk>/sub-teams/
+
+    Listing is open to any team member so the UI can render a member's group
+    badge. Creating is owner-only.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def _team_for_member(self, request, team_pk):
+        """The team, but only if the caller is a member of it. Otherwise None."""
+        team = Team.objects.filter(pk=team_pk).first()
+        if team is None or not _my_level(request.user, team)[0]:
+            return None
+        return team
+
+    def get(self, request, team_pk):
+        team = self._team_for_member(request, team_pk)
+        if team is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(SubTeamSerializer(team.sub_teams.all(), many=True).data)
+
+    def post(self, request, team_pk):
+        team = self._team_for_member(request, team_pk)
+        if team is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        err = _require_group_admin(request, team)
+        if err:
+            return err
+
+        ser = SubTeamSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        name = ser.validated_data["name"].strip()
+        if not name:
+            return Response(
+                {"detail": "Group name is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Case-insensitive: "Web Team" and "web team" as two groups would be a
+        # support call, not a feature.
+        if SubTeam.objects.filter(team=team, name__iexact=name).exists():
+            return Response(
+                {"detail": f"A group called '{name}' already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        group = SubTeam.objects.create(
+            team=team,
+            name=name,
+            description=ser.validated_data.get("description", ""),
+        )
+        AuditService.log(
+            actor=request.user, action=ActivityLog.Action.TEAM_GROUP_CREATED,
+            team=team, description=f"Created group '{group.name}'",
+            resource_type="sub_team", resource_id=str(group.pk),
+        )
+        return Response(
+            SubTeamSerializer(group).data, status=status.HTTP_201_CREATED
+        )
+
+
+class SubTeamDetailView(APIView):
+    """PATCH/DELETE /api/v1/auth/teams/<team_pk>/sub-teams/<pk>/ — owner only.
+
+    Deleting a group sets its members' `sub_team` to NULL and cascades its
+    grants away, so members drop back to their own credentials plus individual
+    shares. Access can only narrow.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def _get(self, request, team_pk, pk):
+        team = Team.objects.filter(pk=team_pk).first()
+        if team is None or not _my_level(request.user, team)[0]:
+            return None, None, Response(status=status.HTTP_404_NOT_FOUND)
+        err = _require_group_admin(request, team)
+        if err:
+            return None, None, err
+        group = SubTeam.objects.filter(pk=pk, team=team).first()
+        if group is None:
+            return None, None, Response(status=status.HTTP_404_NOT_FOUND)
+        return team, group, None
+
+    def patch(self, request, team_pk, pk):
+        team, group, err = self._get(request, team_pk, pk)
+        if err:
+            return err
+        name = (request.data.get("name") or group.name).strip()
+        if not name:
+            return Response(
+                {"detail": "Group name is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if (
+            SubTeam.objects.filter(team=team, name__iexact=name)
+            .exclude(pk=group.pk)
+            .exists()
+        ):
+            return Response(
+                {"detail": f"A group called '{name}' already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        old_name = group.name
+        group.name = name
+        if "description" in request.data:
+            group.description = request.data.get("description") or ""
+        group.save(update_fields=["name", "description", "updated_at"])
+        AuditService.log(
+            actor=request.user, action=ActivityLog.Action.TEAM_GROUP_UPDATED,
+            team=team,
+            description=f"Renamed group '{old_name}' to '{group.name}'",
+            resource_type="sub_team", resource_id=str(group.pk),
+        )
+        return Response(SubTeamSerializer(group).data)
+
+    def delete(self, request, team_pk, pk):
+        team, group, err = self._get(request, team_pk, pk)
+        if err:
+            return err
+        name = group.name
+        member_count = group.memberships.count()
+        group.delete()
+        AuditService.log(
+            actor=request.user, action=ActivityLog.Action.TEAM_GROUP_DELETED,
+            team=team,
+            description=(
+                f"Deleted group '{name}', ungrouping {member_count} member(s)"
+            ),
+            resource_type="sub_team", resource_id=str(pk),
+            metadata={"members_ungrouped": member_count},
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -543,13 +809,22 @@ class TeamCreateUserView(APIView):
         if ROLE_LEVELS[role] > my_level:
             return Response({"detail": "Cannot assign a role higher than your own."}, status=status.HTTP_403_FORBIDDEN)
 
+        # Owner-only, and refused before the account is touched so a manager
+        # attempting it never half-creates a user.
+        resolved_group, group_err = _resolve_sub_team(request, team)
+        if group_err:
+            return group_err
+        group = None if resolved_group is _UNSET else resolved_group
+
         if TeamMembership.objects.filter(team=team, user__email=email).exists():
             return Response({"detail": "A user with this email is already a team member."}, status=status.HTTP_400_BAD_REQUEST)
 
         existing_user = User.objects.filter(email__iexact=email).first()
         if existing_user:
             # User account exists (e.g. previously removed from team) — add the membership.
-            membership = TeamMembership.objects.create(user=existing_user, team=team, role=role)
+            membership = TeamMembership.objects.create(
+                user=existing_user, team=team, role=role, sub_team=group
+            )
             user_updates = {}
             if not existing_user.active_team:
                 user_updates["active_team"] = team
@@ -647,7 +922,9 @@ class TeamCreateUserView(APIView):
                 f"authentication setup.\n"
             )
 
-        membership = TeamMembership.objects.create(user=user, team=team, role=role)
+        membership = TeamMembership.objects.create(
+            user=user, team=team, role=role, sub_team=group
+        )
         if not user.active_team:
             User.objects.filter(pk=user.pk).update(active_team=team)
 

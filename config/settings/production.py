@@ -38,16 +38,19 @@ assert all(
 # Enforce CSP in production (report-only is set in base)
 CSP_REPORT_ONLY = False
 
-# Snippet JS served from the same domain — no external CDN needed
-SNIPPET_CDN_URL = env("SNIPPET_CDN_URL", default="https://digivault.digilatics.co")
+# Snippet JS served from the same domain — no external CDN needed.
+# The `/api` suffix is required: nginx proxies only `/api/...` to Django, so the
+# old default (bare host) produced `https://digivault.digilatics.co/s.js`, which
+# nginx routes to the Next.js frontend. It worked in production solely because
+# `.env.production` overrode it, which made the default a trap for any new
+# deployment that forgot the variable.
+SNIPPET_CDN_URL = env(
+    "SNIPPET_CDN_URL", default="https://digivault.digilatics.co/api"
+)
 
-_sentry_dsn = env("SENTRY_DSN", default="")
-if _sentry_dsn:
-    import sentry_sdk
-    from sentry_sdk.integrations.django import DjangoIntegration
-    sentry_sdk.init(
-        dsn=_sentry_dsn,
-        integrations=[DjangoIntegration()],
-        traces_sample_rate=0.1,
-        send_default_pii=False,
-    )
+# Sentry is initialised once, in base.py. This file used to call
+# sentry_sdk.init() a second time, and the second call replaces the first — so
+# production ran without the CeleryIntegration base.py sets up. A task that
+# failed without logging was never reported, and the ones that logged arrived
+# with no task name, args or retry context. The trace rate is
+# SENTRY_TRACES_SAMPLE_RATE.

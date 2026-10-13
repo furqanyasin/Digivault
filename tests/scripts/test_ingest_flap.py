@@ -11,11 +11,14 @@ marketing stack as removed ("Critical script removed: Google Analytics 4") and
 then added again, forever, on every page of every site.
 """
 
+from datetime import timedelta
+
 import pytest
+from django.db.models import F
 
 from apps.accounts.models import User
 from apps.accounts.services import TeamService
-from apps.scripts.models import Script, ScriptChange
+from apps.scripts.models import Script, ScriptChange, ScriptSnapshot
 from apps.scripts.tasks import process_ingest_payload
 from apps.websites.models import Website
 
@@ -58,7 +61,20 @@ def _ingest(website, scripts, page_url=PAGE):
 
 
 def _page_load(website, scripts=SETTLED, page_url=PAGE):
-    """One page load: the early partial post, then the settled one."""
+    """One page load: the early partial post, then the settled one.
+
+    Both posts stay inside one observation bucket, which is the whole subject
+    of this file — the partial capture and the settled capture belong to the
+    *same* load. Only the snapshots already stored are aged, so each call to
+    this helper is a separate visit while its two posts are not.
+    See tasks._LOAD_BUCKET.
+    """
+    ScriptSnapshot.objects.filter(website=website).update(
+        captured_at=F("captured_at") - timedelta(minutes=5)
+    )
+    Script.objects.filter(website=website).update(
+        last_seen_at=F("last_seen_at") - timedelta(minutes=5)
+    )
     _ingest(website, EARLY, page_url)
     _ingest(website, scripts, page_url)
 
@@ -79,11 +95,17 @@ class TestPartialCaptureIsNotARemoval:
             _page_load(website)
 
         added = sorted(_changes(website, "added").values_list("description", flat=True))
+        # Descriptions carry the tag id where the URL has one. A site can run
+        # four GA4 properties at once, and "Google Analytics 4" logged four
+        # times is indistinguishable from one event repeating. Meta Pixel and
+        # Clarity have none here: their ids would come from the path, and
+        # `fbevents` and `flapclarity` carry no digits, so they are correctly
+        # read as filenames rather than account ids.
+        # Meta Pixel and Clarity load on this page too, and are not reported:
+        # they are not among the monitored vendors (apps/scripts/monitored.py).
         assert added == [
-            "New script added: Google Analytics 4",
-            "New script added: Google Tag Manager",
-            "New script added: Meta Pixel",
-            "New script added: Microsoft Clarity",
+            "New script added: Google Analytics 4 (G-FLAP01)",
+            "New script added: Google Tag Manager (GTM-FLAP01)",
         ]
 
     def test_early_post_does_not_deactivate_the_stack(self, website):
@@ -106,7 +128,7 @@ class TestGenuineRemovalStillReported:
             _page_load(website, scripts=without_ga4)
 
         removed = list(_changes(website, "removed").values_list("description", flat=True))
-        assert removed == ["Critical script removed: Google Analytics 4"]
+        assert removed == ["Critical script removed: Google Analytics 4 (G-FLAP01)"]
 
 
 class TestRealWorldStack:
@@ -148,6 +170,10 @@ class TestRealWorldStack:
     def _traffic(self, website, loads=8):
         for load in range(loads):
             page = f"https://digilatics.com/page-{load % 3}"
+            # Each iteration is a separate visit; its two posts are one load.
+            ScriptSnapshot.objects.filter(website=website).update(
+                captured_at=F("captured_at") - timedelta(minutes=5)
+            )
             _ingest(website, [_script(s) for s in self.SERVER_RENDERED], page)
             _ingest(
                 website,
@@ -165,26 +191,21 @@ class TestRealWorldStack:
         self._traffic(website)
         added = _changes(website, "added")
 
-        # One row per script, never a second for the same one. Providers repeat
-        # because the stack genuinely carries two GTM containers, two Hotjar
-        # files, and both halves of Clarity and Meta Pixel.
+        # One row per installed tag, never a second for the same one. This is
+        # the digilatics.com header as installed: two GTM containers, the GA4
+        # property one of them injects, Hotjar, HubSpot and WhatConverts. Meta
+        # Pixel and Clarity load here too and are not monitored vendors; the
+        # files HubSpot's and Hotjar's loaders fetch (analytics, cookie banner,
+        # ads pixel, recorder modules) are the tag they belong to, not new ones.
         script_ids = list(added.values_list("script_id", flat=True))
         assert len(script_ids) == len(set(script_ids))
         assert sorted(added.values_list("description", flat=True)) == [
-            "New script added: Google Analytics 4",
-            "New script added: Google Tag Manager",
-            "New script added: Google Tag Manager",
-            "New script added: Hotjar",
-            "New script added: Hotjar",
-            "New script added: HubSpot Ads Pixel",
-            "New script added: HubSpot Analytics",
-            "New script added: HubSpot Cookie Banner",
-            "New script added: HubSpot Live Chat",
-            "New script added: Meta Pixel",
-            "New script added: Meta Pixel",
-            "New script added: Microsoft Clarity",
-            "New script added: Microsoft Clarity",
-            "New script added: WhatConverts",
+            "New script added: Google Analytics 4 (G-LC6FS8Y01E)",
+            "New script added: Google Tag Manager (GTM-N32TK6DJ)",
+            "New script added: Google Tag Manager (GTM-NDF77KHJ)",
+            "New script added: Hotjar (hotjar-3065386)",
+            "New script added: HubSpot Live Chat (46377927)",
+            "New script added: WhatConverts (130730)",
         ]
 
     def test_no_tag_is_reported_as_an_unknown_script(self, website):

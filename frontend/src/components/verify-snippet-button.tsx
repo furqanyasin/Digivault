@@ -35,6 +35,11 @@ export function VerifySnippetButton({ websiteId }: { websiteId: string }) {
         setMessage(data?.detail ?? "Snippet verified.");
         return;
       }
+      if (data?.reason === "html_match") {
+        setStage("done");
+        setMessage("Snippet found in the page. Open the website once so browser data can be received.");
+        return;
+      }
     } catch {
       setStage("fail");
       setMessage("Could not complete verification. Try again.");
@@ -93,15 +98,14 @@ export function VerifySnippetButton({ websiteId }: { websiteId: string }) {
       </Button>
       {message && (
         <p
-          className={`text-xs ${
-            stage === "done"
+          className={`text-xs ${stage === "done"
               ? "text-emerald-600"
               : stage === "fail"
                 ? "text-red-600"
                 : stage === "blocked"
                   ? "text-amber-600"
                   : "text-muted-foreground"
-          }`}
+            }`}
         >
           {message}
         </p>

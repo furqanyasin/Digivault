@@ -81,6 +81,30 @@ class TestUptimeTrend:
         resp = auth_client.get(f"{URL}?days=1")
         assert resp.data["points"][0]["value"] == 50.0
 
+    def test_blocked_is_excluded_from_both_sides(self, auth_client, team):
+        """A WAF answering is not downtime — same rule as recalculate_uptime."""
+        m = _monitor(team)
+        _check(m, MonitorCheck.Status.UP, days_ago=0)
+        _check(m, MonitorCheck.Status.BLOCKED, days_ago=0)
+        _check(m, MonitorCheck.Status.BLOCKED, days_ago=0)
+        point = auth_client.get(f"{URL}?days=1").data["points"][0]
+        assert point["value"] == 100.0
+        assert (point["up"], point["total"]) == (1, 1)
+
+    def test_only_blocked_is_null(self, auth_client, team):
+        _check(_monitor(team), MonitorCheck.Status.BLOCKED, days_ago=0)
+        point = auth_client.get(f"{URL}?days=1").data["points"][0]
+        assert point["value"] is None
+        assert point["total"] == 0
+
+    def test_points_carry_counts_for_pooling(self, auth_client, team):
+        m = _monitor(team)
+        _check(m, MonitorCheck.Status.UP, days_ago=0)
+        _check(m, MonitorCheck.Status.UP, days_ago=0)
+        _check(m, MonitorCheck.Status.DOWN, days_ago=0)
+        point = auth_client.get(f"{URL}?days=1").data["points"][0]
+        assert (point["up"], point["total"]) == (2, 3)
+
     def test_averages_across_all_team_monitors(self, auth_client, team):
         a, b = _monitor(team, "a"), _monitor(team, "b")
         _check(a, MonitorCheck.Status.UP, days_ago=0)

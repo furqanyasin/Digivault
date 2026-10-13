@@ -17,6 +17,16 @@ if [ ! -f .env.production ]; then
   exit 1
 fi
 
+# The deploy runs as the user that owns .git and .env.production (root on the
+# CloudPanel box). Run as anyone else and `-f` above passes while every read
+# fails, which used to surface as "EMAIL_URL is missing" — a real config file
+# misreported as a broken one.
+if [ ! -r .env.production ]; then
+  echo "ERROR: .env.production exists but is not readable by $(id -un)." >&2
+  echo "Re-run ./deploy.sh as the user that owns it (root)." >&2
+  exit 1
+fi
+
 # Email pre-flight: without a real SMTP EMAIL_URL, onboarding and password-reset
 # emails are silently discarded (and the API now refuses to boot without one).
 EMAIL_LINE=$(grep -E '^EMAIL_URL=' .env.production || true)
@@ -49,7 +59,33 @@ fi
 git pull origin main
 
 echo "==> Rebuilding backend (production settings)"
-docker compose -f "$COMPOSE_FILE" up -d --build api celery celery-beat
+# Heatmap backdrop screenshots need a headless Chromium in the image (~400MB,
+# shared by api/celery/celery-beat). On by default in production; opt out with
+# WITH_CHROMIUM=0. Compose reads
+# WITH_CHROMIUM from this shell or `.env` — NOT from .env.production, which is
+# env_file and only reaches the container at runtime. Reported either way:
+# rebuilding and still seeing "Screenshot capture is not enabled" with no
+# explanation is what sends people looking for a bug that isn't there.
+if [ -z "${WITH_CHROMIUM:-}" ] && [ -f .env ]; then
+  # Mirror compose's precedence (shell first, then .env), or this line reports
+  # one thing while the build does another.
+  WITH_CHROMIUM=$(grep -E '^WITH_CHROMIUM=' .env | tail -n 1 | cut -d= -f2- | tr -d '"'"'"'\r ' || true)
+fi
+if [ "${WITH_CHROMIUM:-1}" = "1" ]; then
+  echo "    Chromium: ON — heatmap screenshots enabled (first build pulls ~400MB)"
+else
+  echo "    Chromium: off — heatmap screenshots disabled (WITH_CHROMIUM=$WITH_CHROMIUM)."
+  echo "    To enable: remove WITH_CHROMIUM from .env, or run WITH_CHROMIUM=1 ./deploy.sh"
+fi
+# Every Celery service is named here on purpose. Work is routed to three queues
+# (ingest / monitors / slow — see CELERY_TASK_ROUTES), and a queue whose worker
+# was never started does not run slowly, it never runs at all: uptime checks
+# would simply stop with nothing in any log to say so. If you add a queue, add
+# its worker here in the same commit. The same goes for api-ingest: it serves
+# the snippet and ingest endpoints once nginx routes them to :8001, and a
+# route to a container that was never started answers 502 to every client site.
+docker compose -f "$COMPOSE_FILE" up -d --build \
+  api api-ingest celery celery-monitors celery-slow celery-beat
 
 echo "==> Building frontend"
 cd frontend
@@ -64,11 +100,42 @@ pm2 restart digivault-frontend
 cd ..
 
 echo "==> Verifying snippet endpoint"
-sleep 3
-if curl -sf https://digivault.digilatics.co/api/s.js | grep -q snippet_version; then
+# Read the whole body before testing it. `curl | grep -q` under pipefail is a
+# race: grep quits at the marker (~15KB into a ~50KB file), curl's next write
+# hits a closed pipe (exit 23), and a healthy endpoint is reported broken.
+# Retried because the api container may still be migrating or binding.
+snippet_ok=0
+for attempt in 1 2 3 4 5 6; do
+  body=$(curl -sf --max-time 10 https://digivault.digilatics.co/api/s.js || true)
+  if grep -q snippet_version <<<"$body"; then
+    snippet_ok=1
+    break
+  fi
+  sleep 5
+done
+if [ "$snippet_ok" = "1" ]; then
   echo "OK: /api/s.js serves the tracking snippet."
 else
-  echo "WARNING: /api/s.js did not return the snippet — check ALLOWED_HOSTS and nginx." >&2
+  echo "WARNING: /api/s.js did not return the snippet after 30s — check ALLOWED_HOSTS and nginx." >&2
+fi
+
+echo "==> Verifying ingest worker pool"
+# `up -d` does not wait for api-ingest to become healthy. Checked directly on
+# its port, so it is verified even before nginx routes anything to it.
+ingest_ok=0
+for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  if curl -sf --max-time 5 http://127.0.0.1:8001/api/ready/ > /dev/null; then
+    ingest_ok=1
+    break
+  fi
+  sleep 5
+done
+if [ "$ingest_ok" = "1" ]; then
+  echo "OK: api-ingest is ready on 127.0.0.1:8001."
+else
+  echo "WARNING: api-ingest is not answering on 127.0.0.1:8001 after 60s." >&2
+  echo "If nginx routes the ingest paths there, client sites are getting 502s:" >&2
+  echo "  docker compose -f $COMPOSE_FILE logs --tail 50 api-ingest" >&2
 fi
 
 echo "==> Done. Hard-refresh the browser to avoid stale JS bundles."

@@ -51,6 +51,11 @@ class TestProviderFamily:
         assert provider_family("Hotjar") == "Hotjar"
         assert provider_family("WhatConverts") == "WhatConverts"
 
+    def test_gohighlevel_products_collapse_to_one_family(self):
+        assert provider_family("LeadConnector (GoHighLevel)") == "GoHighLevel"
+        assert provider_family("GoHighLevel Forms") == "GoHighLevel"
+        assert provider_family("ClickUp Forms") == "ClickUp"
+
     def test_unrelated_products_of_one_vendor_stay_apart(self):
         # A "first word of the name" shortcut would merge these two: session
         # recording and advertising, which a reader needs to tell apart.
@@ -66,125 +71,77 @@ class TestProviderFamily:
 
 
 class TestIsTracked:
-    def test_tracking_categories_are_kept(self):
-        for category in (
-            Script.Category.ANALYTICS,
-            Script.Category.ADVERTISING,
-            Script.Category.TAG_MANAGEMENT,
-            Script.Category.SESSION_RECORDING,
-            Script.Category.CALL_TRACKING,
-            Script.Category.CHAT,
-            Script.Category.CRM,
-            Script.Category.PAYMENT,
-        ):
-            assert is_tracked(category) is True, category
+    """Only the six monitored vendors' installed tags. See apps/scripts/monitored.py."""
 
-    def test_infrastructure_and_decoration_are_dropped(self):
-        for category in (
-            Script.Category.PERFORMANCE,
-            Script.Category.SOCIAL,
-            Script.Category.SECURITY,
-            Script.Category.UNKNOWN,
-        ):
-            assert is_tracked(category) is False, category
+    def test_high_suspicion_is_always_kept(self):
+        # Injected code is nobody's vendor; the allowlist must not hide it.
+        assert is_tracked("https://cdn.example.net/x.js", "high") is True
 
-    def test_suspicious_script_is_always_kept(self):
-        # Injected code classifies as unknown by definition, so the category
-        # rule alone would hide exactly what most needs looking at.
-        assert is_tracked(Script.Category.UNKNOWN, is_suspicious=True) is True
-        assert is_tracked(Script.Category.PERFORMANCE, is_suspicious=True) is True
+    def test_weaker_suspicion_is_not_enough(self):
+        assert is_tracked("https://cdn.example.net/x.js", "medium") is False
 
 
-class TestTheFourVendorsTheTabMustShow:
-    """Google, Hotjar, HubSpot and WhatConverts, each named once and kept."""
+class TestTheSixVendorsTheTabMustShow:
+    """Google, HubSpot, Hotjar, WhatConverts, ClickUp, GoHighLevel — the tags
+    a site installs, each named by its family."""
 
-    def test_google_analytics_and_tag_manager_are_both_google_and_tracked(self):
-        for url in (
-            "https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXX",
-            "https://www.googletagmanager.com/gtm.js?id=GTM-XXXX",
-            "https://www.googletagmanager.com/gtag/destination?id=AW-123",
-            "https://www.googleadservices.com/pagead/conversion.js",
-        ):
-            family, category = _classify(url)
-            assert family == "Google", url
-            assert is_tracked(category) is True, url
-
-    def test_hotjar_from_both_of_its_hosts(self):
-        for url in (
-            "https://static.hotjar.com/c/hotjar-123.js?sv=6",
-            "https://script.hotjar.com/modules.06e2f0c4d4b1a3f9.js",
-        ):
-            family, category = _classify(url)
-            assert family == "Hotjar", url
-            assert is_tracked(category) is True, url
-
-    def test_hubspot_across_its_products(self):
-        for url in (
-            "https://js.hs-scripts.com/1234567.js",
-            "https://js.hs-analytics.net/analytics/1700000000000/1234567.js",
-            "https://js.hsforms.net/forms/embed/v2.js",
-            "https://js.hsadspixel.net/fb.js",
-        ):
-            family, category = _classify(url)
-            assert family == "HubSpot", url
-            assert is_tracked(category) is True, url
-
-    def test_whatconverts_including_its_obfuscated_host(self):
-        for url in (
-            "https://www.whatconverts.com/js/tracking.js",
-            "https://ksrndkehqnwntyxlhgto.com/wc.js",
-        ):
-            family, category = _classify(url)
-            assert family == "WhatConverts", url
-            assert is_tracked(category) is True, url
+    @pytest.mark.parametrize("url,family", [
+        ("https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXX", "Google"),
+        ("https://www.googletagmanager.com/gtm.js?id=GTM-XXXX", "Google"),
+        ("https://www.googletagmanager.com/gtag/destination?id=AW-123", "Google"),
+        ("https://www.googleadservices.com/pagead/conversion.js", "Google"),
+        ("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"
+         "?client=ca-pub-7089372697568091", "Google"),
+        ("https://static.hotjar.com/c/hotjar-123.js?sv=6", "Hotjar"),
+        ("https://js.hs-scripts.com/1234567.js", "HubSpot"),
+        ("https://js.hs-analytics.net/analytics/1700000000000/1234567.js", "HubSpot"),
+        ("https://js.hsforms.net/forms/embed/v2.js", "HubSpot"),
+        ("https://www.whatconverts.com/js/tracking.js", "WhatConverts"),
+        ("https://ksrndkehqnwntyxlhgto.com/wc.js", "WhatConverts"),
+        ("https://s.ksrndkehqnwntyxlhgto.com/130730.js", "WhatConverts"),
+        ("https://app-cdn.clickup.com/assets/js/forms-embed/v1.js", "ClickUp"),
+        ("https://widgets.leadconnectorhq.com/loader.js", "GoHighLevel"),
+        ("https://link.msgsndr.com/js/form_embed.js", "GoHighLevel"),
+    ])
+    def test_kept_and_named(self, url, family):
+        assert is_tracked(url) is True
+        assert _classify(url)[0] == family
 
 
 class TestNoiseTheTabMustNotShow:
-    def test_js_libraries_and_cdns_are_dropped(self):
-        for url in (
-            "https://code.jquery.com/jquery-3.6.0.min.js",
-            "https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.min.js",
-            "https://cdnjs.cloudflare.com/ajax/libs/gsap/3.11/gsap.min.js",
-            "https://unpkg.com/react@18/umd/react.production.min.js",
-            "https://cdn.tailwindcss.com",
-        ):
-            _, category = _classify(url)
-            assert is_tracked(category) is False, url
+    @pytest.mark.parametrize("url", [
+        # Other vendors: not on the list, so not watched.
+        "https://connect.facebook.net/en_US/fbevents.js",
+        "https://www.clarity.ms/tag/i9x3wxzn9k",
+        "https://analytics.tiktok.com/i18n/pixel/events.js?sdkid=X",
+        "https://cdn-cookieyes.com/client_data/abc/script.js",
+        "https://consent.trustarc.com/asset/notice.js/v/2872571",
+        "https://spaces-us-1.nyc3.digitaloceanspaces.com/a/b/pixel.js",
+        # Libraries, video players, widgets.
+        "https://code.jquery.com/jquery-3.6.0.min.js",
+        "https://www.youtube.com/iframe_api",
+        "https://platform.twitter.com/widgets.js",
+        # Google, but not a tag: fonts, maps, CDN, reCAPTCHA, a tag with no id.
+        "https://fonts.googleapis.com/css2?family=Inter",
+        "https://maps.googleapis.com/maps/api/js?key=abc",
+        "https://www.gstatic.com/_/mss/boq-one-google/_/js/k=x.js",
+        "https://www.google.com/recaptcha/api.js",
+        "https://www.googletagmanager.com/gtm.js",
+    ])
+    def test_dropped(self, url):
+        assert is_tracked(url) is False
 
-    def test_video_players_are_dropped(self):
-        for url in (
-            "https://www.youtube.com/iframe_api",
-            "https://s.ytimg.com/yts/jsbin/www-widgetapi.js",
-            "https://player.vimeo.com/api/player.js",
-            "https://fast.wistia.net/assets/external/E-v1.js",
-        ):
-            _, category = _classify(url)
-            assert is_tracked(category) is False, url
-
-    def test_google_fonts_maps_and_cdn_are_dropped_despite_the_family(self):
-        # Same vendor family as GA4, deliberately not the same verdict: the
-        # category rule runs independently of the family.
-        for url in (
-            "https://fonts.googleapis.com/css2?family=Inter",
-            "https://maps.googleapis.com/maps/api/js?key=abc",
-            "https://www.gstatic.com/_/mss/boq-one-google/_/js/k=x.js",
-        ):
-            family, category = _classify(url)
-            assert family == "Google", url
-            assert is_tracked(category) is False, url
-
-    def test_share_buttons_and_review_widgets_are_dropped(self):
-        for url in (
-            "https://platform.twitter.com/widgets.js",
-            "https://static.addtoany.com/menu/page.js",
-            "https://widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js",
-        ):
-            _, category = _classify(url)
-            assert is_tracked(category) is False, url
-
-    def test_recaptcha_is_dropped(self):
-        _, category = _classify("https://www.google.com/recaptcha/api.js")
-        assert is_tracked(category) is False
+    @pytest.mark.parametrize("url", [
+        # Files a monitored tag's loader fetches on its own: the vendor's
+        # business, not a change to the site.
+        "https://script.hotjar.com/modules.06e2f0c4d4b1a3f9.js",
+        "https://js.hsadspixel.net/fb.js",
+        "https://js.hscollectedforms.net/collectedforms.js",
+        "https://pagead2.googlesyndication.com/pagead/managed/js/adsense/"
+        "m202609210101/show_ads_impl_fy2021.js",
+    ])
+    def test_loader_sub_resources_are_dropped(self, url):
+        assert is_tracked(url) is False
 
 
 @pytest.mark.django_db

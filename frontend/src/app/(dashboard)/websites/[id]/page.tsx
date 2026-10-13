@@ -9,14 +9,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopySnippet } from "@/components/copy-snippet";
+import { WpConnectCard } from "@/components/wp-connect-card";
 import { RefreshDomainButton } from "@/components/refresh-domain-button";
 import { PerformanceTab } from "@/components/performance-tab";
 import { VerifySnippetButton } from "@/components/verify-snippet-button";
+import { HeatmapToggle } from "@/components/heatmap-toggle";
 import { ScriptsTab } from "@/components/scripts-tab";
 import { countScriptGroups, isTrackedScript } from "@/lib/script-domains";
 import { countManagedForms } from "@/lib/detected-forms";
 import { PluginsTab } from "@/components/plugins-tab";
 import { FormsTab } from "@/components/forms-tab";
+import { ChangeLogFilters } from "@/components/change-log-filters";
 import { PhpErrorsTab } from "@/components/php-errors-tab";
 import { SeoTab, type SeoReport } from "@/components/seo-tab";
 import { WebsiteAlertsStatus } from "@/components/website-alerts-status";
@@ -38,28 +41,39 @@ interface SiteActivityEntry {
   created_at: string;
 }
 
-async function getData(token: string, id: string) {
+async function getData(token: string, id: string, eventQuery = "") {
   // All tab data is fetched up front so the tabs can switch instantly on the
   // client (no per-tab server navigation). Runs in parallel; the instant
   // loading skeleton (loading.tsx) covers the initial wait.
   const [website, scripts, changes, domain, perfMobile, perfDesktop, crux, forms, formErrors, phpErrors, siteEvents, vulns, seoReport, monitors, siteActivity] = await Promise.allSettled([
     api.get<Website>(`/api/v1/websites/${id}/`, token),
-    api.get<Script[]>(`/api/v1/websites/${id}/scripts/`, token),
-    api.get<ScriptChange[]>(`/api/v1/websites/${id}/changes/`, token),
+    // getAll, not get, for every list below. These endpoints paginate at 25
+    // (StandardPagination) and a plain get() returns page one with no error and
+    // no indication that anything is missing. This site's Scripts tab read
+    // "3 · 20 files" against 55 rows in the database: Meta Pixel, LinkedIn,
+    // Bing UET, Clarity and WhatConverts were all past the cut, so the tab
+    // disagreed with the alerts that named them and looked like it was
+    // inventing scripts. The same truncation was silently capping the change
+    // log, the forms list, PHP errors, vulnerabilities and monitors.
+    api.getAll<Script>(`/api/v1/websites/${id}/scripts/`, token),
+    api.getAll<ScriptChange>(`/api/v1/websites/${id}/changes/`, token),
     api.get<DomainInfo | null>(`/api/v1/websites/${id}/domain/`, token),
-    api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token),
-    api.get<PerformanceReport[]>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token),
-    api.get<CruxReport[]>(`/api/v1/websites/${id}/crux/`, token),
-    api.get<DetectedForm[]>(`/api/v1/websites/${id}/forms/`, token),
-    api.get<FormSubmissionError[]>(`/api/v1/websites/${id}/form-errors/`, token),
-    api.get<PhpError[]>(`/api/v1/websites/${id}/php-errors/`, token),
-    api.get<SiteEvent[]>(`/api/v1/websites/${id}/events/`, token),
+    api.getAll<PerformanceReport>(`/api/v1/websites/${id}/performance/?strategy=mobile&limit=30`, token),
+    api.getAll<PerformanceReport>(`/api/v1/websites/${id}/performance/?strategy=desktop&limit=30`, token),
+    api.getAll<CruxReport>(`/api/v1/websites/${id}/crux/`, token),
+    api.getAll<DetectedForm>(`/api/v1/websites/${id}/forms/`, token),
+    api.getAll<FormSubmissionError>(`/api/v1/websites/${id}/form-errors/`, token),
+    api.getAll<PhpError>(`/api/v1/websites/${id}/php-errors/`, token),
+    // The Change Log filters run server-side: the endpoint caps the timeline
+    // at 500 rows, so filtering in the browser would filter a truncated list
+    // and quietly hide older matches.
+    api.getAll<SiteEvent>(`/api/v1/websites/${id}/events/${eventQuery}`, token),
     // Still fetched with the Security tab gone: the health-score explainer on
     // Overview breaks the score down by open vulnerability.
-    api.get<VulnerabilityReport[]>(`/api/v1/websites/${id}/vulnerabilities/`, token),
+    api.getAll<VulnerabilityReport>(`/api/v1/websites/${id}/vulnerabilities/`, token),
     api.get<SeoReport>(`/api/v1/websites/${id}/seo/`, token),
-    api.get<Monitor[]>(`/api/v1/monitors/?website=${id}`, token),
-    api.get<SiteActivityEntry[] | { results: SiteActivityEntry[] }>(`/api/v1/logs/?website_id=${id}`, token),
+    api.getAll<Monitor>(`/api/v1/monitors/?website=${id}`, token),
+    api.getAll<SiteActivityEntry>(`/api/v1/logs/?website_id=${id}`, token),
   ]);
   const resolvedFormErrors =
     formErrors.status === "fulfilled" ? formErrors.value : [];
@@ -89,10 +103,9 @@ async function getData(token: string, id: string) {
     vulns: vulns.status === "fulfilled" ? vulns.value : [],
     seoReport: seoReport.status === "fulfilled" ? seoReport.value : null,
     monitors: monitors.status === "fulfilled" ? monitors.value : [],
-    siteActivity:
-      siteActivity.status === "fulfilled"
-        ? (Array.isArray(siteActivity.value) ? siteActivity.value : siteActivity.value?.results ?? [])
-        : [],
+    // getAll always resolves to an array, so the previous `.results` unwrapping
+    // for the paginated shape is no longer reachable.
+    siteActivity: siteActivity.status === "fulfilled" ? siteActivity.value : [],
   };
 }
 
@@ -104,9 +117,9 @@ function severityVariant(s: string): "destructive" | "warning" | "secondary" {
 
 const SEV_STRIPE: Record<string, string> = {
   critical: "border-l-red-600",
-  high:     "border-l-red-400",
-  medium:   "border-l-amber-400",
-  low:      "border-l-blue-400",
+  high: "border-l-red-400",
+  medium: "border-l-amber-400",
+  low: "border-l-blue-400",
 };
 
 // Query params that identify WHICH tag this is (GTM container, Google Ads
@@ -144,14 +157,14 @@ function isExpiringSoon(date: string | number | null | undefined): boolean {
 function AuthRow({ label, status, detail }: { label: string; status: string; detail?: string }) {
   const tone =
     status === "pass" ? "text-emerald-600"
-    : status === "missing" ? "text-amber-600"
-    : status === "error" ? "text-red-600"
-    : "text-muted-foreground";
+      : status === "missing" ? "text-amber-600"
+        : status === "error" ? "text-red-600"
+          : "text-muted-foreground";
   const text =
     status === "pass" ? "Pass"
-    : status === "missing" ? "Not set"
-    : status === "error" ? "Lookup failed"
-    : "Not checked";
+      : status === "missing" ? "Not set"
+        : status === "error" ? "Lookup failed"
+          : "Not checked";
   return (
     <div className="flex justify-between gap-2 py-0.5">
       <span className="text-muted-foreground text-sm shrink-0">{label}</span>
@@ -193,18 +206,22 @@ export default async function WebsiteDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; category?: string; q?: string }>;
 }) {
   const { id } = await params;
-  const { tab: rawTab = "overview" } = await searchParams;
+  const { tab: rawTab = "overview", category, q } = await searchParams;
+  const eventFilters = new URLSearchParams();
+  if (category) eventFilters.set("category", category);
+  if (q) eventFilters.set("q", q);
+  const eventQuery = eventFilters.size ? `?${eventFilters.toString()}` : "";
   // The Tracking tab merged into Scripts and Security was withdrawn — keep old
   // deep links landing somewhere rather than on an empty tab panel.
   const tab =
     rawTab === "tracking" ? "scripts"
-    : rawTab === "security" || rawTab === "js-errors" ? "overview"
-    : rawTab;
+      : rawTab === "security" || rawTab === "js-errors" ? "overview"
+        : rawTab;
   const token = await getAccessToken();
-  const { brokenForms7d, website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, seoReport, monitors, siteActivity } = await getData(token ?? "", id);
+  const { brokenForms7d, website, scripts, changes, domainInfo, mobileReports, desktopReports, cruxReports, forms, formErrors, phpErrors, siteEvents, vulns, seoReport, monitors, siteActivity } = await getData(token ?? "", id, eventQuery);
 
   if (!website) {
     return (
@@ -233,17 +250,11 @@ export default async function WebsiteDetailPage({
 
   // Scripts tab / stats: hide internal infrastructure noise
   const activeScripts = scripts.filter((s) => s.is_active && !isInternalStr(s.src_url));
-  // The Scripts tab answers "what is tracking this client's visitors", so it
-  // lists the tracking inventory only — analytics, ads, tag managers, session
-  // recording, call tracking, chat, CRM, payment — and drops jQuery, Google
-  // Fonts, the YouTube iframe API and every other library, CDN and widget the
-  // classifier can name. isTrackedScript() defers to the backend's is_tracked
-  // (apps/scripts/tracked.py) so this page's badge and the table agree.
-  //
-  // Unknowns go with them: an unrecognised script is not evidence of tracking,
-  // and one that matters still raises a ScriptChange in the change log. The
-  // exception is is_suspicious, which isTrackedScript() always keeps —
-  // injected code classifies as unknown and must never be filtered away.
+  // The Scripts tab lists the monitored vendors only — Google, HubSpot,
+  // Hotjar, WhatConverts, ClickUp, GoHighLevel — one row per installed tag.
+  // isTrackedScript() defers to the backend's is_tracked
+  // (apps/scripts/tracked.py) so this page's badge and the table agree; that
+  // flag also keeps high-confidence injected code, which is nobody's vendor.
   const displayScripts = activeScripts.filter(isTrackedScript);
   // Scripts tab additionally shows inactive scripts (with an Inactive badge)
   // so a tracking code that stopped loading is visible, not silently gone.
@@ -634,13 +645,17 @@ export default async function WebsiteDetailPage({
               <CardTitle className="text-base">Change Log ({changeLog.length})</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
+              <ChangeLogFilters websiteId={id} />
               {changeLog.length === 0 ? (
                 <div className="p-10 flex flex-col items-center gap-2 text-center">
                   <CheckCircle className="h-10 w-10 text-emerald-500" />
-                  <p className="font-medium">No changes detected</p>
+                  <p className="font-medium">
+                    {category || q ? "No changes match these filters" : "No changes detected"}
+                  </p>
                   <p className="text-sm text-muted-foreground">
-                    Digivault will alert you when scripts are added, removed or modified, when a
-                    plugin, theme or WordPress core is updated, and when a new page appears.
+                    {category || q
+                      ? "Try clearing a filter, or widening the search."
+                      : "Digivault will alert you when scripts are added, removed or modified, when a plugin, theme or WordPress core is updated, when someone changes something in wp-admin, and when a new page appears."}
                   </p>
                 </div>
               ) : (
@@ -659,47 +674,47 @@ export default async function WebsiteDetailPage({
                   <TableBody>
                     {changeLog.map((entry) =>
                       entry.kind === "script" ? (
-                      <TableRow key={entry.id} className={`border-l-4 ${SEV_STRIPE[entry.change.severity] ?? "border-l-transparent"}`}>
-                        <TableCell className="p-0" />
-                        <TableCell><Badge variant={severityVariant(entry.change.severity)} className="capitalize">{entry.change.severity}</Badge></TableCell>
-                        <TableCell className="capitalize font-medium text-sm">{entry.change.change_type}</TableCell>
-                        <TableCell className="font-mono text-xs max-w-[200px]" title={entry.change.script?.src_url}>
-                          {entry.change.script?.src_url ? smartUrl(entry.change.script.src_url) : "—"}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{entry.change.description}</TableCell>
-                        <TableCell>
-                          {entry.change.is_acknowledged ? (
-                            <span className="flex items-center gap-1 text-xs text-emerald-600">
-                              <CheckCircle className="h-3 w-3" /> Acknowledged
-                              {entry.change.acknowledged_by_email && (
-                                <span className="text-muted-foreground">
-                                  by {entry.change.acknowledged_by_email.split("@")[0]}
-                                </span>
-                              )}
-                            </span>
-                          ) : (
-                            <span className="text-xs text-amber-600">Pending</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(entry.change.created_at)}</TableCell>
-                      </TableRow>
+                        <TableRow key={entry.id} className={`border-l-4 ${SEV_STRIPE[entry.change.severity] ?? "border-l-transparent"}`}>
+                          <TableCell className="p-0" />
+                          <TableCell><Badge variant={severityVariant(entry.change.severity)} className="capitalize">{entry.change.severity}</Badge></TableCell>
+                          <TableCell className="capitalize font-medium text-sm">{entry.change.change_type}</TableCell>
+                          <TableCell className="font-mono text-xs max-w-[200px]" title={entry.change.script?.src_url}>
+                            {entry.change.script?.src_url ? smartUrl(entry.change.script.src_url) : "—"}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{entry.change.description}</TableCell>
+                          <TableCell>
+                            {entry.change.is_acknowledged ? (
+                              <span className="flex items-center gap-1 text-xs text-emerald-600">
+                                <CheckCircle className="h-3 w-3" /> Acknowledged
+                                {entry.change.acknowledged_by_email && (
+                                  <span className="text-muted-foreground">
+                                    by {entry.change.acknowledged_by_email.split("@")[0]}
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-amber-600">Pending</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(entry.change.created_at)}</TableCell>
+                        </TableRow>
                       ) : (
-                      /* Site events (plugin/theme/core updated, new page) have no
-                         script and nothing to acknowledge — they are observations,
-                         not pending decisions. */
-                      <TableRow key={entry.id} className={`border-l-4 ${SEV_STRIPE[entry.event.severity] ?? "border-l-transparent"}`}>
-                        <TableCell className="p-0" />
-                        <TableCell><Badge variant={severityVariant(entry.event.severity)} className="capitalize">{entry.event.severity}</Badge></TableCell>
-                        <TableCell className="capitalize font-medium text-sm">
-                          {entry.event.event_type.replace(/_/g, " ")}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">—</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate" title={entry.event.summary}>
-                          {entry.event.summary}
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">—</TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(entry.event.occurred_at)}</TableCell>
-                      </TableRow>
+                        /* Site events (plugin/theme/core updated, new page) have no
+                           script and nothing to acknowledge — they are observations,
+                           not pending decisions. */
+                        <TableRow key={entry.id} className={`border-l-4 ${SEV_STRIPE[entry.event.severity] ?? "border-l-transparent"}`}>
+                          <TableCell className="p-0" />
+                          <TableCell><Badge variant={severityVariant(entry.event.severity)} className="capitalize">{entry.event.severity}</Badge></TableCell>
+                          <TableCell className="capitalize font-medium text-sm">
+                            {entry.event.event_type.replace(/_/g, " ")}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">—</TableCell>
+                          <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate" title={entry.event.summary}>
+                            {entry.event.summary}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{fmtDate(entry.event.occurred_at)}</TableCell>
+                        </TableRow>
                       )
                     )}
                   </TableBody>
@@ -801,13 +816,30 @@ export default async function WebsiteDetailPage({
               </p>
               <CopySnippet snippet={website.snippet_html ?? ""} siteId={website.site_id} />
               <VerifySnippetButton websiteId={website.id} />
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                <span>
+                  Snippet status: <strong className="text-foreground">{
+                    website.snippet_status === "installed"
+                      ? "Reporting"
+                      : website.snippet_status === "stale"
+                        ? "Stale"
+                        : "Not detected"
+                  }</strong>
+                </span>
+                {website.snippet_last_seen_at && (
+                  <span>Last snippet data: {fmtDateTime(website.snippet_last_seen_at)}</span>
+                )}
+              </div>
+              {/* What the snippet collects, not just whether it is installed.
+                  Behaviour tracking is opt-in per site and the switch belongs
+                  next to the tag it governs. */}
+              <HeatmapToggle
+                websiteId={website.id}
+                enabled={website.heatmap_enabled}
+              />
             </CardContent>
           </Card>
-          {website.last_seen_at && (
-            <p className="text-xs text-muted-foreground px-1">
-              Last data received: {fmtDateTime(website.last_seen_at)}
-            </p>
-          )}
+          <WpConnectCard website={website} />
         </TabsContent>
       </Tabs>
     </div>

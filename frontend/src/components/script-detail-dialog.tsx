@@ -47,10 +47,10 @@ export function ScriptDetailDialog({ scripts, websiteId, label }: Props) {
               {/* URL */}
               <div className="flex items-start gap-2">
                 <code className="text-xs font-mono break-all flex-1 text-muted-foreground">
-                  {s.src_url}
+                  {s.canonical_url ?? s.src_url}
                 </code>
                 <a
-                  href={s.src_url.startsWith("//") ? `https:${s.src_url}` : s.src_url}
+                  href={(s.canonical_url ?? s.src_url).startsWith("//") ? `https:${s.canonical_url ?? s.src_url}` : (s.canonical_url ?? s.src_url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="shrink-0 text-muted-foreground hover:text-foreground"

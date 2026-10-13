@@ -116,7 +116,9 @@ def _apply_filters(qs, request):
             str(pk)
             for pk in Website.objects.filter(client_id=client_id).values_list("id", flat=True)
         ]
-        clause = Q(resource_type="client", resource_id=str(client_id))
+        clause = Q(resource_type="client", resource_id=str(client_id)) | Q(
+            metadata__client_id=str(client_id)
+        )
         if site_ids:
             clause |= Q(resource_id__in=site_ids) | Q(metadata__website_id__in=site_ids)
         qs = qs.filter(clause)

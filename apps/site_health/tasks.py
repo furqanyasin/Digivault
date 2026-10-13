@@ -516,3 +516,63 @@ def run_due_seo_checks() -> int:
             run_seo_check.delay(str(w.pk))
             enqueued += 1
     return enqueued
+
+
+# SiteEvent was the only event table in the codebase with no purge, which was
+# survivable while it held a handful of SEO and page-discovery rows. WP Connect
+# adds post, page and commerce volume across every client, so it is not
+# survivable now. Security categories keep a full year because that is the
+# window an agency is asked to account for; everything else keeps 90 days.
+SECURITY_RETENTION_DAYS = 365
+DEFAULT_RETENTION_DAYS = 90
+_SECURITY_CATEGORIES = ("users", "plugins", "themes", "core", "files")
+
+
+@shared_task(name="site_health.purge_old_site_events")
+def purge_old_site_events() -> int:
+    """Delete SiteEvent rows past their category's retention. Chunked."""
+    from django.db.models import Q
+    from django.utils.timezone import timedelta
+
+    from apps.site_health.models import SiteEvent
+
+    now = timezone.now()
+    # Parenthesised explicitly. `&` binds tighter than `|` in Python, so the
+    # intended grouping happens to be the default here — but relying on that is
+    # how a later edit silently purges a year of security events.
+    security_stale = Q(
+        category__in=_SECURITY_CATEGORIES,
+        occurred_at__lt=now - timedelta(days=SECURITY_RETENTION_DAYS),
+    )
+    other_stale = ~Q(category__in=_SECURITY_CATEGORIES) & Q(
+        occurred_at__lt=now - timedelta(days=DEFAULT_RETENTION_DAYS)
+    )
+    stale = security_stale | other_stale
+
+    total = 0
+    chunk = 500
+    while True:
+        ids = list(
+            SiteEvent.objects.filter(stale).values_list("pk", flat=True)[:chunk]
+        )
+        if not ids:
+            break
+        deleted, _ = SiteEvent.objects.filter(pk__in=ids).delete()
+        total += deleted
+
+    logger.info("site_health.purge_old_site_events: removed %d rows", total)
+    return total
+
+
+@shared_task(name="site_health.flag_unattributed_changes")
+def flag_unattributed_changes() -> int:
+    """Mark component changes that no wp-admin action ever explained.
+
+    A plugin whose files changed with no matching `upgrader_process_complete`
+    was installed over SFTP, by WP-CLI, or by someone who should not have. This
+    is the one signal a hook-only activity log cannot produce, and it exists
+    only because Digivault keeps passive detection running alongside WP Connect.
+    """
+    from apps.site_health.wp_merge import flag_unattributed_component_changes
+
+    return flag_unattributed_component_changes()

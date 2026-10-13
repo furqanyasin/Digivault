@@ -133,7 +133,8 @@ export function CreateAlertRuleDialog({
             <Select value={form.min_severity} onValueChange={(v) => update("min_severity", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="high">High severity only</SelectItem>
+                <SelectItem value="critical">Critical only</SelectItem>
+                <SelectItem value="high">High &amp; above</SelectItem>
                 <SelectItem value="medium">Medium &amp; above</SelectItem>
                 <SelectItem value="low">All changes</SelectItem>
               </SelectContent>

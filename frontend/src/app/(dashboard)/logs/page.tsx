@@ -40,7 +40,7 @@ const VIEWS = [
       "website.created", "website.updated", "website.deleted",
       "website.scan_triggered", "website.snippet_verified",
       "website.snippet_regenerated", "website.change_acknowledged",
-      "website.wp_login", "website.wp_sso_secret_rotated",
+      "website.wp_login", "website.wp_sso_secret_rotated", "website.wp_snippet_viewed",
       "script.reviewed", "domain.refreshed",
     ],
   },
@@ -55,14 +55,23 @@ const VIEWS = [
     actions: [
       "client.created", "client.updated", "client.status_changed",
       "client.synced", "client.imported", "client.exported",
+      "client.deleted",
     ],
   },
   {
     key: "credentials",
     label: "Credentials",
+    // Every vault action, so this is the team-wide answer to "who revealed or
+    // changed what, for which client" — the Vault's "Vault activity" link
+    // opens the log on this view.
     actions: [
       "credential.created", "credential.revealed", "credential.updated",
       "credential.deleted", "credential.shared", "credential.unshared",
+      "credential.imported", "credential.exported",
+      "credential.group_granted", "credential.group_revoked",
+      "credential.access_requested", "credential.access_approved", "credential.access_denied",
+      "credential.handover", "credential.totp_read",
+      "credential.reported_broken", "credential.marked_fixed",
     ],
   },
   {
@@ -165,7 +174,13 @@ export default function LogsPage() {
   // Debounced copy — the log is paginated server-side, so searching has to be a
   // request; firing one per keystroke would hammer the API.
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [view, setView] = useState<ViewKey>("all");
+  // ?view= so other pages can open the log pre-filtered (the Vault links to
+  // ?view=credentials). Read once, like ?user_id= above.
+  const [view, setView] = useState<ViewKey>(() => {
+    if (typeof window === "undefined") return "all";
+    const v = new URLSearchParams(window.location.search).get("view");
+    return VIEWS.some((x) => x.key === v) ? (v as ViewKey) : "all";
+  });
   // null until the role check resolves, so the page renders neither the log nor
   // the access notice while it is still unknown.
   const [roleResolved, setRoleResolved] = useState(false);

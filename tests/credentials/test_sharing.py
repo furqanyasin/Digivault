@@ -328,15 +328,39 @@ def test_share_without_password_hides_it_on_reveal(owner_user, dev2, cred):
 
 @pytest.mark.django_db
 def test_autofill_still_returns_password_when_hidden(owner_user, dev2, cred):
-    """for_autofill bypasses the hide so the extension can fill the form."""
+    """The extension route bypasses the hide so it can fill the login form.
+
+    This used to live on the dashboard endpoint behind `?for_autofill=1`, which
+    meant the hide was a UI courtesy rather than a control: anyone could append
+    the flag. Autofill now has its own route and is logged as AUTOFILL.
+    """
     CredentialShare.objects.create(
         credential=cred, user=dev2, shared_by=owner_user, can_view_password=False
     )
     dev2_client = _client_for(dev2)
-    reveal = dev2_client.post(f"/api/v1/credentials/{cred.pk}/reveal/?for_autofill=1")
+    reveal = dev2_client.post(f"/api/extension/credentials/{cred.pk}/reveal/")
     assert reveal.status_code == 200
     assert reveal.data["password"] == "dbpass"
     assert reveal.data["password_hidden"] is False
+
+
+@pytest.mark.django_db
+def test_for_autofill_flag_is_ignored_on_the_dashboard_endpoint(owner_user, dev2, cred):
+    """Regression: `?for_autofill=1` must not unhide a password."""
+    CredentialShare.objects.create(
+        credential=cred, user=dev2, shared_by=owner_user, can_view_password=False
+    )
+    dev2_client = _client_for(dev2)
+    for reveal in (
+        dev2_client.post(f"/api/v1/credentials/{cred.pk}/reveal/?for_autofill=1"),
+        dev2_client.post(
+            f"/api/v1/credentials/{cred.pk}/reveal/",
+            {"for_autofill": True}, format="json",
+        ),
+    ):
+        assert reveal.status_code == 200
+        assert reveal.data["password"] == ""
+        assert reveal.data["password_hidden"] is True
 
 
 @pytest.mark.django_db

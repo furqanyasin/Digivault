@@ -37,20 +37,16 @@ export function providerLabel(script: {
  *
  *  The decision is the backend's (`is_tracked`, from apps/scripts/tracked.py)
  *  so the tab badge, the overview tile and the table can never disagree about
- *  which rows exist. It keeps analytics, ads, tag managers, session recording,
- *  call tracking, chat, CRM and payment; it drops JS libraries, CDNs, fonts,
- *  maps, video players (YouTube, Vimeo, Wistia), share buttons and review
- *  widgets. A script flagged `is_suspicious` is always kept — injected code
- *  classifies as `unknown`, and a noise filter must not hide it.
+ *  which rows exist. It keeps only the installed tags of the monitored vendors
+ *  (Google, HubSpot, Hotjar, WhatConverts, ClickUp, GoHighLevel) plus anything
+ *  the backend flags as high-confidence injected code, which it folds into
+ *  `is_tracked` itself.
  *
- *  `!== false` rather than `=== true`: an older backend omits the field, and
- *  the safe default there is to show the script, not to blank the whole tab.
+ *  `?? true` rather than `=== true`: an older backend omits the field, and the
+ *  safe default there is to show the script, not to blank the whole tab.
  */
-export function isTrackedScript(script: {
-  is_tracked?: boolean;
-  is_suspicious?: boolean;
-}): boolean {
-  return script.is_tracked !== false || script.is_suspicious === true;
+export function isTrackedScript(script: { is_tracked?: boolean }): boolean {
+  return script.is_tracked ?? true;
 }
 
 /** The identity a scripts-table row is grouped under: the provider family when

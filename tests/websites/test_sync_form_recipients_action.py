@@ -58,14 +58,17 @@ def test_409_when_neither_path_is_available(client_for, website):
     resp = client_for.post(_url(website))
 
     assert resp.status_code == 409
-    assert "WordPress credentials" in resp.data["detail"]
+    assert "Application Password" in resp.data["detail"]
 
 
 def test_falls_back_to_the_api_path_without_wp_connect(
     client_for, website, team, monkeypatch
 ):
     _wp_credential(team, website)
-    monkeypatch.setattr("apps.websites.wp_api_forms.sync_website", lambda site: 2)
+    monkeypatch.setattr(
+        "apps.websites.wp_api_forms.sync_website_detailed",
+        lambda site: {"updated": 2, "source": "wp_api", "reason": "completed"},
+    )
 
     resp = client_for.post(_url(website))
 
@@ -74,17 +77,22 @@ def test_falls_back_to_the_api_path_without_wp_connect(
     assert resp.data["source"] == "wp_api"
 
 
-def test_wp_connect_still_wins_when_configured(client_for, website, team, monkeypatch):
-    """A credential is present too, but the stronger source must be chosen."""
+def test_api_path_is_used_even_when_legacy_wp_connect_is_configured(
+    client_for, website, team, monkeypatch
+):
+    """Recipient lookup does not depend on an extra WordPress snippet."""
     _wp_credential(team, website)
     website.wp_sso_secret = "s3cret"
     website.save(update_fields=["wp_sso_secret"])
-    monkeypatch.setattr("apps.websites.wp_forms.sync_website", lambda site: 5)
+    monkeypatch.setattr(
+        "apps.websites.wp_api_forms.sync_website_detailed",
+        lambda site: {"updated": 2, "source": "wp_api", "reason": "completed"},
+    )
 
     resp = client_for.post(_url(website))
 
-    assert resp.data["updated"] == 5
-    assert resp.data["source"] == "wordpress"
+    assert resp.data["updated"] == 2
+    assert resp.data["source"] == "wp_api"
 
 
 def test_a_reader_blowing_up_reports_502(client_for, website, team, monkeypatch):
@@ -93,7 +101,7 @@ def test_a_reader_blowing_up_reports_502(client_for, website, team, monkeypatch)
     def _boom(site):
         raise RuntimeError("nope")
 
-    monkeypatch.setattr("apps.websites.wp_api_forms.sync_website", _boom)
+    monkeypatch.setattr("apps.websites.wp_api_forms.sync_website_detailed", _boom)
 
     resp = client_for.post(_url(website))
 

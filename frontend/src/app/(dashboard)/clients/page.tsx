@@ -29,7 +29,7 @@ export interface ClientRecord {
 export default async function ClientsPage() {
   const token = await getAccessToken();
   const clients = token
-    ? await api.get<ClientRecord[]>("/api/v1/clients/", token).catch(() => [] as ClientRecord[])
+    ? await api.getAll<ClientRecord>("/api/v1/clients/", token).catch(() => [] as ClientRecord[])
     : ([] as ClientRecord[]);
 
   return <ClientsClient initialClients={Array.isArray(clients) ? clients : []} />;

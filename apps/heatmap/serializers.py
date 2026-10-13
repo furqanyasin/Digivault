@@ -1,7 +1,11 @@
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
-from apps.heatmap.models import HeatmapActivity, HeatmapPageStats
+from apps.heatmap.models import (
+    HeatmapActivity,
+    HeatmapPageSnapshot,
+    HeatmapPageStats,
+)
 
 # Hard caps bounding a single ingest payload. The snippet already aggregates
 # into a 100x100 grid, but a hostile payload must not be allowed to mint
@@ -45,7 +49,16 @@ class HeatmapIngestSerializer(serializers.Serializer):
     # `visits` counter — incremental periodic flushes still carry their cells
     # and click totals but don't inflate the pageview count.
     final = serializers.BooleanField(default=False)
-    viewport_width = serializers.IntegerField(min_value=1, max_value=10000, required=False)
+    viewport_width = serializers.IntegerField(
+        min_value=1, max_value=10000, required=False, default=0
+    )
+    # Full document height in CSS px. The dashboard sizes the overlay canvas at
+    # page_height / viewport_width so the map lands on the page's real aspect.
+    # Capped generously — a long scrolling page is legitimately tens of
+    # thousands of pixels, but a million is a malformed or hostile report.
+    page_height = serializers.IntegerField(
+        min_value=0, max_value=200000, required=False, default=0
+    )
     total_clicks = serializers.IntegerField(min_value=0, default=0)
     max_scroll_percent = serializers.IntegerField(
         min_value=0, max_value=100, default=0
@@ -69,6 +82,7 @@ class HeatmapPageSerializer(BaseModelSerializer):
         fields = (
             "id", "page_url", "device", "visitor_type", "source", "visits",
             "total_clicks", "max_scroll_percent", "scroll_histogram",
+            "page_height", "viewport_width",
             "first_seen_at", "last_seen_at",
         )
         read_only_fields = fields
@@ -79,3 +93,27 @@ class HeatmapCellSerializer(BaseModelSerializer):
         model = HeatmapActivity
         fields = ("kind", "x", "y", "count", "device", "visitor_type", "source", "element")
         read_only_fields = fields
+
+
+class HeatmapSnapshotSerializer(BaseModelSerializer):
+    """The backdrop picture for one page + device.
+
+    `image_url` points at the team-scoped image view, never at MEDIA_URL — see
+    the note on the model. It is null until a capture succeeds, which is the
+    dashboard's cue to fall back to the live iframe.
+    """
+
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = HeatmapPageSnapshot
+        fields = (
+            "id", "page_url", "device", "status", "width", "height",
+            "image_url", "error_message", "captured_at",
+        )
+        read_only_fields = fields
+
+    def get_image_url(self, obj) -> str | None:
+        if obj.status != HeatmapPageSnapshot.Status.READY or not obj.image:
+            return None
+        return f"/api/v1/heatmap/snapshots/{obj.pk}/image/"

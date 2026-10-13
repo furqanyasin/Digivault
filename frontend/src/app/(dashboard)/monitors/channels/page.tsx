@@ -8,7 +8,7 @@ import { NotificationChannelsClient } from "@/components/notification-channels-c
 export default async function NotificationChannelsPage() {
   const token = await getAccessToken();
   const channels = await api
-    .get<NotificationChannel[]>("/api/v1/notification-channels/", token ?? "")
+    .getAll<NotificationChannel>("/api/v1/notification-channels/", token ?? "")
     .catch(() => [] as NotificationChannel[]);
 
   return (

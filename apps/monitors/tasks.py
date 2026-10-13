@@ -39,6 +39,30 @@ def _confirm_delays() -> list[int]:
     ) or DEFAULT_CONFIRM_DELAYS
 
 
+def _adopt_resolved_url(monitor, resolved_url: str | None) -> None:
+    """Point the monitor at the www twin that actually answered.
+
+    A site served on only one of example.com and www.example.com is a setup
+    quirk, not an outage. The checker already reported the twin's answer. This
+    saves the twin so later checks go straight to it, and so the dashboard
+    shows the address being checked. It is skipped when the team already
+    monitors the twin, because two monitors on one URL would record every
+    result twice.
+    """
+    from apps.monitors.models import Monitor
+
+    if not resolved_url or resolved_url == monitor.url:
+        return
+    if Monitor.objects.filter(team_id=monitor.team_id, url=resolved_url).exists():
+        return
+    logger.info(
+        "monitor %s: %s is not served, adopting %s",
+        monitor.pk, monitor.url, resolved_url,
+    )
+    Monitor.objects.filter(pk=monitor.pk).update(url=resolved_url)
+    monitor.url = resolved_url
+
+
 @shared_task(name="monitors.run_due_checks")
 def run_due_checks():
     """Check every active monitor whose next check is due.
@@ -128,8 +152,14 @@ def check_single_monitor(self, monitor_id: str, attempt: int = 1):
             "error_message": str(exc)[:300],
         }
 
+    _adopt_resolved_url(monitor, result.get("resolved_url"))
+
     previous_status = monitor.status
     new_status = result["status"]
+    # A firewall answered instead of the site — as opposed to a failure that
+    # `liveness` downgrades to blocked below. Only this one may be settled by
+    # the site's heartbeat or its visitors (see monitors.evidence).
+    firewall_answered = new_status == "blocked"
 
     # Confirmation gate. Only `down` earns a re-check — `blocked` is already a
     # definite answer (about us, not the site), and up/degraded are answers too.
@@ -163,12 +193,64 @@ def check_single_monitor(self, monitor_id: str, attempt: int = 1):
             new_status = "blocked"
             result = dict(result, error_message=reason[:300])
 
+    # Our IP is blocked. Evidence that never touches our IP stands in for our
+    # check: the site's own heartbeat and real visitors first (fresh, free, and
+    # no firewall can stop them), then a recent Google verdict. With none of
+    # those, ask Google in the background and record "blocked" for now. See
+    # monitors.evidence and monitors.second_opinion.
+    checked_via = ""
+    ask_google = False
+    if new_status == "blocked":
+        from apps.monitors import evidence, second_opinion
+
+        verdict = (evidence.inside_view(monitor) if firewall_answered else None) \
+            or second_opinion.fresh_verdict(monitor)
+        if verdict is not None:
+            new_status, result, checked_via = _apply_verdict(monitor, verdict, result)
+        else:
+            ask_google = True
+
+    _record_result(monitor, previous_status, new_status, result, checked_via)
+
+    # Only after our "blocked" is recorded: a quick answer from Google must
+    # land on top of it, not be overwritten by it.
+    if ask_google:
+        second_opinion.request(monitor)
+
+
+def _apply_verdict(monitor, verdict: dict, result: dict):
+    """A second opinion (Google, the site's heartbeat, real visitors) in place
+    of our blocked result. A "down" still answers to real visitors first, like
+    any confirmed failure of ours."""
+    new_status = verdict["status"]
+    result = dict(
+        result,
+        status_code=verdict.get("status_code"),
+        response_time_ms=None,
+        error_message=verdict["message"],
+    )
+    if new_status == "down":
+        from apps.monitors.liveness import corroborate_liveness
+
+        suppress, reason = corroborate_liveness(monitor)
+        if suppress:
+            new_status = "blocked"
+            result = dict(result, error_message=reason[:300])
+            return new_status, result, ""
+    return new_status, result, verdict.get("via", "google")
+
+
+def _record_result(monitor, previous_status: str, new_status: str, result: dict, checked_via: str = ""):
+    """Write one MonitorCheck and move the monitor's state, counters and alerts."""
+    from apps.monitors.models import Monitor, MonitorCheck
+
     MonitorCheck.objects.create(
         monitor=monitor,
         status=new_status,
         response_time_ms=result.get("response_time_ms"),
         status_code=result.get("status_code"),
         error_message=result.get("error_message", ""),
+        checked_via=checked_via,
     )
 
     if new_status == "up":
@@ -229,14 +311,43 @@ def check_single_monitor(self, monitor_id: str, attempt: int = 1):
         except Exception:
             logger.exception(
                 "health recalc failed for website %s after monitor %s flip",
-                monitor.website_id, monitor_id,
+                monitor.website_id, monitor.pk,
             )
 
     if should_notify and previous_status != "pending":
         try:
             notify_status_change(monitor, previous_status, new_status)
         except Exception:
-            logger.exception("notify_status_change failed for monitor %s", monitor_id)
+            logger.exception("notify_status_change failed for monitor %s", monitor.pk)
+
+
+@shared_task(name="monitors.google_second_opinion")
+def google_second_opinion(monitor_id: str) -> str | None:
+    """Ask Google whether a blocked site is up, and apply the answer now.
+
+    Applied immediately rather than waiting for our next check, so a blocked
+    site that is down alerts within minutes of Google seeing it. Only while the
+    monitor is still blocked: a verdict must never overwrite a fresh answer of
+    our own.
+    """
+    from apps.monitors import second_opinion
+    from apps.monitors.models import Monitor
+
+    monitor = Monitor.objects.filter(pk=monitor_id, is_active=True).first()
+    if monitor is None or monitor.status == "paused":
+        return None
+    verdict = second_opinion.ask_google(monitor.url)
+    if verdict is None:
+        return None
+    second_opinion.store(monitor.pk, verdict)
+    monitor.refresh_from_db()
+    if monitor.status != Monitor.Status.BLOCKED:
+        return verdict["status"]
+    new_status, result, checked_via = _apply_verdict(
+        monitor, verdict, {"status": verdict["status"]}
+    )
+    _record_result(monitor, monitor.status, new_status, result, checked_via)
+    return new_status
 
 
 @shared_task(name="monitors.rollup_daily_uptime")
@@ -263,8 +374,12 @@ def rollup_daily_uptime(target_date: str | None = None) -> int:
     start = timezone.make_aware(naive_start) if settings.USE_TZ else naive_start
     end = start + datetime.timedelta(days=1)
 
+    # Keep historical rollups consistent with Monitor.recalculate_uptime(): a
+    # named WAF block is not an observation of the origin and must not count as
+    # downtime in either the ratio or response-time aggregate.
     stats = (
         MonitorCheck.objects.filter(checked_at__gte=start, checked_at__lt=end)
+        .exclude(status=MonitorCheck.Status.BLOCKED)
         .values("monitor_id")
         .annotate(
             total=Count("id"),
@@ -307,6 +422,10 @@ def purge_old_checks(days: int = 35) -> int:
     from apps.monitors.models import MonitorCheck
 
     cutoff = timezone.now() - timezone.timedelta(days=days)
+    # Whole months first once partitioned; see scripts.purge_old_snapshots.
+    from apps.common.partitions import drop_partitions_before
+
+    drop_partitions_before(MonitorCheck._meta.db_table, cutoff)
     total = 0
     chunk = 1000
     while True:

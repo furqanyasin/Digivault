@@ -28,6 +28,16 @@ def test_user_agent_is_honest_and_points_at_the_allowlist_page():
         assert browser not in ua
 
 
+def test_user_agent_avoids_the_form_siteground_blocks():
+    """SiteGround's firewall blocks "compatible; Digivault-Monitor/1.0" on every
+    path and lets "compatible; Digivault-Uptime/1.0" through. The Monitor token
+    must stay somewhere, for client Cloudflare rules that match on it."""
+    ua = outbound.USER_AGENT
+    assert "compatible; Digivault-Monitor" not in ua
+    assert "compatible; Digivault-Uptime/" in ua
+    assert "Digivault-Monitor" in ua
+
+
 def test_default_headers_include_accept():
     # A request with no Accept header at all reads as a bot to every edge.
     assert "Accept" in outbound.DEFAULT_HEADERS
@@ -103,6 +113,42 @@ def test_identify_block_returns_empty_for_unattributable_403():
 
 def test_identify_block_ignores_success_responses():
     assert outbound.identify_block(200, {"server": "cloudflare"}, "<html>real page</html>") == ""
+
+
+# SiteGround: the same host-header value on every response, and a 202 challenge
+# page for clients it does not recognise. Eight client sites read "degraded —
+# Got 202, expected 200" at 0% uptime because 2xx was never considered a block.
+SG = {"server": "nginx", "host-header": "8441280b0c35cbc1147f8ba998a563a7"}
+SG_CHALLENGE = (
+    '<html><head><meta http-equiv="refresh" '
+    'content="0;/.well-known/sgcaptcha/?r=%2F&y=abc"></head></html>'
+)
+
+
+def test_siteground_202_challenge_is_a_block():
+    assert outbound.identify_block(202, SG, SG_CHALLENGE) == "SiteGround"
+
+
+def test_siteground_challenge_on_head_has_only_headers():
+    assert outbound.identify_block(202, SG, "") == "SiteGround"
+
+
+def test_siteground_403_is_a_block():
+    assert outbound.identify_block(403, SG, "<title>403 - Forbidden</title>" * 100) == "SiteGround"
+
+
+def test_siteground_503_is_the_origin_not_a_block():
+    # The header is on every SiteGround response; an overloaded origin is down.
+    assert outbound.identify_block(503, SG, "Service Unavailable" * 100) == ""
+
+
+def test_sgcaptcha_body_without_the_header_is_still_siteground():
+    assert outbound.identify_block(202, {"server": "cloudflare"}, SG_CHALLENGE) == "SiteGround"
+
+
+def test_an_unfingerprinted_202_is_not_a_block():
+    # A short 2xx body is not evidence of a firewall on its own.
+    assert outbound.identify_block(202, {"server": "nginx"}, "Accepted") == ""
 
 
 # ── per-host budget ───────────────────────────────────────────────────────────

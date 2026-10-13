@@ -31,52 +31,17 @@ def auth_client(registered_user):
 
 
 @pytest.mark.django_db
-class TestRegistration:
-    def test_register_creates_user(self, api_client):
+class TestNoSelfRegistration:
+    """Internal tool: accounts come from an owner or manager, never a public POST."""
+
+    def test_register_endpoint_is_gone(self, api_client):
         response = api_client.post(
             "/api/v1/auth/register/",
             {"email": "new@user.com", "password": "SecurePass1!", "name": "New User"},
             format="json",
         )
-        assert response.status_code == 201
-        assert User.objects.filter(email="new@user.com").exists()
-
-    def test_response_is_enveloped(self, api_client):
-        response = api_client.post(
-            "/api/v1/auth/register/",
-            {
-                "email": "env@user.com",
-                "password": "SecurePass1!",
-                "name": "Env User",
-            },
-            format="json",
-        )
-        # The envelope exists in the rendered body, not in DRF's pre-render resp.data
-        import json
-
-        body = json.loads(response.content)
-        assert "data" in body
-        assert "errors" in body
-
-    def test_duplicate_email_returns_400(self, api_client, registered_user):
-        response = api_client.post(
-            "/api/v1/auth/register/",
-            {
-                "email": "test@example.com",
-                "password": "SecurePass1!",
-                "name": "Dupe",
-            },
-            format="json",
-        )
-        assert response.status_code == 400
-
-    def test_weak_password_returns_400(self, api_client):
-        response = api_client.post(
-            "/api/v1/auth/register/",
-            {"email": "weak@pass.com", "password": "123", "name": "Weak"},
-            format="json",
-        )
-        assert response.status_code == 400
+        assert response.status_code == 404
+        assert not User.objects.filter(email="new@user.com").exists()
 
 
 @pytest.mark.django_db

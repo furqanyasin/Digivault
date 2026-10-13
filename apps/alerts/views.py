@@ -11,7 +11,7 @@ from apps.alerts.serializers import (
 )
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
-from apps.common.permissions import IsTeamMember
+from apps.common.permissions import IsTeamMember, TeamRolePermission
 from apps.websites.models import Website
 
 
@@ -19,7 +19,7 @@ class AlertRuleListCreateView(generics.ListCreateAPIView):
     """GET/POST /api/v1/alert-rules/"""
 
     serializer_class = AlertRuleSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team
@@ -40,7 +40,7 @@ class AlertRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v1/alert-rules/<pk>/"""
 
     serializer_class = AlertRuleSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team
@@ -88,7 +88,7 @@ class AlertSuppressionListCreateView(generics.ListCreateAPIView):
     """GET/POST /api/v1/websites/<website_pk>/alert-suppressions/"""
 
     serializer_class = AlertSuppressionSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def _website(self):
         team = self.request.user.active_team
@@ -112,7 +112,7 @@ class AlertSuppressionDeleteView(generics.DestroyAPIView):
     """DELETE /api/v1/alert-suppressions/<pk>/"""
 
     serializer_class = AlertSuppressionSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team

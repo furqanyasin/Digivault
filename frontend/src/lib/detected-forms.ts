@@ -41,6 +41,22 @@ function formSignature(f: DetectedForm): string {
   return ["anon", f.detection_type, action, f.provider, fields].join("|");
 }
 
+// Weakest to strongest, mirroring the backend's own ordering in
+// `_apply_page_recipients`: the page markup is a proxy for a form's
+// configuration, while the WordPress API and WP Connect are the configuration
+// itself. An unset source ranks below all of them.
+const SOURCE_RANK: Record<string, number> = {
+  "": 0,
+  page: 1,
+  wp_api: 2,
+  wordpress: 3,
+};
+
+/** True when this address came out of the site's WordPress, not its markup. */
+export function isFromWordPress(f: DetectedForm): boolean {
+  return f.recipient_source === "wordpress" || f.recipient_source === "wp_api";
+}
+
 /** Rows the forms table will render: one per structurally distinct form.
  *
  *  Keeps the most recently seen row, but sums submission counts so the total
@@ -66,6 +82,13 @@ export function dedupeForms(forms: DetectedForm[]): FormRow[] {
     } else {
       existing.submission_count += f.submission_count;
       if (!existing.pages.includes(f.page_url)) existing.pages.push(f.page_url);
+      // Descriptor detail comes from the richest reading, not the first row the
+      // API happened to return. Rows are ordered by page then action, so a
+      // server-scan row — whose regex extractor skips inputs with no `name` and
+      // cannot see a JS-rendered form at all — sorted ahead of the browser's and
+      // made a seven-field contact form render as "Fields (0)". An observation
+      // that read nothing is not a form that has nothing.
+      if (f.fields.length > existing.fields.length) existing.fields = f.fields;
       for (const name of ["to", "cc", "bcc"] as const) {
         for (const email of kind(f, name)) {
           if (!existing.recipients[name].includes(email)) {
@@ -75,8 +98,13 @@ export function dedupeForms(forms: DetectedForm[]): FormRow[] {
       }
       // One form's copies across pages share a destination, but not necessarily
       // a source: WordPress fills the rows it can match, and the markup fills
-      // the rest. Report the stronger of the two for the merged row.
-      if (f.recipient_source === "wordpress") existing.recipient_source = "wordpress";
+      // the rest. Report the strongest for the merged row. Ranked rather than
+      // a single equality test, which knew only about "wordpress" and so read
+      // every `wp_api` answer — the source the live sweep actually writes — as
+      // if it had come out of the page markup.
+      if (SOURCE_RANK[f.recipient_source] > SOURCE_RANK[existing.recipient_source]) {
+        existing.recipient_source = f.recipient_source;
+      }
       if (f.last_submission_at && (!existing.last_submission_at || f.last_submission_at > existing.last_submission_at)) {
         existing.last_submission_at = f.last_submission_at;
       }
@@ -100,6 +128,20 @@ export function formLabel(f: DetectedForm): string {
 
 export function pagePath(url: string): string {
   return url.replace(/^https?:\/\/[^/]+/, "") || "/";
+}
+
+/** The form's action, or null when it has none of its own.
+ *
+ *  A form with no action attribute is not action-less in the data: the browser's
+ *  `form.action` getter returns the document URL, and the backend now resolves
+ *  every source the same way, so the stored action of an Elementor-style AJAX
+ *  form is simply the page it sits on. Printing that reads as a destination the
+ *  form does not have.
+ */
+export function formAction(f: FormRow): string | null {
+  if (!f.form_action) return null;
+  if (f.form_action === f.page_url) return null;
+  return f.pages.includes(f.form_action) ? null : f.form_action;
 }
 
 /** How many addresses a form delivers to in total, across To, Cc and Bcc. */

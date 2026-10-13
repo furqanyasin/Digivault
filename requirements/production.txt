@@ -1,3 +1,17 @@
 -r base.txt
 # sentry-sdk is pinned in base.txt (2.20.0); the [django] extra adds no extra
 # packages we don't already have, so no separate pin here.
+
+# ── optional: heatmap backdrop screenshots ───────────────────────────────────
+# `apps/heatmap/capture.py` drives a headless Chromium to screenshot client
+# pages, which the heatmap dashboard uses as its overlay backdrop. Chromium adds
+# roughly 400MB to an image shared by api/celery/celery-beat, so it is installed
+# by the Dockerfile's WITH_CHROMIUM build arg rather than listed here — that arg
+# installs the pin below and runs `playwright install --with-deps chromium`.
+# The production compose files default it to 1; opt out with
+#
+#     WITH_CHROMIUM=0 ./deploy.sh          (or put WITH_CHROMIUM=0 in .env)
+#
+# Without it the heatmap still renders (the dashboard falls back to a live
+# iframe or a plain grid, and the capture task records `unavailable`).
+# playwright==1.49.1

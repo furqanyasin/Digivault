@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService, site_meta
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import IsTeamMember, RolePermission
+from apps.common.permissions import IsTeamMember, RolePermission, TeamRolePermission
 from apps.integrations.clickup import ClickUpClient
 from apps.monitors.models import Monitor, MonitorCheck, MonitorNotificationRule, NotificationChannel
 from apps.monitors.serializers import (
@@ -26,7 +26,7 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
 
     queryset = Monitor.objects.all()
     serializer_class = MonitorSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -45,12 +45,127 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
         )
 
 
+class BlockedMonitorSummaryView(APIView):
+    """GET /api/v1/monitors/blocked-summary/ — every blocked site, grouped by
+    the firewall blocking it, with one ready-to-send fix per firewall.
+
+    The fix is per vendor, not per site: one SiteGround ticket can name every
+    domain on the account, and one Cloudflare rule per account covers all its
+    zones. Handing out a separate instruction per monitor made "fix all of
+    them" twenty copy-pastes.
+    """
+
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+
+    def get(self, request):
+        from collections import defaultdict
+        from urllib.parse import urlsplit
+
+        from apps.common import outbound
+        from apps.monitors import second_opinion
+        from apps.monitors.serializers import block_vendor
+
+        team = request.user.active_team
+        ips = outbound.egress_ips()
+        ip_text = ", ".join(ips) if ips else "(our monitoring IP — see https://digivault.digilatics.co/bot)"
+        groups: dict[str, list] = defaultdict(list)
+        monitors = Monitor.objects.filter(
+            team=team, status=Monitor.Status.BLOCKED, is_active=True,
+        ).select_related("website")
+        for monitor in monitors:
+            latest = (
+                monitor.checks.filter(status=MonitorCheck.Status.BLOCKED)
+                .order_by("-checked_at").first()
+            )
+            vendor = block_vendor(latest.error_message if latest else "")
+            website = monitor.website
+            groups[vendor].append({
+                "monitor_id": str(monitor.pk),
+                "name": monitor.name,
+                "url": monitor.url,
+                "domain": (urlsplit(monitor.url).hostname or monitor.url).removeprefix("www."),
+                "since": latest.checked_at if latest else None,
+                # Which inside-out evidence the site could vouch for itself
+                # with (monitors.evidence). Still blocked with a heartbeat
+                # means WordPress has gone quiet — worth a look, not a ticket.
+                "has_heartbeat": bool(website and website.wp_connect_loopback_at),
+                "has_snippet": bool(website and website.snippet_last_seen_at),
+            })
+
+        result = []
+        for vendor, sites in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+            domains = sorted({s["domain"] for s in sites})
+            result.append({
+                "vendor": vendor,
+                "count": len(sites),
+                "sites": sorted(sites, key=lambda s: s["domain"]),
+                "fix": _vendor_fix(vendor, ips, ip_text, domains),
+            })
+        return Response({
+            "egress_ips": ips,
+            "user_agent": outbound.USER_AGENT,
+            # Whether Google really is checking these for us. The panel used to
+            # promise it unconditionally, so a deployment without a PageSpeed
+            # key read "Google checks them" over sites nobody was checking.
+            "second_opinion_enabled": second_opinion.enabled(),
+            "groups": result,
+        })
+
+
+def _vendor_fix(vendor: str, ips: list[str], ip_text: str, domains: list[str]) -> dict:
+    """What to do about one firewall, for every site it blocks at once."""
+    from apps.common import outbound
+
+    domain_lines = "\n".join(f"- {d}" for d in domains)
+    if vendor == "SiteGround":
+        return {
+            "how": "SiteGround challenges our monitoring IP itself, so no setting on our side or yours clears it. No ticket needed for a WordPress site: paste the latest WP Connect snippet and the site reports its own uptime every 5 minutes, which SiteGround cannot block; sites with the tracking snippet are also vouched for by their real visitors. For anything else, this one ticket (Site Tools → Help → Contact support) covers every site below.",
+            "copy_label": "Copy support ticket",
+            "text": (
+                "Hello SiteGround support,\n\n"
+                "Your bot protection is blocking our uptime monitor (it receives the "
+                "HTTP 202 challenge page) on the sites below. Please whitelist our "
+                f"monitoring IP {ip_text} for these domains:\n\n{domain_lines}\n\n"
+                f"Our requests identify themselves as: {outbound.USER_AGENT}\n"
+                "It sends one HEAD/GET request to each homepage about every 15 "
+                "minutes, never logs in, submits forms or crawls.\n\nThank you."
+            ),
+        }
+    if vendor == "Cloudflare":
+        ip_rule = f" or (ip.src in {{{' '.join(ips)}}})" if ips else ""
+        return {
+            "how": "Add this rule once per Cloudflare account (Security → WAF → Custom rules → Create rule), Action: Skip → all remaining custom rules + Bot Fight Mode. It covers every site in the account.",
+            "copy_label": "Copy WAF expression",
+            "text": f'(http.user_agent contains "Digivault-Monitor"){ip_rule}',
+        }
+    if vendor == "Wordfence":
+        return {
+            "how": "On each site: Wordfence → Firewall → Blocking → Whitelisted IP addresses.",
+            "copy_label": "Copy IP",
+            "text": ip_text,
+        }
+    if vendor == "Sucuri":
+        return {
+            "how": "Sucuri dashboard → Security → Access Control → Whitelist IP addresses, for each site below.",
+            "copy_label": "Copy IP",
+            "text": ip_text,
+        }
+    return {
+        "how": "Ask the host to allowlist our monitor's IP for these sites — a uniform block like this is usually a server firewall (Imunify360, CSF, ModSecurity).",
+        "copy_label": "Copy request",
+        "text": (
+            f"Please allowlist our uptime monitor's IP {ip_text} "
+            f"(user agent {outbound.USER_AGENT}) for:\n\n{domain_lines}"
+        ),
+    }
+
+
 class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v1/monitors/<pk>/"""
 
     queryset = Monitor.objects.all()
     serializer_class = MonitorSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def perform_update(self, serializer):
         monitor = serializer.save()
@@ -98,6 +213,14 @@ class UptimeTrendView(APIView):
     A day with no checks returns `null`, never 0 or 100: no data means we were
     blind, and inventing either number would draw a cliff or a clean run that
     never happened.
+
+    Blocked checks are excluded from both sides, as in
+    `Monitor.recalculate_uptime`. Counting them as "not up" drew the chart at
+    78% beside a 97.75% headline on a team with a few firewalled sites.
+
+    Each point also carries the day's `up`/`total`, so the dashboard can pool
+    them over the selected window for its headline instead of averaging daily
+    percentages (or reading a cached 30-day figure under a 7-day caption).
     """
 
     permission_classes = [permissions.IsAuthenticated, IsTeamMember]
@@ -151,7 +274,7 @@ class UptimeTrendView(APIView):
         first_day, last_day = self._window(request)
         days = (last_day - first_day).days + 1
 
-        by_day: dict[str, float] = {}
+        by_day: dict[str, tuple[int, int]] = {}
         if team is not None:
             rows = (
                 MonitorCheck.objects.filter(
@@ -159,6 +282,7 @@ class UptimeTrendView(APIView):
                     checked_at__date__gte=first_day,
                     checked_at__date__lte=last_day,
                 )
+                .exclude(status=MonitorCheck.Status.BLOCKED)
                 .annotate(day=TruncDate("checked_at"))
                 .values("day")
                 .annotate(
@@ -169,14 +293,18 @@ class UptimeTrendView(APIView):
             )
             for row in rows:
                 if row["total"]:
-                    by_day[row["day"].isoformat()] = round(
-                        row["up"] * 100.0 / row["total"], 2
-                    )
+                    by_day[row["day"].isoformat()] = (row["up"], row["total"])
 
         points = []
         for offset in range(days):
             day = (first_day + timedelta(days=offset)).isoformat()
-            points.append({"date": day, "value": by_day.get(day)})
+            up, total = by_day.get(day, (0, 0))
+            points.append({
+                "date": day,
+                "value": round(up * 100.0 / total, 2) if total else None,
+                "up": up,
+                "total": total,
+            })
 
         return Response({"days": days, "points": points})
 
@@ -284,7 +412,7 @@ class NotificationChannelListCreateView(TeamScopedMixin, generics.ListCreateAPIV
 
     queryset = NotificationChannel.objects.all()
     serializer_class = NotificationChannelSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team
@@ -305,7 +433,7 @@ class NotificationChannelDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v1/notification-channels/<pk>/"""
 
     serializer_class = NotificationChannelSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team
@@ -448,7 +576,7 @@ class MonitorNotificationRuleListCreateView(generics.ListCreateAPIView):
     """
 
     serializer_class = MonitorNotificationRuleSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team
@@ -478,7 +606,7 @@ class MonitorNotificationRuleDetailView(generics.RetrieveUpdateDestroyAPIView):
     """GET/PATCH/DELETE /api/v1/monitors/<monitor_pk>/notification-rules/<pk>/"""
 
     serializer_class = MonitorNotificationRuleSerializer
-    permission_classes = [permissions.IsAuthenticated, IsTeamMember]
+    permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def get_queryset(self):
         team = self.request.user.active_team
@@ -518,7 +646,7 @@ class MonitoringInfoView(APIView):
     def get(self, request):
         from apps.common import outbound
 
-        ips = list(getattr(settings, "MONITOR_EGRESS_IPS", []) or [])
+        ips = outbound.egress_ips()
         ip_list = ", ".join(ips) if ips else "(contact your agency for the current IP)"
         first_ip = ips[0] if ips else "<monitor-ip>"
 
@@ -537,6 +665,11 @@ class MonitoringInfoView(APIView):
                     f"Add: {ip_list}\n"
                     "Also add 'Digivault-Monitor' under Tools → Whitelisted URLs if "
                     "rate limiting is set to block unknown crawlers."
+                ),
+                "siteground": (
+                    "SiteGround's anti-bot has no customer-side allowlist. Open a "
+                    "ticket with SiteGround support (Site Tools → Help) asking them "
+                    f"to whitelist {ip_list} for the site's domain."
                 ),
                 "sucuri": (
                     "Sucuri Firewall dashboard → Security → Access Control → "

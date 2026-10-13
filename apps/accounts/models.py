@@ -2,6 +2,7 @@ import secrets
 import uuid
 
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.text import slugify
 
@@ -134,6 +135,37 @@ class Team(BaseModel):
         return slug
 
 
+class SubTeam(BaseModel):
+    """A named group of people inside one tenant Team, e.g. "Web Team".
+
+    Governs credential access only. Role and `feature_access` are untouched by
+    group membership, so a viewer in a fully granted group is still a viewer.
+    A member holds at most one group.
+    """
+
+    team = models.ForeignKey(
+        Team, on_delete=models.CASCADE, related_name="sub_teams"
+    )
+    name = models.CharField(max_length=80)
+    description = models.CharField(max_length=200, blank=True, default="")
+    # One of `Client.DEPARTMENTS`, or "". A tagged group sees every credential
+    # filed under that department (`CredentialQuerySet._department_q`) — use-only
+    # unless `department_can_view_password`, the same closed default as a grant.
+    department = models.CharField(max_length=20, blank=True, default="")
+    department_can_view_password = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name"], name="subteam_unique_name_per_team"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.team_id})"
+
+
 class TeamMembership(BaseModel):
     """Links a User to a Team with an assigned role."""
 
@@ -144,6 +176,10 @@ class TeamMembership(BaseModel):
         VIEWER = "viewer", "Viewer"
         # Per-member feature access — allowed sections live in `feature_access`.
         CUSTOM = "custom", "Custom"
+        # SEO staff. Member-level like a developer for credential sharing, but
+        # deliberately not offered in the website assignment picker — an SEO
+        # executive works across the whole client base, not a slice of it.
+        SEO_EXECUTIVE = "seo_executive", "SEO Executive"
         # Legacy member-level roles — no longer offered in the UI, kept so any
         # existing memberships stay valid.
         EDITOR = "editor", "Editor"
@@ -161,6 +197,16 @@ class TeamMembership(BaseModel):
     # When role == "custom", the list of feature keys this member may access
     # (e.g. ["websites", "reports"]). Ignored for every other role.
     feature_access = models.JSONField(default=list, blank=True)
+    # The credential-access group this member sits in. Nullable because the
+    # owner and every membership predating groups have none, which keeps
+    # `visible_to()` behaving exactly as it did before this column existed.
+    sub_team = models.ForeignKey(
+        "accounts.SubTeam",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="memberships",
+    )
 
     class Meta:
         unique_together = [("user", "team")]
@@ -168,6 +214,19 @@ class TeamMembership(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.user.email} — {self.team.name} ({self.role})"
+
+    def clean(self):
+        """Reject a group belonging to a different Team.
+
+        No DB constraint can span the two tables, and a cross-team group is a
+        privilege-escalation bug rather than untidy data, so it is refused here
+        and again in the serializer (DRF never calls clean()).
+        """
+        super().clean()
+        if self.sub_team_id and self.sub_team.team_id != self.team_id:
+            raise ValidationError(
+                {"sub_team": "That group belongs to a different team."}
+            )
 
 
 class PasswordResetRequest(BaseModel):

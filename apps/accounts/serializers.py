@@ -1,32 +1,14 @@
-from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from rest_framework.validators import UniqueValidator
 
-from apps.accounts.models import PasswordResetRequest, Team, TeamInvitation, TeamMembership, User
+from apps.accounts.models import (
+    PasswordResetRequest,
+    SubTeam,
+    Team,
+    TeamInvitation,
+    TeamMembership,
+    User,
+)
 from apps.common.serializers import BaseModelSerializer
-
-
-class UserRegistrationSerializer(serializers.Serializer):
-    email = serializers.EmailField(
-        validators=[UniqueValidator(queryset=User.objects.all())]
-    )
-    password = serializers.CharField(write_only=True, min_length=8)
-    name = serializers.CharField(max_length=150)
-
-    def validate_password(self, value):
-        validate_password(value)
-        return value
-
-    def create(self, validated_data):
-        name = validated_data.pop("name", "")
-        parts = name.split(" ", 1)
-        user = User.objects.create_user(
-            email=validated_data["email"],
-            password=validated_data["password"],
-            first_name=parts[0],
-            last_name=parts[1] if len(parts) > 1 else "",
-        )
-        return user
 
 
 class UserSerializer(BaseModelSerializer):
@@ -73,17 +55,52 @@ class TeamSerializer(BaseModelSerializer):
         return effective_features(m.role, m.feature_access) if m else []
 
 
+class SubTeamSerializer(BaseModelSerializer):
+    """A credential-access group. `team` comes from the URL, never the body."""
+
+    member_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SubTeam
+        fields = ("id", "name", "description", "member_count", "created_at")
+        read_only_fields = ("id", "member_count", "created_at")
+
+    def get_member_count(self, obj) -> int:
+        return obj.memberships.count()
+
+
 class TeamMembershipSerializer(BaseModelSerializer):
     user = UserSerializer(read_only=True)
     totp_enabled = serializers.BooleanField(source="user.totp_enabled", read_only=True)
     # Effective access (stored override or role default) so the UI chips reflect
     # what the member actually sees, even for legacy rows with no stored value.
     effective_features = serializers.SerializerMethodField()
+    # Credential-access group. Read-only here: it is written through the
+    # owner-gated branches in TeamMemberDetailView and TeamCreateUserView, so a
+    # manager PATCHing a role can never set it as a side effect.
+    sub_team = serializers.PrimaryKeyRelatedField(read_only=True)
+    sub_team_name = serializers.CharField(
+        source="sub_team.name", read_only=True, default=None
+    )
+    # A team can hold several owners, so `role == "owner"` no longer tells the
+    # UI which row it must not offer to demote or remove. This does: it is the
+    # one owner `Team.owner` points at.
+    is_primary_owner = serializers.SerializerMethodField()
 
     class Meta:
         model = TeamMembership
-        fields = ("id", "user", "role", "feature_access", "effective_features", "totp_enabled", "created_at")
-        read_only_fields = ("id", "totp_enabled", "created_at")
+        fields = (
+            "id", "user", "role", "feature_access", "effective_features",
+            "totp_enabled", "sub_team", "sub_team_name", "is_primary_owner",
+            "created_at",
+        )
+        read_only_fields = (
+            "id", "totp_enabled", "sub_team", "sub_team_name",
+            "is_primary_owner", "created_at",
+        )
+
+    def get_is_primary_owner(self, obj) -> bool:
+        return obj.user_id == obj.team.owner_id
 
     def get_effective_features(self, obj) -> list:
         from apps.accounts.features import effective_features

@@ -26,6 +26,7 @@ ROLE_DEFAULT_FEATURES = {
     "viewer": _MEMBER,
     "editor": _MEMBER,
     "seo": _MEMBER,
+    "seo_executive": _MEMBER,
     "custom": [],
 }
 

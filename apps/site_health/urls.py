@@ -6,14 +6,17 @@ from apps.site_health.views import (
     WebsiteSecurityHeadersView,
     WebsiteSecurityScanView,
     WebsiteSeoView,
+    WebsiteTimelineView,
     WebsiteSiteEventCreateView,
     WebsiteSiteEventListView,
     WebsiteVulnerabilityListView,
+    WpActivityIngestView,
 )
 
 urlpatterns = [
     # Public ingest — no JWT
     path("php-errors/", PhpErrorIngestView.as_view(), name="php-error-ingest"),
+    path("wp-activity/", WpActivityIngestView.as_view(), name="wp-activity-ingest"),
 ]
 
 website_urlpatterns = [
@@ -24,4 +27,5 @@ website_urlpatterns = [
     path("scan/", WebsiteSecurityScanView.as_view(), name="website-scan"),
     path("security-headers/", WebsiteSecurityHeadersView.as_view(), name="website-security-headers"),
     path("seo/", WebsiteSeoView.as_view(), name="website-seo"),
+    path("timeline/", WebsiteTimelineView.as_view(), name="website-timeline"),
 ]

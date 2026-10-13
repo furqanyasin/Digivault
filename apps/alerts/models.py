@@ -1,6 +1,7 @@
 from django.db import models
 
 from apps.common.models import BaseModel
+from apps.common.severity import MIN_SEVERITY_CHOICES
 
 
 class AlertRule(BaseModel):
@@ -39,10 +40,13 @@ class AlertRule(BaseModel):
         related_name="alert_rules",
     )
     channel = models.CharField(max_length=10, choices=Channel.choices)
-    # Minimum severity level that triggers this rule
+    # Minimum severity level that triggers this rule. Choices come from
+    # apps.common.severity so they cannot drift from the ranks the matcher
+    # uses — this list omitted `critical` while ScriptChange.Severity offered
+    # it, which is half of why a critical change could never raise an alert.
     min_severity = models.CharField(
         max_length=10,
-        choices=[("high", "High only"), ("medium", "Medium & above"), ("low", "All")],
+        choices=MIN_SEVERITY_CHOICES,
         default="medium",
     )
     # JSON array of change_type strings; empty list = all types
@@ -126,6 +130,16 @@ class Notification(BaseModel):
     # Nullable — domain alerts don't have a script change
     script_change = models.ForeignKey(
         "scripts.ScriptChange",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notifications",
+    )
+    # Nullable — a WordPress activity alert has no script change. Without this
+    # the notification would carry only a website name, which is what the
+    # performance-regression path does and why those alerts say nothing useful.
+    site_event = models.ForeignKey(
+        "site_health.SiteEvent",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

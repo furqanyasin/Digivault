@@ -1,0 +1,132 @@
+name: CI
+
+# There was no CI at all. 174 test files, and nothing ran them: `deploy.sh`
+# pulls main onto the production box and rebuilds, with the api container
+# auto-running `migrate` on startup — so the first time anything executes the
+# new code is in production, and the only verification is a curl of /api/s.js.
+#
+# The cost of that was already paid and unnoticed: the `scan` endpoint grew a
+# `snippet_status` gate in 516099b and the three tests covering it have been
+# failing ever since, because nobody updated the fixture and nobody ran them.
+#
+# This is the gate, not the deploy. Deploying is still manual; what changes is
+# that main is known-green before anyone runs it.
+#
+# Manual only, by the team's choice: it does not run on push or pull request.
+# Start it from the Actions tab ("Run workflow") when you want it. The backend
+# suite still needs real Postgres to be meaningful when run locally instead.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    # Pinned rather than `ubuntu-latest`, which migrates to Ubuntu 26 on
+    # 2026-10-19. A gate whose OS changes on a date nobody picked is the
+    # same class of problem as the dev-settings-in-production drift this
+    # repo has already been bitten by. Bump it deliberately.
+    runs-on: ubuntu-24.04
+
+    services:
+      # The suite runs against real Postgres and real Redis, matching
+      # production. Several things under test are Postgres-specific — the
+      # heatmap cell upsert is an `INSERT ... ON CONFLICT DO UPDATE` — and would
+      # pass or fail differently on SQLite.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: digivault
+          POSTGRES_USER: digivault
+          POSTGRES_PASSWORD: digivault
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U digivault"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DJANGO_SECRET_KEY: ci-secret-key-not-used-for-anything-real-0000000
+      DATABASE_URL: postgres://digivault:digivault@localhost:5432/digivault
+      REDIS_URL: redis://localhost:6379/0
+      # A throwaway Fernet key. The vault refuses to start without one, and
+      # generating it here keeps a real key out of the workflow file.
+      VAULT_ENCRYPTION_KEY: 3v9Yb8Qk2sJ1pR7tN4wX6zA0cE5gH8kM1oS3uV7yB9Q=
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements/*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements/development.txt
+
+      - name: Check for missing migrations
+        # Model changes that nobody ran `makemigrations` for are invisible until
+        # the api container auto-migrates on deploy and the schema does not
+        # match the code. A choices-only change still needs a migration, and
+        # that is exactly the kind nobody remembers.
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Django system checks
+        # Plain `check`, not `check --deploy`. The test settings inherit
+        # development (DEBUG=True), so --deploy would report a dozen warnings
+        # about that and nothing else, and a permanently-red gate is one people
+        # learn to ignore. Production's own settings already assert the things
+        # --deploy would look for, at boot.
+        run: python manage.py check
+
+      - name: Run tests
+        # --create-db, not the pytest.ini default of --reuse-db: there is no
+        # database to reuse on a fresh runner, and a stale one is the whole
+        # reason that flag needs overriding after a model change.
+        run: pytest --create-db -q
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        # `npm ci`, matching deploy.sh: it installs exactly what the lockfile
+        # pins and never rewrites it.
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        # The deploy builds the frontend on the production box after the backend
+        # is already live, so a build failure there is discovered with the new
+        # backend already serving. Finding it here costs nothing.
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000

@@ -14,6 +14,7 @@ import { MonitorResponseChart } from "@/components/monitor-response-chart";
 import { MonitorEditForm } from "@/components/monitor-edit-form";
 import { fmtDateTime } from "@/lib/utils";
 import { UptimeHeatmap } from "@/components/uptime-heatmap";
+import { checkedVia } from "@/lib/checked-via";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -52,6 +53,17 @@ function uptimeColor(pct: number | null) {
   return "text-red-500";
 }
 
+/** What would end the block without a support ticket, given what this site has. */
+function blockedFallback(info: NonNullable<Monitor["block_info"]>) {
+  if (info.has_heartbeat) {
+    return "The site's WP Connect heartbeat has gone quiet, so it cannot vouch for itself right now — check that WordPress is running and its cron is firing.";
+  }
+  const google = info.second_opinion_enabled
+    ? "Google is checking it for us about every 30 minutes, but has no clear answer yet."
+    : "Google second opinions are not configured on this server (PAGESPEED_API_KEY), so nothing else is checking it.";
+  return `${google} No ticket needed for a WordPress site: paste the latest WP Connect snippet and the site reports its own uptime every 5 minutes, which no firewall can block.`;
+}
+
 function fmtDate(iso: string | null) {
   if (!iso) return "—";
   return fmtDateTime(iso);
@@ -63,12 +75,13 @@ export default async function MonitorDetailPage({ params }: Props) {
 
   const [monitorResult, checksResult] = await Promise.allSettled([
     api.get<Monitor>(`/api/v1/monitors/${id}/`, token ?? ""),
-    api.get<MonitorCheck[]>(`/api/v1/monitors/${id}/checks/`, token ?? ""),
+    api.getAll<MonitorCheck>(`/api/v1/monitors/${id}/checks/`, token ?? ""),
   ]);
 
   if (monitorResult.status === "rejected") notFound();
   const monitor = monitorResult.value;
   const checks = checksResult.status === "fulfilled" ? checksResult.value : [];
+  const via = checkedVia(monitor.last_checked_via);
 
   const upCount = checks.filter((c) => c.status === "up").length;
   const downCount = checks.filter((c) => c.status === "down").length;
@@ -100,15 +113,31 @@ export default async function MonitorDetailPage({ params }: Props) {
 
       {/* The whole point of the `blocked` status: say who is blocking us and
           hand over the fix, rather than leaving a mystery grey badge. */}
+      {/* Our IP is blocked, so the status shown came from Google loading the
+          site — say so, or "up" reads as our own measurement. */}
+      {via && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 dark:border-sky-900 dark:bg-sky-950/30 p-4 text-sm">
+          <p className="font-medium">{via.title}</p>
+          <p className="text-muted-foreground mt-0.5">{via.detail}</p>
+        </div>
+      )}
+
       {monitor.block_info && (
         <div className="rounded-lg border border-slate-300 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-start gap-3">
             <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-slate-500" />
             <div className="space-y-1">
+              {/* Only the liveness path has evidence of visitors; a firewall
+                  answering tells us nothing about them either way. */}
               <p className="font-medium">
-                We cannot see this site — but it is serving visitors
+                {monitor.block_info.reason === "visitors"
+                  ? "We cannot see this site — but it is serving visitors"
+                  : `Our checks are blocked by ${monitor.block_info.vendor ?? "a firewall"}`}
               </p>
               <p className="text-sm text-muted-foreground">{monitor.block_info.message}</p>
+              {monitor.block_info.reason === "firewall" && (
+                <p className="text-sm text-muted-foreground">{blockedFallback(monitor.block_info)}</p>
+              )}
               <p className="text-sm">
                 <a
                   href={monitor.block_info.help_url}
@@ -283,7 +312,14 @@ export default async function MonitorDetailPage({ params }: Props) {
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono text-xs">{fmt(c.response_time_ms)}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-xs">{c.status_code ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-xs truncate">{c.error_message || "—"}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground max-w-xs truncate">
+                      {checkedVia(c.checked_via) && (
+                        <span className="mr-1.5 rounded border px-1 py-0.5 text-[10px] font-medium text-sky-700">
+                          {checkedVia(c.checked_via)!.short}
+                        </span>
+                      )}
+                      {c.error_message || "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

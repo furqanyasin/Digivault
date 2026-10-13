@@ -49,6 +49,7 @@ _TIMEOUT_SECONDS = 20
 #: in `outbound.fetch` truncates constantly. A truncated body is treated as a
 #: failed read, never as "this page has no form".
 _READ_BYTES = 2_000_000
+_MAX_REQUESTS_PER_SYNC = 15
 
 
 def site_base_url(website) -> str:
@@ -305,28 +306,29 @@ READERS: tuple = (read_elementor, read_gravity)
 _AUTH_FAILURE_STATUSES = (401, 403)
 
 
-def sync_website(website) -> int:
-    """Read every reader this site answers to, and record what they found.
-
-    A site that rejects our credential is disarmed rather than retried nightly:
-    repeated 401s from a single egress IP are how that IP earns a ban, and the
-    ban would cost uptime monitoring for the same client.
-    """
+def sync_website_detailed(website) -> dict:
+    """Read recipients and return safe diagnostics, never secrets or values."""
     from django.utils import timezone
 
     from apps.scripts.models import DetectedForm
     from apps.websites.wp_forms import apply_recipients
 
     if website.wp_api_auth_failed_at is not None:
-        return 0
+        return {"updated": 0, "source": "wp_api", "reason": "invalid_credentials"}
 
     credential = resolve_wp_credential(website)
     if credential is None:
-        return 0
+        return {"updated": 0, "source": "wp_api", "reason": "no_credentials"}
 
     seen_statuses: list[int] = []
+    request_count = 0
 
     def _tracking_fetch(site, path, cred, **kwargs):
+        nonlocal request_count
+        if request_count >= _MAX_REQUESTS_PER_SYNC:
+            logger.warning("wp_api_forms: %s reached the per-sync request cap", website.domain)
+            return None, 429
+        request_count += 1
         parsed, status = fetch_json(site, path, cred, **kwargs)
         seen_statuses.append(status)
         return parsed, status
@@ -345,13 +347,56 @@ def sync_website(website) -> int:
     if any(status in _AUTH_FAILURE_STATUSES for status in seen_statuses):
         website.wp_api_auth_failed_at = timezone.now()
         website.save(update_fields=["wp_api_auth_failed_at", "updated_at"])
-        logger.debug("wp_api_forms: %s rejected our credential", website.domain)
-        return 0
+        logger.warning("wp_api_forms: %s rejected the configured credential", website.domain)
+        return {
+            "updated": 0, "source": "wp_api", "reason": "invalid_credentials",
+            "reported_forms": len(entries), "forms_with_recipients": len(entries),
+        }
+
+    forms = list(website.detected_forms.all())
+    updated = 0
+    matched = 0
+    unmatched = 0
+    for entry in entries:
+        before = {
+            tuple(form.recipients.get("to", []))
+            for form in forms
+            if isinstance(form.recipients, dict)
+        }
+        count_before = updated
+        updated += apply_recipients(website, [entry], source=DetectedForm.RecipientSource.WP_API)
+        if updated > count_before:
+            matched += 1
+        elif before or forms:
+            unmatched += 1
 
     if not entries:
-        return 0
-
+        reason = (
+            "request_limit"
+            if request_count >= _MAX_REQUESTS_PER_SYNC
+            else "no_recipients_configured" if seen_statuses else "unsupported_plugin"
+        )
+    elif updated:
+        reason = "completed"
+    else:
+        reason = "no_detected_form_match"
     log_system_read(credential.credential_id)
-    return apply_recipients(
-        website, entries, source=DetectedForm.RecipientSource.WP_API
-    )
+    return {
+        "updated": updated,
+        "source": "wp_api",
+        "reason": reason,
+        "reported_forms": len(entries),
+        "forms_with_recipients": len(entries),
+        "matched_forms": matched,
+        "unmatched_forms": unmatched,
+    }
+
+
+def sync_website(website) -> int:
+    """Read every reader this site answers to, and record what they found.
+
+    A site that rejects our credential is disarmed rather than retried nightly:
+    repeated 401s from a single egress IP are how that IP earns a ban, and the
+    ban would cost uptime monitoring for the same client.
+    """
+    return sync_website_detailed(website)["updated"]

@@ -9,9 +9,10 @@ import { useToast } from "@/hooks/use-toast";
 /** Ask a WordPress site where its forms deliver, on demand.
  *
  *  A form plugin keeps its "To" address in the database, so the tracking snippet
- *  never sees it and the Goes to column reads "Server-side". WP Connect can read
- *  it, but only nightly — which is a long time to wait to find out whether the
- *  snippet you just pasted works. This runs the same read now.
+ *  never sees it and the Goes to column reads "Server-side". Digivault reads it
+ *  from the site's own WordPress API with a saved Application Password, but only
+ *  nightly — which is a long time to wait to find out whether the credential you
+ *  just saved works. This runs the same read now.
  */
 export function SyncFormRecipientsButton({ websiteId }: { websiteId: string }) {
   const [busy, setBusy] = useState(false);
@@ -29,10 +30,10 @@ export function SyncFormRecipientsButton({ websiteId }: { websiteId: string }) {
       if (!res.ok) {
         toast({
           variant: "destructive",
-          title: "Could not read the form settings",
+          title: data?.reason === "no_credentials" ? "WordPress connection required" : "Could not read the form settings",
           description:
             data?.detail ??
-            "The site did not answer. Check WP Connect is set up in the Setup tab.",
+            "The site did not answer. Check the saved WordPress credential for this site.",
         });
         return;
       }
@@ -45,10 +46,20 @@ export function SyncFormRecipientsButton({ websiteId }: { websiteId: string }) {
         });
         router.refresh();
       } else {
+        const reason = data?.reason;
+        const description =
+          reason === "no_detected_form_match"
+            ? "WordPress returned settings, but they did not match the detected forms."
+            : reason === "unsupported_plugin"
+              ? "The detected forms use a plugin that does not expose recipient settings through its API."
+              : reason === "no_recipients_configured"
+                ? "The supported WordPress forms have no configured recipient address."
+                : reason === "request_limit"
+                  ? "This lookup reached its request limit. Try again later."
+                  : "No supported WordPress form recipients were found.";
         toast({
-          title: "No recipients to fill in",
-          description:
-            "WordPress reported nothing that matches a detected form. Re-paste the WP Connect snippet if you set it up before this feature shipped.",
+          title: "No recipients found",
+          description,
         });
       }
     } catch {

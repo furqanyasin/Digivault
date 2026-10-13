@@ -85,6 +85,34 @@ class TestSecretRotation:
         assert resp.status_code == 403
 
 
+class TestShowSnippet:
+    """A re-paste (the uptime heartbeat) must not rotate a working secret."""
+
+    def test_get_returns_current_snippet_without_rotating(self, owner, team, website):
+        from apps.audit.models import ActivityLog
+
+        Website.objects.filter(pk=website.pk).update(wp_sso_secret="keep-this-secret")
+        resp = _client(owner, team).get(f"/api/v1/websites/{website.id}/wp-sso-secret/")
+        assert resp.status_code == 200
+        assert "keep-this-secret" in resp.data["snippet"]
+        assert "dvc2_cron_tick" in resp.data["snippet"]
+        website.refresh_from_db()
+        assert website.wp_sso_secret == "keep-this-secret"
+        # It carries the secret, so reading it is audited.
+        assert ActivityLog.objects.filter(
+            action=ActivityLog.Action.WEBSITE_WP_SNIPPET_VIEWED, resource_id=str(website.pk),
+        ).exists()
+
+    def test_get_before_any_secret_is_404(self, owner, team, website):
+        resp = _client(owner, team).get(f"/api/v1/websites/{website.id}/wp-sso-secret/")
+        assert resp.status_code == 404
+
+    def test_developer_cannot_view(self, developer, team, website):
+        Website.objects.filter(pk=website.pk).update(wp_sso_secret="keep-this-secret")
+        resp = _client(developer, team).get(f"/api/v1/websites/{website.id}/wp-sso-secret/")
+        assert resp.status_code == 403
+
+
 class TestLoginUrl:
     def test_owner_gets_administrator_link(self, owner, team, website):
         Website.objects.filter(pk=website.pk).update(wp_sso_secret="topsecret")

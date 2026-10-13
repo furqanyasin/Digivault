@@ -37,8 +37,32 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
 
     # ---- Analytics ----------------------------------------------------------
     _e(r"google-analytics\.com/analytics\.js", "Google Universal Analytics", _C.ANALYTICS),
+    # The Google tag loader serves every Google product from one path and tells
+    # them apart only by the id's prefix. Matching the path alone labelled all
+    # of them "Google Analytics 4", which is how a site running four GA4
+    # properties and three Ads conversion tags reported "Google Analytics 4"
+    # added or removed three times in a row and read as one event repeating.
+    # It also made them a single group to the diff engine, which then paired an
+    # Ads tag going missing with a GA4 tag arriving and called it a URL change.
+    # Ordered before the bare-path entries below so the prefix wins.
+    # `\?(?:[^#]*&)?id=` anchors the id to the start of a query param — either
+    # straight after the `?` or after an `&` — so `cid=AW-1&id=G-REAL` is read
+    # as the GA4 property it is rather than as an Ads tag.
+    _e(r"googletagmanager\.com/gtag/(?:js|destination)\?(?:[^#]*&)?id=AW-",
+       "Google Ads", _C.ADVERTISING),
+    _e(r"googletagmanager\.com/gtag/(?:js|destination)\?(?:[^#]*&)?id=DC-",
+       "Google Floodlight", _C.ADVERTISING),
+    # `GF-` is the Google forwarding number used for Google Ads call tracking.
+    _e(r"googletagmanager\.com/gtag/(?:js|destination)\?(?:[^#]*&)?id=GF-",
+       "Google Ads Call Forwarding", _C.CALL_TRACKING),
+    _e(r"googletagmanager\.com/gtag/(?:js|destination)\?(?:[^#]*&)?id=GT-",
+       "Google Tag", _C.TAG_MANAGEMENT),
     _e(r"google-analytics\.com/gtag/js", "Google Analytics 4", _C.ANALYTICS),
     _e(r"googletagmanager\.com/gtag/js", "Google Analytics 4", _C.ANALYTICS),
+    # A destination loader for a GA4 property (`?id=G-...`), which the broad
+    # googletagmanager catch-all below would otherwise file as Tag Manager —
+    # the same measurement id then appeared under two different product names.
+    _e(r"googletagmanager\.com/gtag/destination", "Google Analytics 4", _C.ANALYTICS),
     _e(r"ssl\.google-analytics\.com", "Google Universal Analytics", _C.ANALYTICS),
     _e(r"google-analytics\.com/ga\.js", "Google Universal Analytics", _C.ANALYTICS),
     _e(r"google-analytics\.com/urchin\.js", "Google Universal Analytics", _C.ANALYTICS),
@@ -117,6 +141,11 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"connect\.facebook\.net", "Meta Pixel", _C.ADVERTISING),
     _e(r"fbevents\.js", "Meta Pixel", _C.ADVERTISING),
     _e(r"bat\.bing\.com/bat\.js", "Microsoft Bing UET", _C.ADVERTISING),
+    # Everything else UET loads once bat.js is running: `/p/action/<id>.js` for a
+    # conversion goal and `/p/insights/...` for Clarity-style insights. All three
+    # matched nothing, so one Bing tag put three separate high-severity "Unknown
+    # script detected" alerts on the board.
+    _e(r"bat\.bing\.com", "Microsoft Bing UET", _C.ADVERTISING),
     _e(r"uetq|bingads\.com", "Microsoft Bing UET", _C.ADVERTISING),
     _e(r"snap\.licdn\.com", "LinkedIn Insight Tag", _C.ADVERTISING),
     _e(r"analytics\.tiktok\.com", "TikTok Pixel", _C.ADVERTISING),
@@ -146,6 +175,7 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"cdn\.carbonads\.com|srv\.carbonads\.com", "Carbon Ads", _C.ADVERTISING),
     _e(r"pagead2\.googlesyndication\.com", "Google AdSense", _C.ADVERTISING),
     _e(r"partner\.googleadservices\.com", "Google Ads", _C.ADVERTISING),
+    _e(r"tags\.creativecdn\.com", "RTB House", _C.ADVERTISING),
     _e(r"cdn\.demdex\.net", "Adobe Audience Manager", _C.ADVERTISING),
     _e(r"tags\.bluekai\.com", "Oracle BlueKai", _C.ADVERTISING),
     _e(r"pixel\.mathtag\.com|sync\.mathtag\.com", "MediaMath", _C.ADVERTISING),
@@ -225,6 +255,9 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     # GoHighLevel's widget CDN — chat widget, form loader and its phone-number
     # helper all ship from here on agency-built client sites.
     _e(r"leadconnectorhq\.com", "LeadConnector (GoHighLevel)", _C.CHAT),
+    # GoHighLevel's form/survey embed and external tracking script. Unrecognised,
+    # it arrived as "Unknown script detected" at high severity.
+    _e(r"msgsndr\.com", "GoHighLevel Forms", _C.CRM),
     _e(r"cdn\.birdeye\.com", "BirdEye", _C.CHAT),
     _e(r"cdn\.front-chat\.com", "Front", _C.CHAT),
     _e(r"cdn\.statuspage\.io", "Statuspage", _C.CHAT),
@@ -261,6 +294,7 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"static\.mailerlite\.com", "MailerLite", _C.CRM),
     _e(r"cdn\.salesmanago\.com", "SALESmanago", _C.CRM),
     _e(r"cdn\.dotdigital\.com", "Dotdigital", _C.CRM),
+    _e(r"app-cdn\.clickup\.com", "ClickUp Forms", _C.CRM),
     _e(r"cdn\.emarsys\.net", "Emarsys (SAP)", _C.CRM),
     _e(r"js\.eloqua\.com", "Oracle Eloqua", _C.CRM),
     _e(r"tags\.w55c\.net", "DataXu", _C.CRM),
@@ -329,6 +363,11 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     _e(r"fast\.wistia\.net|fast\.wistia\.com", "Wistia", _C.PERFORMANCE),
     _e(r"player\.vimeo\.com/api", "Vimeo Player API", _C.PERFORMANCE),
     _e(r"www\.youtube\.com/iframe_api", "YouTube IFrame API", _C.PERFORMANCE),
+    # The release bundle behind /iframe_api, which normalize.py collapses to
+    # `www.youtube.com/www-widgetapi.js`. Unmatched here, that canonical form
+    # scored as an unknown third party and alerted at high severity.
+    _e(r"youtube\.com/www-widgetapi\.js|/www-widgetapi\.vflset/",
+       "YouTube IFrame API", _C.PERFORMANCE),
     _e(r"s\.ytimg\.com/yts/jsbin", "YouTube", _C.PERFORMANCE),
     _e(r"cdn\.jwplayer\.com", "JW Player", _C.PERFORMANCE),
     _e(r"cdn\.brightcove\.com|players\.brightcove\.net", "Brightcove", _C.PERFORMANCE),
@@ -444,7 +483,10 @@ _LIBRARY: tuple[_ProviderEntry, ...] = (
     # the Google rows it plainly belongs with.
     _e(r"googletagmanager\.com", "Google Tag Manager", _C.TAG_MANAGEMENT),
     _e(r"googleapis\.com", "Google APIs", _C.PERFORMANCE),
-    _e(r"gstatic\.com", "Google Static CDN", _C.PERFORMANCE),
+    # `gstatic.cn` is the mainland mirror reCAPTCHA falls back to. Same asset,
+    # same purpose — and far more alarming than it deserves to be when it shows
+    # up unrecognised on a client's Scripts tab as a `.cn` domain.
+    _e(r"gstatic\.(?:com|cn)", "Google Static CDN", _C.PERFORMANCE),
     _e(r"google\.com/js", "Google Script", _C.PERFORMANCE),
 )
 
@@ -463,6 +505,23 @@ class ClassificationResult:
 _UNKNOWN_RESULT = ClassificationResult(
     provider="unknown", category=Script.Category.UNKNOWN, is_known=False
 )
+
+# Providers whose removal is always high-severity: the tags an agency is paid to
+# keep working, where silence costs the client money rather than a metric.
+_CRITICAL_PROVIDERS: frozenset[str] = frozenset({
+    "Google Analytics 4",
+    "Google Universal Analytics",
+    "Google Tag Manager",
+    # Conversion tracking: its removal breaks ad attribution and therefore
+    # bidding, which is worse than losing a reporting metric.
+    "Google Ads",
+    "Google Ads Call Forwarding",
+    "Meta Pixel",
+    "WhatConverts",
+    "CallRail",
+    "Stripe",
+    "PayPal",
+})
 
 
 class ScriptClassifier:
@@ -500,15 +559,10 @@ class ScriptClassifier:
 
     @classmethod
     def is_critical_provider(cls, provider: str) -> bool:
-        """Return True for providers whose removal is always high-severity."""
-        critical = {
-            "Google Analytics 4",
-            "Google Universal Analytics",
-            "Google Tag Manager",
-            "Meta Pixel",
-            "WhatConverts",
-            "CallRail",
-            "Stripe",
-            "PayPal",
-        }
-        return provider in critical
+        """Return True for providers whose removal is always high-severity.
+
+        The single source of truth: DiffEngine used to carry a second copy of
+        this set, which meant every provider added to one list silently kept the
+        old severity through the other.
+        """
+        return provider in _CRITICAL_PROVIDERS

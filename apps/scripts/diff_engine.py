@@ -8,10 +8,15 @@ owns persistence.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from apps.scripts.classifier import ScriptClassifier
 from apps.scripts.models import ScriptChange
-from apps.scripts.normalize import normalize_script_url
+from apps.scripts.normalize import (
+    identity_label,
+    is_identity_host,
+    normalize_script_url,
+)
 
 
 @dataclass(frozen=True)
@@ -35,18 +40,6 @@ class DiffEngine:
 
     _CT = ScriptChange.ChangeType
     _SEV = ScriptChange.Severity
-
-    # Providers whose removal is always high-severity
-    _CRITICAL_PROVIDERS = {
-        "Google Analytics 4",
-        "Google Universal Analytics",
-        "Google Tag Manager",
-        "Meta Pixel",
-        "WhatConverts",
-        "CallRail",
-        "Stripe",
-        "PayPal",
-    }
 
     @classmethod
     def diff(
@@ -82,18 +75,43 @@ class DiffEngine:
 
         # URL_CHANGED: exactly one URL removed and one added for the same source.
         # Grouping by "source" collapses a version swap into a single, calm
-        # "updated" event instead of a scary Added + Removed pair. Known scripts
-        # group by provider (e.g. a GTM container-ID swap); unknown third-party
-        # scripts group by host, so self-updating widgets that version their
-        # files (e.g. leadconnectorhq) stop producing confusing add/remove churn.
+        # "updated" event instead of a scary Added + Removed pair.
+        #
+        # What counts as "the same source" is the whole difficulty. Grouping by
+        # provider alone — the original rule — assumed one provider means one
+        # script, and on a real site it does not: a single client runs four GA4
+        # properties, three Google Ads conversion tags and three Meta pixels,
+        # every one of which answered to one provider name. Any one of them
+        # dropping out of a window while another arrived satisfied the 1-to-1
+        # test below, and the pair was reported as "Google Analytics 4 URL
+        # changed" — an event describing two unrelated tags, at high severity,
+        # which also retired the survivor's row as though it had been replaced.
         def _group_key(url: str):
+            # On a tag host every surviving identifier is deliberate (see
+            # normalize._IDENTITY_PARAMS), so two normalized URLs that differ at
+            # all are two different tags. None keeps them out of swap pairing
+            # entirely: a container that really is replaced reports as an add
+            # plus a remove, which is honest, rather than as a move that
+            # silently reassigns one tag's history to another.
+            if is_identity_host(url):
+                return None
             r = ScriptClassifier.classify(url)
-            if r.is_known:
-                return ("provider", r.provider)
-            from urllib.parse import urlsplit
             raw = "https:" + url if url.startswith("//") else url
-            host = urlsplit(raw).netloc.lower().removeprefix("www.")
-            return ("host", host) if host else None
+            parts = urlsplit(raw)
+            host = parts.netloc.lower().removeprefix("www.")
+            if not host:
+                return None
+            if r.is_known:
+                # Same vendor and same file, different querystring: a genuine
+                # swap. Same vendor and a *different* file is a different
+                # integration — LinkedIn serves insight.min.js and
+                # insight.old.min.js side by side, and HubSpot's six products
+                # all share one family name.
+                return ("known", r.provider, host, parts.path)
+            # Unknown third parties still group by host, so self-updating
+            # widgets that version their filenames (e.g. leadconnectorhq) keep
+            # collapsing into one calm "updated" event.
+            return ("host", host)
 
         removed_by_key: dict[tuple, list[str]] = {}
         for url in removed_urls:
@@ -116,11 +134,11 @@ class DiffEngine:
                 old_url, new_url = old_list[0], new_list[0]
                 url_changed_skips.add(old_url)
                 url_changed_skips.add(new_url)
-                if key[0] == "provider":
+                if key[0] == "known":
                     provider = key[1]
                     is_critical = cls._is_critical(provider)
                     severity = cls._SEV.HIGH if is_critical else cls._SEV.MEDIUM
-                    description = f"{provider} URL changed"
+                    description = f"{cls._label(new_url, provider)} URL changed"
                 else:
                     provider = "unknown"
                     severity = cls._SEV.MEDIUM
@@ -156,14 +174,26 @@ class DiffEngine:
     # ------------------------------------------------------------------
 
     @classmethod
+    def _label(cls, url: str, provider: str) -> str:
+        """Provider name qualified by the tag id, when the URL carries one.
+
+        "Google Analytics 4" logged three times is indistinguishable from one
+        event repeating three times; "Google Analytics 4 (G-VEFCZRQMG4)" beside
+        "Google Ads (AW-925662148)" reads as what it is.
+        """
+        tag_id = identity_label(url)
+        return f"{provider} ({tag_id})" if tag_id else provider
+
+    @classmethod
     def _build_removed(cls, url: str, script: dict) -> ChangeResult:
         result = ScriptClassifier.classify(url)
         is_critical = cls._is_critical(result.provider)
         severity = cls._SEV.HIGH if is_critical else cls._SEV.MEDIUM
+        label = cls._label(url, result.provider)
         description = (
-            f"Critical script removed: {result.provider}"
+            f"Critical script removed: {label}"
             if is_critical
-            else f"Script removed: {result.provider or url[:80]}"
+            else f"Script removed: {label or url[:80]}"
         )
         return ChangeResult(
             change_type=cls._CT.REMOVED,
@@ -183,7 +213,7 @@ class DiffEngine:
             description = f"Unknown script detected: {url[:120]}"
         else:
             severity = cls._SEV.MEDIUM
-            description = f"New script added: {result.provider}"
+            description = f"New script added: {cls._label(url, result.provider)}"
         return ChangeResult(
             change_type=cls._CT.ADDED,
             severity=severity,
@@ -220,7 +250,8 @@ class DiffEngine:
                 change_type=cls._CT.MOVED,
                 severity=cls._SEV.MEDIUM,
                 description=(
-                    f"{result.provider or 'Script'} moved from {prev_loc} to {curr_loc}"
+                    f"{cls._label(url, result.provider) or 'Script'} "
+                    f"moved from {prev_loc} to {curr_loc}"
                 ),
                 old_value={"location": prev_loc},
                 new_value={"location": curr_loc},
@@ -234,7 +265,7 @@ class DiffEngine:
                 change_type=cls._CT.PLUGIN_CHANGED,
                 severity=cls._SEV.LOW,
                 description=(
-                    f"{result.provider} plugin source changed from "
+                    f"{cls._label(url, result.provider)} plugin source changed from "
                     f"'{prev['wp_plugin']}' to '{curr.get('wp_plugin', 'unknown')}'"
                 ),
                 old_value={"wp_plugin": prev.get("wp_plugin")},
@@ -263,4 +294,4 @@ class DiffEngine:
 
     @classmethod
     def _is_critical(cls, provider: str) -> bool:
-        return provider in cls._CRITICAL_PROVIDERS
+        return ScriptClassifier.is_critical_provider(provider)
