@@ -25,7 +25,7 @@ def website(db):
 
 def test_a_keyed_alert_announces_in_the_team_channel(website):
     with patch("apps.integrations.chat.notify_problem") as np:
-        notify_team(website, "[Digivault] noindex", "body", subject_key="sitehealth:1:seo_noindex")
+        notify_team(website, "[Stacks Monitor] noindex", "body", subject_key="sitehealth:1:seo_noindex")
 
     assert np.called
     assert np.call_args.kwargs["subject"] == "sitehealth:1:seo_noindex"
@@ -35,7 +35,7 @@ def test_a_keyed_alert_announces_in_the_team_channel(website):
 
 def test_an_unkeyed_alert_skips_the_chat_post(website):
     with patch("apps.integrations.chat.notify_problem") as np:
-        notify_team(website, "[Digivault] something", "body")
+        notify_team(website, "[Stacks Monitor] something", "body")
 
     assert not np.called
 

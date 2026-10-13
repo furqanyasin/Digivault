@@ -837,7 +837,7 @@ class ExtensionCredentialSaveView(APIView):
                 return Response(
                     {
                         "error": "not_allowed",
-                        "detail": "This login is already in Digivault and only its "
+                        "detail": "This login is already in Stacks Monitor and only its "
                         "creator or a manager can change it.",
                     },
                     status=status.HTTP_403_FORBIDDEN,
@@ -1801,7 +1801,7 @@ class CredentialExportView(APIView):
         response = HttpResponse(
             "﻿" + buf.getvalue(), content_type="text/csv; charset=utf-8"
         )
-        response["Content-Disposition"] = 'attachment; filename="digivault-vault-export.csv"'
+        response["Content-Disposition"] = 'attachment; filename="stacksmonitor-vault-export.csv"'
         return response
 
 

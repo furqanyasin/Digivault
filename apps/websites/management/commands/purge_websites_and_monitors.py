@@ -266,7 +266,7 @@ class Command(BaseCommand):
 
     def _export(self, websites, monitors, path):
         stamp = datetime.now(dt_timezone.utc).strftime("%Y%m%d-%H%M%S")
-        path = path or f"digivault-websites-{stamp}.json"
+        path = path or f"stacksmonitor-websites-{stamp}.json"
 
         payload = {
             "exported_at": datetime.now(dt_timezone.utc).isoformat(),

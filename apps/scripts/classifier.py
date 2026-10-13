@@ -32,8 +32,8 @@ _C = Script.Category  # alias for brevity
 
 # Order: most specific patterns first; unknown catch-all is applied separately.
 _LIBRARY: tuple[_ProviderEntry, ...] = (
-    # ---- Digivault ----------------------------------------------------------
-    _e(r"cdn\.digivault\.digilatics\.co", "Digivault", _C.PERFORMANCE),
+    # ---- Stacks Monitor -----------------------------------------------------
+    _e(r"(?<![\w-])stacksmonitor\.com", "Stacks Monitor", _C.PERFORMANCE),
 
     # ---- Analytics ----------------------------------------------------------
     _e(r"google-analytics\.com/analytics\.js", "Google Universal Analytics", _C.ANALYTICS),

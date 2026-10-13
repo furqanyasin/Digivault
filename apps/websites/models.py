@@ -7,7 +7,7 @@ from apps.common.querysets import TeamScopedQuerySet
 
 
 class Website(BaseModel):
-    """A client website registered with Digivault.
+    """A client website registered with Stacks Monitor.
 
     Each website gets a unique site_id used to authenticate the JS snippet.
     The snippet itself is a computed property — no extra storage needed.
@@ -134,7 +134,7 @@ class Website(BaseModel):
         on_delete=models.SET_NULL,
         related_name="+",
     )
-    # Shared secret for one-click wp-admin login via the Digivault Connect
+    # Shared secret for one-click wp-admin login via the Stacks Monitor Connect
     # WordPress plugin. Empty = SSO not set up for this site. Rotating it
     # invalidates all previously issued links.
     wp_sso_secret = models.CharField(max_length=64, blank=True, default="")
@@ -213,7 +213,7 @@ class Website(BaseModel):
 
         deductions = 0
 
-        # Exclude Digivault's own infra (the tracking snippet): its changes are
+        # Exclude Stacks Monitor's own infra (the tracking snippet): its changes are
         # hidden from the UI and can never be acknowledged, so they must not
         # permanently drag the health score down.
         internal = _internal_hosts()
@@ -387,7 +387,7 @@ class Website(BaseModel):
         """Return the two-line HTML snippet for this website."""
         from django.conf import settings
 
-        cdn_base = getattr(settings, "SNIPPET_CDN_URL", "https://cdn.digivault.digilatics.co")
+        cdn_base = settings.SNIPPET_CDN_URL
         return (
             f'<script async src="{cdn_base}/s.js" '
             f'data-site="{self.site_id}"></script>'
@@ -405,9 +405,7 @@ class Website(BaseModel):
 
         from apps.websites.wp_sso_snippet import build_wp_sso_snippet
 
-        cdn_base = getattr(
-            settings, "SNIPPET_CDN_URL", "https://cdn.digivault.digilatics.co"
-        ).rstrip("/")
+        cdn_base = settings.SNIPPET_CDN_URL.rstrip("/")
         return build_wp_sso_snippet(
             self.wp_sso_secret,
             site_id=self.site_id,

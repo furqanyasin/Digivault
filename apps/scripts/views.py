@@ -787,7 +787,7 @@ class TeamFormErrorListView(generics.ListAPIView):
 class ExtensionLookupView(APIView):
     """GET /api/extension/lookup/?domain=example.com
 
-    The extension's toolbar badge: how many scripts Digivault watches on the
+    The extension's toolbar badge: how many scripts Stacks Monitor watches on the
     site in the current tab. Full src URLs are deliberately omitted.
 
     Authenticated and scoped to the caller's active team. It used to be public,

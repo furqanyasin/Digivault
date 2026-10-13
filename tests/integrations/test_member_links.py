@@ -1,7 +1,7 @@
-"""Matching Digivault users to ClickUp members.
+"""Matching Stacks Monitor users to ClickUp members.
 
 Email is the only join key ClickUp gives us, and it is frequently different
-from the Digivault one — so "unmatched" is a first-class result the UI shows,
+from the Stacks Monitor one — so "unmatched" is a first-class result the UI shows,
 not an error.
 """
 import pytest

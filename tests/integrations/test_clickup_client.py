@@ -1,4 +1,4 @@
-"""ClickUpClient — the single place Digivault talks to the ClickUp REST API.
+"""ClickUpClient — the single place Stacks Monitor talks to the ClickUp REST API.
 
 Five modules used to build their own urllib requests with hand-rolled auth and
 error handling. These tests pin the behaviour that replaces them: correct URL,

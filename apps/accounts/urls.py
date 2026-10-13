@@ -45,7 +45,7 @@ class ThrottledTokenRefreshView(TokenRefreshView):
 
 urlpatterns = [
     # Auth
-    # No self-registration: Digivault is an internal tool, so accounts are
+    # No self-registration: Stacks Monitor is an internal tool, so accounts are
     # created by an owner or manager (TeamCreateUserView / invitations). A
     # public POST /auth/register/ used to create an account for anyone who
     # found it, even after the sign-up page had been turned into a redirect.

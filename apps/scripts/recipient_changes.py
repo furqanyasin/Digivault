@@ -6,7 +6,7 @@ pointless UPDATE. This module turns that comparison into a decision about
 whether a human should hear about it, which is a narrower question than "did the
 bytes change".
 
-Most differences are not news. A form Digivault has just learned about goes from
+Most differences are not news. A form Stacks Monitor has just learned about goes from
 nothing to something; a plugin reorders its own notification list; a WordPress
 read supersedes a guess made from the markup. Announcing any of those would post
 once per form across the whole estate and train the team to ignore the channel.

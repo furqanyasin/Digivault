@@ -13,8 +13,8 @@ from django.core.exceptions import ImproperlyConfigured
 
 
 def _import_production(monkeypatch, email_url):
-    monkeypatch.setenv("ALLOWED_HOSTS", "digivault.digilatics.co")
-    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://digivault.digilatics.co")
+    monkeypatch.setenv("ALLOWED_HOSTS", "stacksmonitor.com")
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://stacksmonitor.com")
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     if email_url is None:
         monkeypatch.delenv("EMAIL_URL", raising=False)

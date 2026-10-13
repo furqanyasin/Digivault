@@ -119,7 +119,7 @@ class TotpSetupView(APIView):
         secret = pyotp.random_base32()
         totp = pyotp.TOTP(secret)
         name = request.user.email
-        issuer = "Digivault"
+        issuer = settings.PRODUCT_NAME
         otp_url = totp.provisioning_uri(name=name, issuer_name=issuer)
 
         # Generate QR image as base64 PNG
@@ -443,7 +443,7 @@ class ExtensionTokenObtainPairView(TokenObtainPairView):
 
         if user is not None and user.must_change_password:
             return Response(
-                {"detail": "Set your password on the Digivault dashboard first."},
+                {"detail": "Set your password on the Stacks Monitor dashboard first."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 

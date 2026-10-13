@@ -4,7 +4,7 @@ from django.db import models
 
 
 class BaseModel(models.Model):
-    """Abstract base for every Digivault model.
+    """Abstract base for every Stacks Monitor model.
 
     Provides UUID primary key, immutable created_at, and auto-updated updated_at.
     Never query this class directly — it is always subclassed.

@@ -402,7 +402,7 @@ def run_seo_check(website_id: str) -> None:
         )
         notify_team(
             website,
-            f"[Digivault] {summary}",
+            f"[Stacks Monitor] {summary}",
             f"{summary} — {website.domain}",
             # The event type is the stable part of the issue; the summary text
             # carries changing detail and would fragment task dedup.
@@ -451,7 +451,7 @@ def run_seo_check(website_id: str) -> None:
         )
         notify_team(
             website,
-            f"[Digivault] {label} on-page SEO changed: {what}",
+            f"[Stacks Monitor] {label} on-page SEO changed: {what}",
             f"On-page SEO changed on {website.domain}: {what}",
             subject_key=f"sitehealth:{website.id}:{SiteEvent.EventType.SEO_META_CHANGED}",
         )
@@ -571,7 +571,7 @@ def flag_unattributed_changes() -> int:
     A plugin whose files changed with no matching `upgrader_process_complete`
     was installed over SFTP, by WP-CLI, or by someone who should not have. This
     is the one signal a hook-only activity log cannot produce, and it exists
-    only because Digivault keeps passive detection running alongside WP Connect.
+    only because Stacks Monitor keeps passive detection running alongside WP Connect.
     """
     from apps.site_health.wp_merge import flag_unattributed_component_changes
 

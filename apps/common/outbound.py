@@ -1,6 +1,6 @@
 """One HTTP client for every server-side fetch of a customer's own site.
 
-Digivault reaches out to client origins from five places — the uptime monitor,
+Stacks Monitor reaches out to client origins from five places — the uptime monitor,
 the SEO checker, the homepage scan, the snippet verifier and the WordPress form
 sync — and every one of them leaves from the platform's single public IP. Before
 this module they each rolled their own headers, none of them shared a rate

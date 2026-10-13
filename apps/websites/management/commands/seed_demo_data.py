@@ -22,7 +22,7 @@ from django.utils import timezone
 
 # Written into Website.tags (and mirrored on the client's notes) so --purge can
 # find exactly what this command created.
-DEMO_TAG = "digivault-demo"
+DEMO_TAG = "stacksmonitor-demo"
 
 # name, domain, platform, health shape
 SITES = [

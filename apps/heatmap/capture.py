@@ -6,7 +6,7 @@ frame the live site, which fails for most origins (``X-Frame-Options`` / CSP
 against. Capturing the page once at a known width and height is what makes a
 Hotjar-style overlay possible at all.
 
-**This is the one place Digivault drives a real browser at a customer origin,
+**This is the one place Stacks Monitor drives a real browser at a customer origin,
 and that needs care.** ``apps/common/outbound.py`` exists because every
 server-side fetch leaves from one public IP, and the rule there is: one honest
 user-agent, a shared per-host budget, and back off when told to. A headless

@@ -621,7 +621,7 @@ class TeamInviteView(APIView):
 
         body = (
             f"Hi,\n\n"
-            f"{request.user.email} has invited you to join the {team.name} team on Digivault.\n\n"
+            f"{request.user.email} has invited you to join the {team.name} team on Stacks Monitor.\n\n"
         )
         if set_password_url:
             body += (
@@ -634,7 +634,7 @@ class TeamInviteView(APIView):
 
         try:
             send_mail(
-                subject=f"You've been invited to join {team.name} on Digivault",
+                subject=f"You've been invited to join {team.name} on Stacks Monitor",
                 message=body,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
@@ -851,13 +851,13 @@ class TeamCreateUserView(APIView):
                 reset_url = _issue_set_password_link(existing_user, request.user)
                 email_body = (
                     f"Hi {first_name},\n\n"
-                    f"You've been added to {team.name} on Digivault as {role} by {request.user.email}.\n\n"
+                    f"You've been added to {team.name} on Stacks Monitor as {role} by {request.user.email}.\n\n"
                     f"Log in with your existing password at: {settings.FRONTEND_URL}/login\n\n"
                     f"Forgot your password? Use this link to set a new one "
                     f"(valid for 7 days):\n{reset_url}\n"
                 )
                 resp_data["email_sent"] = _send_account_email(
-                    f"You've been added to {team.name} on Digivault", email_body, existing_user.email,
+                    f"You've been added to {team.name} on Stacks Monitor", email_body, existing_user.email,
                 )
             else:
                 # Account exists but was never fully onboarded (no usable password,
@@ -867,14 +867,14 @@ class TeamCreateUserView(APIView):
                 set_password_url = _issue_set_password_link(existing_user, request.user)
                 email_body = (
                     f"Hi {first_name},\n\n"
-                    f"You've been added to {team.name} on Digivault as {role} by {request.user.email}.\n\n"
+                    f"You've been added to {team.name} on Stacks Monitor as {role} by {request.user.email}.\n\n"
                     f"Email: {existing_user.email}\n\n"
                     f"Set your password (link valid for 7 days):\n{set_password_url}\n\n"
                     f"After setting your password you'll be guided through two-factor "
                     f"authentication setup.\n"
                 )
                 resp_data["email_sent"] = _send_account_email(
-                    "Your Digivault account has been created", email_body, existing_user.email,
+                    "Your Stacks Monitor account has been created", email_body, existing_user.email,
                 )
                 resp_data["set_password_url"] = set_password_url
             return Response(resp_data, status=status.HTTP_201_CREATED)
@@ -897,7 +897,7 @@ class TeamCreateUserView(APIView):
             user.save(update_fields=["must_change_password"])
             email_body = (
                 f"Hi {first_name},\n\n"
-                f"An account has been created for you on Digivault by {request.user.email}.\n\n"
+                f"An account has been created for you on Stacks Monitor by {request.user.email}.\n\n"
                 f"Email: {email}\n"
                 f"Team: {team.name} ({role})\n\n"
                 f"Your administrator will share your temporary password separately. "
@@ -914,7 +914,7 @@ class TeamCreateUserView(APIView):
             set_password_url = _issue_set_password_link(user, request.user)
             email_body = (
                 f"Hi {first_name},\n\n"
-                f"An account has been created for you on Digivault by {request.user.email}.\n\n"
+                f"An account has been created for you on Stacks Monitor by {request.user.email}.\n\n"
                 f"Email: {email}\n"
                 f"Team: {team.name} ({role})\n\n"
                 f"Set your password (link valid for 7 days):\n{set_password_url}\n\n"
@@ -929,7 +929,7 @@ class TeamCreateUserView(APIView):
             User.objects.filter(pk=user.pk).update(active_team=team)
 
         email_sent = _send_account_email(
-            "Your Digivault account has been created", email_body, email,
+            "Your Stacks Monitor account has been created", email_body, email,
         )
 
         resp_data = TeamMembershipSerializer(membership).data
@@ -1017,7 +1017,7 @@ class PasswordResetApproveView(APIView):
         reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
         try:
             send_mail(
-                subject="Reset your Digivault password",
+                subject="Reset your Stacks Monitor password",
                 message=(
                     f"Hi,\n\n"
                     f"Your password reset request has been approved.\n\n"
@@ -1248,7 +1248,7 @@ class ClickUpChannelView(_ClickUpManagerView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        name = (request.data.get("name") or "Digivault — Web Team").strip()
+        name = (request.data.get("name") or "Stacks Monitor — Web Team").strip()
         user_ids = [m["clickup_user_id"] for m in sync["matched"] if m.get("clickup_user_id")]
 
         try:
@@ -1256,7 +1256,7 @@ class ClickUpChannelView(_ClickUpManagerView):
                 workspace_id,
                 name=name,
                 user_ids=user_ids,
-                description="Website problems reported by Digivault.",
+                description="Website problems reported by Stacks Monitor.",
             )
         except ClickUpError as exc:
             logger.warning("ClickUp channel creation failed for team %s: %s", pk, exc)
@@ -1306,7 +1306,7 @@ class ClickUpMembersView(_ClickUpManagerView):
             ).select_related("user").first()
             if membership:
                 # Carry the handle across too. An override that stored only the
-                # id left alerts rendering "@Muhammad Furqan" — the Digivault
+                # id left alerts rendering "@Muhammad Furqan" — the Stacks Monitor
                 # full name behind an @, which ClickUp cannot resolve.
                 set_member_link(
                     team, membership.user, clickup_user_id,

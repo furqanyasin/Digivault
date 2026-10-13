@@ -22,6 +22,8 @@ import urllib.error
 from datetime import datetime, timezone as dt_timezone
 from urllib.parse import urlsplit
 
+from django.conf import settings
+
 from apps.common import outbound
 from apps.common.ssrf import BlockedURLError
 
@@ -37,7 +39,7 @@ _CLOUDFLARE_ORIGIN_ERRORS = {
     526: "origin server has an invalid certificate",
 }
 
-_ALLOWLIST_PAGE = "https://digivault.digilatics.co/bot"
+_ALLOWLIST_PAGE = settings.BOT_INFO_URL
 
 
 # Where each vendor's allowlist lives, because "allowlist our monitor" is a dead

@@ -3,7 +3,7 @@
 Pure functions over a script URL — no DB access, no network — so this is cheap to
 unit test and cheap to run over every script on every ingest.
 
-This is deliberately **heuristic and advisory**, not a verdict. Digivault sees a
+This is deliberately **heuristic and advisory**, not a verdict. Stacks Monitor sees a
 URL and where it was loaded from, not the script body, so it cannot prove intent.
 Every signal here is something a human should look at, and the reasons are always
 reported alongside the flag so nobody has to trust a bare "suspicious" label.

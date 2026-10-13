@@ -39,7 +39,7 @@ def backed_up_queues() -> dict[str, int]:
     scheduling, workers answer pings, Postgres is fine, and ingest is simply
     an hour behind, so a script change surfaces an hour late. Folded into the
     heartbeat rather than given its own alert, so one external check and one
-    alert route cover "Digivault is not keeping up" in every form.
+    alert route cover "Stacks Monitor is not keeping up" in every form.
     """
     limits = getattr(settings, "HEARTBEAT_QUEUE_LIMITS", DEFAULT_QUEUE_LIMITS)
     client = _broker_client()

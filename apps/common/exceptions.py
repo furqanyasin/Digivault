@@ -4,7 +4,7 @@ from rest_framework.views import exception_handler
 
 
 class AppError(APIException):
-    """Base exception for all Digivault domain errors.
+    """Base exception for all Stacks Monitor domain errors.
 
     Subclass this to create typed errors that map to specific HTTP status codes.
     """

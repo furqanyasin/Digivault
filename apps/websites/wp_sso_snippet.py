@@ -1,7 +1,7 @@
 """PHP code snippet that powers one-click wp-admin login and form-recipient reads.
 
 Pasted by the user into the SAME WPCode / Code Snippets tool they already use
-for the Digivault tracking script — no separate WordPress plugin to install.
+for the Stacks Monitor tracking script — no separate WordPress plugin to install.
 The per-site shared secret is baked in; regenerating it rotates the secret and
 invalidates every previously issued login link.
 
@@ -23,11 +23,11 @@ SNIPPET_VERSION = 2
 
 _TEMPLATE = r"""<?php
 /**
- * Digivault Connect — one-click wp-admin login + form recipients (no plugin required).
+ * Stacks Monitor Connect — one-click wp-admin login + form recipients (no plugin required).
  *
  * Paste this into WPCode or Code Snippets as a PHP snippet, set it to run
  * everywhere / site-wide, and activate it — the same tool you used for the
- * Digivault tracking script. Regenerate from Digivault to rotate the secret.
+ * Stacks Monitor tracking script. Regenerate from Stacks Monitor to rotate the secret.
  */
 if ( ! defined( 'ABSPATH' ) ) { return; }
 
@@ -86,7 +86,7 @@ if ( ! function_exists( 'dvc2_ensure_table' ) ) {
 
 /**
  * The dead-man switch. A snippet has no uninstall hook, so a client who cancels
- * Digivault -- or a site we can no longer reach -- would otherwise buffer events
+ * Stacks Monitor -- or a site we can no longer reach -- would otherwise buffer events
  * into their database forever. MalCare does the same with bvwatchtime.
  */
 if ( ! function_exists( 'dvc2_is_active' ) ) {
@@ -197,7 +197,7 @@ add_action( 'rest_api_init', function () {
 } );
 
 /**
- * Verify a Digivault-signed request. Returns the payload array, or false.
+ * Verify a request signed by Stacks Monitor. Returns the payload array, or false.
  *
  * The signature is mandatory on every route. /forms answers with staff mailboxes,
  * so an unsigned route would publish this site's admin addresses to anyone who
@@ -309,14 +309,14 @@ if ( ! function_exists( 'dvc2_headers_copies' ) ) {
 /**
  * Where each form on this site is configured to send its submissions.
  *
- * Digivault's tracking snippet can only read a recipient that appears in the
+ * Stacks Monitor's tracking snippet can only read a recipient that appears in the
  * page's HTML. Every WordPress form plugin keeps it in the database instead, so
  * this route is the only way the Forms tab can show it. Each reader is guarded:
  * a site without that plugin contributes nothing rather than fataling.
  */
 if ( ! function_exists( 'dvc2_handle_forms' ) ) {
 	function dvc2_handle_forms( $request ) {
-		// Rotating the secret in Digivault replaces the value below.
+		// Rotating the secret in Stacks Monitor replaces the value below.
 		$secret = DVC2_SECRET;
 
 		if ( ! dvc2_verify_token( $request, $secret ) ) {
@@ -536,7 +536,7 @@ if ( ! function_exists( 'dvc2_forms_gravity' ) ) {
 
 if ( ! function_exists( 'dvc2_handle_sso' ) ) {
 	function dvc2_handle_sso( $request ) {
-		// Rotating the secret in Digivault replaces the value below.
+		// Rotating the secret in Stacks Monitor replaces the value below.
 		$secret        = DVC2_SECRET;
 		$allowed_roles = array( 'administrator', 'editor' );
 
@@ -606,7 +606,7 @@ if ( ! function_exists( 'dvc2_handle_sso' ) ) {
 
 /**
  * Send buffered events. Batched rather than one POST per hook: a request to
- * Digivault inside `user_register` would put our latency on the client's admin.
+ * Stacks Monitor inside `user_register` would put our latency on the client's admin.
  */
 if ( ! function_exists( 'dvc2_flush' ) ) {
 	function dvc2_flush( $resend_from = null, $heartbeat = null ) {
@@ -688,9 +688,9 @@ add_action( 'shutdown', 'dvc2_flush', 999 );
 
 /**
  * Heartbeat: fetch our own homepage from this server and report the answer.
- * Host firewalls (SiteGround's anti-bot above all) challenge Digivault's
+ * Host firewalls (SiteGround's anti-bot above all) challenge Stacks Monitor's
  * monitoring IP, so from outside a working site reads "blocked". This request
- * leaves from the site's own server and the report goes OUT to Digivault, so
+ * leaves from the site's own server and the report goes OUT to Stacks Monitor, so
  * no firewall in front of the site is in the way of either. Cron only, never
  * on `shutdown`: the loopback would otherwise sit inside a visitor's request.
  */
@@ -730,7 +730,7 @@ if ( ! function_exists( 'dvc2_cron_tick' ) ) {
 /**
  * Cron safety net and heartbeat. A low-traffic site may not fire enough
  * shutdowns to matter; a high-traffic one must not flush on every request.
- * WP-cron is itself traffic-driven, which matches how the rest of Digivault
+ * WP-cron is itself traffic-driven, which matches how the rest of Stacks Monitor
  * collects -- so a silent heartbeat is never read as "down", only a fresh one
  * as "up".
  */
@@ -884,7 +884,7 @@ define( 'DVC2_WALK_SLICE',     400 );
  * One slice of the daily wp-content walk.
  *
  * Chunked with a cursor because a 50k-file site cannot be walked inside a
- * single cron tick. No baseline is kept here -- Digivault holds it and diffs.
+ * single cron tick. No baseline is kept here -- Stacks Monitor holds it and diffs.
  * Storing a checksum table on the client would be the database bloat MalCare
  * markets against, and the diff belongs in Python where it can be tested.
  */

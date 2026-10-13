@@ -1,7 +1,7 @@
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import *  # noqa: F401, F403
-from .base import env
+from .base import PRODUCT_URL, env
 
 DEBUG = False
 
@@ -40,13 +40,11 @@ CSP_REPORT_ONLY = False
 
 # Snippet JS served from the same domain — no external CDN needed.
 # The `/api` suffix is required: nginx proxies only `/api/...` to Django, so the
-# old default (bare host) produced `https://digivault.digilatics.co/s.js`, which
+# old default (bare host) produced `https://<host>/s.js`, which
 # nginx routes to the Next.js frontend. It worked in production solely because
 # `.env.production` overrode it, which made the default a trap for any new
 # deployment that forgot the variable.
-SNIPPET_CDN_URL = env(
-    "SNIPPET_CDN_URL", default="https://digivault.digilatics.co/api"
-)
+SNIPPET_CDN_URL = env("SNIPPET_CDN_URL", default=f"{PRODUCT_URL}/api")
 
 # Sentry is initialised once, in base.py. This file used to call
 # sentry_sdk.init() a second time, and the second call replaces the first — so

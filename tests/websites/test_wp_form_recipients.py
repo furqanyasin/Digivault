@@ -1,4 +1,4 @@
-"""Reading form recipients from a WordPress site's Digivault Connect snippet.
+"""Reading form recipients from a WordPress site's Stacks Monitor Connect snippet.
 
 Covers the join between what WordPress reports and the rows the tracking snippet
 created, and the precedence rule that keeps a page ingest from wiping it.

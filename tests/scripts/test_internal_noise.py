@@ -1,4 +1,4 @@
-"""Digivault's own snippet/infra must not be tracked as a client third-party
+"""Stacks Monitor's own snippet/infra must not be tracked as a client third-party
 script — otherwise it logs a hidden high-severity change that pins the site to
 'critical' with nothing the user can clear."""
 
@@ -12,10 +12,9 @@ from apps.websites.models import Website
 
 
 class TestNoiseFilter:
-    def test_digivault_snippet_not_tracked(self):
-        assert _should_track_script("https://digivault.digilatics.co/api/s.js", "client.com") is False
-        assert _should_track_script("https://cdn.digivault.digilatics.co/x.js", "client.com") is False
-        assert _should_track_script("https://digilaticsvps.digilatics.co/y.js", "client.com") is False
+    def test_own_snippet_not_tracked(self):
+        assert _should_track_script("https://stacksmonitor.com/api/s.js", "client.com") is False
+        assert _should_track_script("https://www.stacksmonitor.com/x.js", "client.com") is False
 
     def test_real_provider_still_tracked(self):
         assert _should_track_script("https://www.googletagmanager.com/gtm.js?id=GTM-ABC1", "client.com") is True
@@ -30,15 +29,15 @@ def website(db):
 
 @pytest.mark.django_db
 def test_existing_internal_change_clears_critical_on_ingest(website):
-    """A pre-existing unacknowledged HIGH change for the Digivault snippet gets
+    """A pre-existing unacknowledged HIGH change for the Stacks Monitor snippet gets
     auto-acknowledged on the next ingest, so the site is no longer 'critical'."""
     website.status = Website.Status.CRITICAL
     website.save(update_fields=["status"])
 
     snippet = Script.objects.create(
         website=website,
-        src_url="https://digivault.digilatics.co/api/s.js",
-        src_domain="digivault.digilatics.co",
+        src_url="https://stacksmonitor.com/api/s.js",
+        src_domain="stacksmonitor.com",
         provider="unknown",
         is_active=True,
     )
@@ -72,8 +71,8 @@ def test_status_recalc_ignores_internal_change(website):
     critical when status is recalculated."""
     snippet = Script.objects.create(
         website=website,
-        src_url="https://digivault.digilatics.co/api/s.js",
-        src_domain="digivault.digilatics.co",
+        src_url="https://stacksmonitor.com/api/s.js",
+        src_domain="stacksmonitor.com",
         provider="unknown",
         is_active=True,
     )

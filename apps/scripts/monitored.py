@@ -1,4 +1,4 @@
-"""The only vendors Digivault watches, and what one tag of each looks like.
+"""The only vendors Stacks Monitor watches, and what one tag of each looks like.
 
 Six vendors: **Google, HubSpot, Hotjar, WhatConverts, ClickUp, GoHighLevel.**
 Everything else — Meta Pixel, Microsoft Clarity, TikTok, consent banners,

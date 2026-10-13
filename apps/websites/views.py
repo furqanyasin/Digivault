@@ -3,6 +3,7 @@ import re
 from html import unescape
 from urllib.parse import parse_qs
 
+from django.conf import settings
 from django.db.models import Count, Q
 from rest_framework import permissions, status
 from rest_framework.throttling import UserRateThrottle
@@ -459,7 +460,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         from apps.scripts.tasks import _internal_hosts
 
         qs = _restrict_to_assignments(super().get_queryset(), self.request)
-        # Exclude Digivault's own infra scripts (the tracking snippet etc.) so the
+        # Exclude Stacks Monitor's own infra scripts (the tracking snippet etc.) so the
         # dashboard counts match the website detail page, which hides them.
         internal_q = Q()
         for host in _internal_hosts():
@@ -488,7 +489,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             return WebsiteCreateSerializer
         return WebsiteSerializer
 
-    # Digivault role → WordPress role for one-click wp-admin login.
+    # Stacks Monitor role → WordPress role for one-click wp-admin login.
     _WP_ROLE_MAP = {
         "owner": "administrator",
         "manager": "administrator",
@@ -586,7 +587,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                     "detail": (
                         "Add a WordPress credential for this site in the "
                         "Credentials tab, using an Application Password, and "
-                        "Digivault can read where these forms deliver."
+                        "Stacks Monitor can read where these forms deliver."
                     ),
                 },
                 status=status.HTTP_409_CONFLICT,
@@ -846,7 +847,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                             f"{vendor} answered instead of {website.domain} "
                             f"(HTTP {result.status_code}), so we never saw the page. "
                             "Allowlist our scanner "
-                            "(https://digivault.digilatics.co/bot) and try again."
+                            f"({settings.BOT_INFO_URL}) and try again."
                         ),
                         "code": "blocked",
                     },
@@ -1028,7 +1029,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "blocked. It verifies itself as soon as a visitor loads the page. To let "
             "our checks through, allowlist our monitor"
             + (f" (IP {', '.join(ips)})" if ips else "")
-            + " — see https://digivault.digilatics.co/bot."
+            + f" — see {settings.BOT_INFO_URL}."
         )
 
         if result.status_code >= 400:

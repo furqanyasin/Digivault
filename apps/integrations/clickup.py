@@ -120,7 +120,7 @@ class ClickUpClient:
     def workspaces(self) -> list:
         """The workspaces (ClickUp calls them "teams") this token can see.
 
-        Each carries a `members` list, which is how a Digivault user is matched
+        Each carries a `members` list, which is how a Stacks Monitor user is matched
         to a ClickUp user id.
         """
         return self._request("GET", "team").get("teams", [])

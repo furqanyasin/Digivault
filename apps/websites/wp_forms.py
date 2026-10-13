@@ -1,4 +1,4 @@
-"""Read form recipients from a WordPress site's Digivault Connect snippet.
+"""Read form recipients from a WordPress site's Stacks Monitor Connect snippet.
 
 Every WordPress form plugin stores the "send submissions to" address in the
 database — Elementor in `_elementor_data`, Contact Form 7 in `_mail`, WPForms in

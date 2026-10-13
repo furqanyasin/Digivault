@@ -21,15 +21,15 @@ class EmailDelivery:
         event = notification.site_event
         if change:
             subject = (
-                f"[Digivault] {notification.website.name}: "
+                f"[Stacks Monitor] {notification.website.name}: "
                 f"{change.severity.upper()} alert"
             )
         elif event:
-            subject = f"[Digivault] {notification.website.name}: {event.summary}"
+            subject = f"[Stacks Monitor] {notification.website.name}: {event.summary}"
         else:
-            subject = f"[Digivault] {notification.website.name}: alert"
+            subject = f"[Stacks Monitor] {notification.website.name}: alert"
         body = _build_email_body(notification)
-        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
+        from_email = settings.DEFAULT_FROM_EMAIL
         recipients = _team_email_recipients(notification.team)
         if not recipients:
             logger.warning("EmailDelivery: no recipients for team %s", notification.team_id)
@@ -181,7 +181,7 @@ def _build_email_body(notification) -> str:
         if change.new_value:
             lines.append(f"After: {change.new_value}")
     lines += _site_event_lines(notification)
-    lines.append("\nView in Digivault dashboard to acknowledge this alert.")
+    lines.append("\nView in Stacks Monitor dashboard to acknowledge this alert.")
     return "\n".join(lines)
 
 
@@ -239,7 +239,7 @@ def _build_slack_payload(notification) -> dict:
             {
                 "color": color,
                 "text": text,
-                "footer": "Digivault",
+                "footer": "Stacks Monitor",
             }
         ]
     }

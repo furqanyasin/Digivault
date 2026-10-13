@@ -488,7 +488,7 @@ class WpActivityIngestView(APIView):
 class WebsiteTimelineView(APIView):
     """GET /api/v1/websites/{id}/timeline/?around=<iso>&window=30m
 
-    Everything that happened around one moment, from every source Digivault
+    Everything that happened around one moment, from every source Stacks Monitor
     already holds: WordPress activity, script changes, PHP errors and failed
     monitor checks, interleaved newest-first.
 

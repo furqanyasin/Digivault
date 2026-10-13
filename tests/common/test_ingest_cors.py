@@ -3,7 +3,7 @@
 Regression cover for a production outage: the snippet on a client site POSTed
 to /api/ingest/ and Chrome rejected it at the preflight with "No
 'Access-Control-Allow-Origin' header is present", because CORS_ALLOWED_ORIGINS
-only ever lists Digivault's own dashboard origin. No scripts, forms or JS
+only ever lists Stacks Monitor's own dashboard origin. No scripts, forms or JS
 errors reached the backend from that site.
 """
 

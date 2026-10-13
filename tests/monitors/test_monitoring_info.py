@@ -30,7 +30,7 @@ def monitor(team):
 
 @pytest.mark.django_db
 def test_monitoring_info_is_public(client):
-    """A site owner debugging their firewall is not logged into Digivault."""
+    """A site owner debugging their firewall is not logged into Stacks Monitor."""
     resp = client.get(reverse("monitoring-info"))
     assert resp.status_code == 200
 

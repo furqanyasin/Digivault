@@ -67,7 +67,7 @@ class BlockedMonitorSummaryView(APIView):
 
         team = request.user.active_team
         ips = outbound.egress_ips()
-        ip_text = ", ".join(ips) if ips else "(our monitoring IP — see https://digivault.digilatics.co/bot)"
+        ip_text = ", ".join(ips) if ips else f"(our monitoring IP — see {settings.BOT_INFO_URL})"
         groups: dict[str, list] = defaultdict(list)
         monitors = Monitor.objects.filter(
             team=team, status=Monitor.Status.BLOCKED, is_active=True,
@@ -521,7 +521,7 @@ def _test_slack(channel) -> tuple[bool, str]:
     webhook_url = channel.config.get("webhook_url", "")
     if not webhook_url:
         return False, "Missing webhook_url in config."
-    payload = {"text": "[Digivault] Test notification — your Slack alerts are working."}
+    payload = {"text": "[Stacks Monitor] Test notification — your Slack alerts are working."}
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         webhook_url, data=data,
@@ -540,11 +540,11 @@ def _test_email(channel) -> tuple[bool, str]:
     addresses = channel.config.get("addresses", [])
     if not addresses:
         return False, "No email addresses configured."
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
+    from_email = settings.DEFAULT_FROM_EMAIL
     try:
         send_mail(
-            subject="[Digivault] Test notification",
-            message="This is a test notification from Digivault. Your email alerts are working correctly.",
+            subject="[Stacks Monitor] Test notification",
+            message="This is a test notification from Stacks Monitor. Your email alerts are working correctly.",
             from_email=from_email,
             recipient_list=addresses,
             fail_silently=False,
@@ -632,7 +632,7 @@ class MonitoringInfoView(APIView):
 
     Deliberately unauthenticated. The person who needs this is a site owner
     staring at a firewall log, or an agency staffer pasting a rule into a
-    client's Cloudflare dashboard — neither is signed into Digivault at that
+    client's Cloudflare dashboard — neither is signed into Stacks Monitor at that
     moment. There is nothing secret here: the user-agent is already in every
     request we send, and the egress IP is already in the client's access log.
 
@@ -676,7 +676,7 @@ class MonitoringInfoView(APIView):
                     f"Whitelist IP addresses.\nAdd: {ip_list}"
                 ),
                 "htaccess": (
-                    "# Digivault uptime monitor\n"
+                    "# Stacks Monitor uptime monitor\n"
                     "<RequireAny>\n"
                     "  Require all granted\n"
                     f"  Require ip {first_ip}\n"
@@ -684,7 +684,7 @@ class MonitoringInfoView(APIView):
                 ),
             },
             "docs": (
-                "Digivault checks your site from a single IP and identifies itself "
+                "Stacks Monitor checks your site from a single IP and identifies itself "
                 "honestly on every request. If your firewall blocks it, the "
                 "dashboard reports 'blocked' rather than 'down' — your site is "
                 "fine, we just cannot see it. Allowlisting restores coverage."

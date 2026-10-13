@@ -593,7 +593,7 @@ LIVENESS_MAX_SUPPRESSED_CHECKS = env.int("LIVENESS_MAX_SUPPRESSED_CHECKS", defau
 # has no choice but to block.
 MONITOR_EGRESS_IPS = env.list("MONITOR_EGRESS_IPS", default=[])
 # Override the outbound User-Agent (apps/common/outbound.py). Leave unset to
-# use the default; it must keep naming Digivault and linking to /bot.
+# use the default; it must keep naming Stacks Monitor and linking to /bot.
 MONITOR_USER_AGENT = env("MONITOR_USER_AGENT", default="")
 # When MONITOR_EGRESS_IPS is unset, ask an IP-echo service what our public IP
 # is (cached 6h) so allowlist instructions can name it. Off in tests.
@@ -618,6 +618,18 @@ VAULT_ENCRYPTION_KEYS = env.list("VAULT_ENCRYPTION_KEYS", default=[])
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 
 # ------------------------------------------------------------------
+# Product identity
+# ------------------------------------------------------------------
+
+# The public name and home of the product. Emails, reports and firewall
+# instructions read these instead of hardcoding them, so a rename is one line.
+PRODUCT_NAME = env("PRODUCT_NAME", default="Stacks Monitor")
+PRODUCT_URL = env("PRODUCT_URL", default="https://stacksmonitor.com").rstrip("/")
+# The public allowlist page a client's firewall admin is sent to. It must stay
+# reachable without a login: the reader is not one of our users.
+BOT_INFO_URL = f"{PRODUCT_URL}/bot"
+
+# ------------------------------------------------------------------
 # Tracking snippet origin
 # ------------------------------------------------------------------
 
@@ -627,8 +639,8 @@ FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
 # Declared here rather than only in production.py, which is where it used to
 # live. Everything reads it through `getattr(settings, "SNIPPET_CDN_URL", ...)`,
 # so under development and test settings it simply was not there and the
-# fallback took over — a snippet pointing at `cdn.digivault.digilatics.co`,
-# which has no DNS record and never had one. A setting that exists in exactly
+# fallback took over — a snippet pointing at a `cdn.` host that had no DNS
+# record and never had one. A setting that exists in exactly
 # one environment is a setting that is wrong in the others.
 #
 # The `/api` suffix is load-bearing: nginx only proxies `/api/...` to Django, so
@@ -655,7 +667,7 @@ WPSCAN_API_KEY = env("WPSCAN_API_KEY", default="")
 
 _email_config = env.email_url("EMAIL_URL", default="consolemail://")
 globals().update(_email_config)
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Digivault <noreply@digivault.digilatics.co>")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="Stacks Monitor <noreply@stacksmonitor.com>")
 
 # ------------------------------------------------------------------
 # Google PageSpeed Insights

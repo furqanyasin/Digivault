@@ -86,7 +86,7 @@ class Team(BaseModel):
         max_length=20, choices=Plan.choices, default=Plan.STARTER
     )
     _clickup_api_token = models.BinaryField(blank=True, editable=False)
-    # ClickUp List that Digivault opens issue tasks in. Blank means the team
+    # ClickUp List that Stacks Monitor opens issue tasks in. Blank means the team
     # has not wired that up yet, and reporting stays a no-op.
     clickup_list_id = models.CharField(max_length=64, blank=True, default="")
     # ClickUp Chat channel the whole web team sits in — where website problems

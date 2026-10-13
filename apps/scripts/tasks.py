@@ -42,22 +42,18 @@ from apps.websites.models import Website
 # ---------------------------------------------------------------------------
 
 def _internal_hosts() -> frozenset[str]:
-    """Digivault's own infra hosts — the tracking snippet and dashboard.
+    """Stacks Monitor's own infra hosts — the tracking snippet and dashboard.
 
     These must never be tracked as third-party scripts on a client site: the
     snippet (`/api/s.js`) is served from here, so the page reports it like any
     other script and it would otherwise log a high-severity "added" change that
     the UI hides (internal domain) yet which pins the site to 'critical'.
     """
-    hosts = {
-        "digivault.digilatics.co",
-        "cdn.digivault.digilatics.co",
-        "digilaticsvps.digilatics.co",
-    }
-    cdn = getattr(settings, "SNIPPET_CDN_URL", "") or ""
-    host = urlparse(cdn).netloc.lower().removeprefix("www.")
-    if host:
-        hosts.add(host)
+    hosts = set()
+    for url in (getattr(settings, "PRODUCT_URL", ""), getattr(settings, "SNIPPET_CDN_URL", "")):
+        host = urlparse(url or "").netloc.lower().removeprefix("www.")
+        if host:
+            hosts.add(host)
     return frozenset(hosts)
 
 
@@ -87,7 +83,7 @@ def _should_track_script(src: str, website_domain: str) -> bool:
     parsed = urlparse(src if not src.startswith("//") else "https:" + src)
     script_host = parsed.netloc.lower().removeprefix("www.")
 
-    # Digivault's own snippet / dashboard — never a client's third-party script.
+    # Stacks Monitor's own snippet / dashboard — never a client's third-party script.
     if script_host in _internal_hosts():
         return False
 

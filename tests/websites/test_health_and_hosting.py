@@ -11,14 +11,14 @@ from apps.websites.models import Website
 @pytest.mark.django_db
 def test_health_ignores_internal_snippet_changes(team):
     w = Website.objects.create(team=team, name="S", domain="health.example")
-    # An internal (Digivault snippet) script + a high-severity change for it.
+    # An internal (Stacks Monitor snippet) script + a high-severity change for it.
     s = Script.objects.create(
-        website=w, src_url="https://digivault.digilatics.co/api/s.js",
-        src_domain="digivault.digilatics.co", provider="unknown", is_active=True,
+        website=w, src_url="https://stacksmonitor.com/api/s.js",
+        src_domain="stacksmonitor.com", provider="unknown", is_active=True,
     )
     ScriptChange.objects.create(
         website=w, script=s, change_type="added", severity="critical",
-        description="New script added: digivault.digilatics.co/api/s.js",
+        description="New script added: stacksmonitor.com/api/s.js",
     )
 
     w.recalculate_health_score()

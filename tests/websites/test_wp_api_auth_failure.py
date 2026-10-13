@@ -1,6 +1,6 @@
 """A site that rejects our credential is disarmed, not retried nightly.
 
-Everything Digivault sends leaves from one IP. Repeated 401s against a client
+Everything Stacks Monitor sends leaves from one IP. Repeated 401s against a client
 origin is how that IP earns a ban, and the ban would take uptime monitoring with
 it — a far more valuable signal than a recipient address.
 """

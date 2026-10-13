@@ -100,14 +100,14 @@ def _send_email(channel, monitor, old_status: str, new_status: str) -> None:
     if not addresses:
         logger.warning("Email channel %s has no addresses", channel.id)
         return
-    subject = f"[Digivault] {monitor.name} is {new_status.upper()}"
+    subject = f"[Stacks Monitor] {monitor.name} is {new_status.upper()}"
     detail = "\n".join(
         f"{label}: {value}"
         for label, value in status_fields(monitor, old_status, new_status, latest_check(monitor))
         if str(value or "").strip()
     )
-    body = f"{detail}\n\nLog in to Digivault to view details."
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
+    body = f"{detail}\n\nLog in to Stacks Monitor to view details."
+    from_email = settings.DEFAULT_FROM_EMAIL
     try:
         send_mail(subject, body, from_email, addresses, fail_silently=False)
     except Exception:

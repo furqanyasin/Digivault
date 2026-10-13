@@ -788,7 +788,7 @@
   var heatmapSourceBucket = heatmapSource();
 
   // ── opt-in gate ──────────────────────────────────────────────────────────
-  // Behaviour analytics is enabled per site in Digivault, the way Hotjar is.
+  // Behaviour analytics is enabled per site in Stacks Monitor, the way Hotjar is.
   // The authoritative gate is server-side (the ingest answers 204 and stores
   // nothing), because this file is cached and shared by every client and so
   // cannot be the thing that decides — but a disabled site should not be

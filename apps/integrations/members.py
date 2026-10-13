@@ -1,4 +1,4 @@
-"""Matching Digivault users to ClickUp workspace members.
+"""Matching Stacks Monitor users to ClickUp workspace members.
 
 ClickUp gives us one reliable join key — email — and agency staff often have a
 different address in each system. So matching produces both a matched and an
@@ -208,7 +208,7 @@ def username_for_clickup_id(team, clickup_user_id: str, *, client: ClickUpClient
     """The ClickUp handle behind an id, or "" when unknown.
 
     A manual override arrives as an id alone. Storing it without the handle left
-    `mention_for` rendering the person's Digivault full name after an "@" —
+    `mention_for` rendering the person's Stacks Monitor full name after an "@" —
     "@Muhammad Furqan", a string ClickUp cannot resolve.
     """
     wanted = str(clickup_user_id or "").strip()

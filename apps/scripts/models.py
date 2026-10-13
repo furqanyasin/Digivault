@@ -94,7 +94,7 @@ class Script(BaseModel):
     is_active = models.BooleanField(default=True, db_index=True)
 
     # Heuristic injected-code flags, set on ingest from apps.scripts.suspicion.
-    # Advisory only: Digivault sees the URL, not the script body, so these mark
+    # Advisory only: Stacks Monitor sees the URL, not the script body, so these mark
     # things worth a human look rather than proven malware. Reasons are stored so
     # the flag is never shown without its justification.
     is_suspicious = models.BooleanField(default=False, db_index=True)
