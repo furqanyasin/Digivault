@@ -593,7 +593,7 @@ class MonitorNotificationRuleListCreateView(generics.ListCreateAPIView):
         channel = NotificationChannel.objects.get(
             pk=serializer.validated_data.pop("channel_id"), team=team
         )
-        rule = serializer.save(monitor=monitor, channel=channel)
+        serializer.save(monitor=monitor, channel=channel)
         AuditService.log_request(
             self.request, ActivityLog.Action.MONITOR_RULE_CREATED,
             description=f"Added notification rule to monitor '{monitor.name}'",

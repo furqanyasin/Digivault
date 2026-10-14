@@ -13,7 +13,6 @@ import ssl
 from dataclasses import dataclass, field
 from datetime import datetime, timezone as dt_timezone
 from typing import Optional
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 

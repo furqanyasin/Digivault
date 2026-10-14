@@ -131,7 +131,7 @@ def check_single_monitor(self, monitor_id: str, attempt: int = 1):
     transition out of is_alerting, and no duplicates while a monitor stays down.
     """
     from apps.monitors.checker import run_check
-    from apps.monitors.models import Monitor, MonitorCheck
+    from apps.monitors.models import Monitor
 
     try:
         monitor = Monitor.objects.get(pk=monitor_id)

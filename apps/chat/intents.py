@@ -248,7 +248,7 @@ def handle_list_scripts(team, params):
 
     lines = [f"• **{s['provider']}** — {s['category'] or 'uncategorized'}" for s in scripts]
     return {
-        'reply': f"**Active script providers across all sites:**\n\n" + '\n'.join(lines),
+        'reply': "**Active script providers across all sites:**\n\n" + '\n'.join(lines),
         'type': 'scripts_list',
         'data': scripts,
     }

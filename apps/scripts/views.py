@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import ROLE_MANAGER, IsTeamMember, TeamRolePermission
+from apps.common.permissions import IsTeamMember, TeamRolePermission
 from apps.scripts.js_errors import (
     browser_label,
     fingerprint as js_fingerprint,
