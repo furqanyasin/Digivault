@@ -6,7 +6,7 @@ import type { NextRequest } from "next/server";
 // sub-routes (list/approve/reject) each enforce the token themselves.
 // /bot is the allowlist page our User-Agent links to; the client's firewall
 // admin who opens it has no login here.
-const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/2fa/", "/status/", "/bot", "/api/auth", "/api/public", "/api/password-reset"];
+const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/2fa/", "/status/", "/bot", "/api/auth", "/api/password-reset"];
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
