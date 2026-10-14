@@ -157,8 +157,6 @@ const ACTIVITY_STYLE: Record<string, { icon: typeof Activity; className: string 
 const activityStyle = (action: string) =>
   ACTIVITY_STYLE[action] ?? { icon: Activity, className: "bg-slate-500/10 text-slate-600" };
 
-const SCORE_TONE = (s: number) =>
-  s >= 85 ? "text-emerald-600" : s >= 60 ? "text-amber-600" : "text-red-600";
 const STATUS_BADGE: Record<string, "destructive" | "warning" | "success" | "secondary"> = {
   active: "success", warning: "warning", critical: "destructive", inactive: "secondary",
 };
@@ -528,8 +526,11 @@ export default async function DashboardPage() {
                           narrower column it was the widest fixed element (112px)
                           and pushed site names into an ellipsis — and it was a
                           third encoding of a value the number and the badge
-                          already carry. The score keeps its band colour. */}
-                      <span className={`w-8 shrink-0 text-right text-sm font-semibold ${SCORE_TONE(score)}`}>
+                          already carry. The score is neutral and the badge
+                          alone carries colour: status is the worse of the score
+                          band and the urgency flags, so a score toned by its own
+                          band read green 92 beside an amber or red badge. */}
+                      <span className="w-8 shrink-0 text-right text-sm font-semibold text-foreground">
                         {score}
                       </span>
 
