@@ -18,23 +18,6 @@ class Client(BaseModel):
         PAUSED = "paused", "Paused"
         OFFBOARDED = "offboarded", "Offboarded"
 
-    class HostingPlatform(models.TextChoices):
-        WPENGINE = "wpengine", "WPEngine"
-        SITEGROUND = "siteground", "SiteGround"
-        CLOUDWAYS = "cloudways", "Cloudways"
-        BLUEHOST = "bluehost", "Bluehost"
-        GODADDY = "godaddy", "GoDaddy"
-        SQUARESPACE = "squarespace", "Squarespace"
-        WIXCOM = "wix", "Wix"
-        SHOPIFY = "shopify", "Shopify"
-        OTHER = "other", "Other"
-        UNKNOWN = "", "Unknown"
-
-    class PpcStatus(models.TextChoices):
-        YES = "yes", "Yes"
-        NO = "no", "No"
-        UNKNOWN = "", "Unknown"
-
     class Tier(models.TextChoices):
         GOLD = "gold", "Gold"
         SILVER = "silver", "Silver"

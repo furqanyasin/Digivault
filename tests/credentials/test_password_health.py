@@ -43,25 +43,3 @@ def test_password_age_days(team):
     )
     cred.refresh_from_db()
     assert cred.password_age_days == 200
-
-
-@pytest.mark.django_db
-def test_stale_passwords_queryset(team):
-    fresh = Credential(team=team, label="fresh")
-    fresh.set_password("x")
-    fresh.save()
-
-    stale = Credential(team=team, label="stale")
-    stale.set_password("y")
-    stale.save()
-    Credential.objects.filter(pk=stale.pk).update(
-        last_password_changed_at=timezone.now() - datetime.timedelta(days=200)
-    )
-
-    stale_ids = set(
-        Credential.objects.stale_passwords(older_than_days=180).values_list(
-            "pk", flat=True
-        )
-    )
-    assert stale.pk in stale_ids
-    assert fresh.pk not in stale_ids

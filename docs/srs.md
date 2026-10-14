@@ -495,14 +495,9 @@ list). The sidebar consumes this via `Team.my_features`.
 | GET/PATCH | `/api/v1/auth/teams/<pk>/settings/` | Team integration settings (ClickUp token) |
 | POST | `/api/v1/auth/teams/<pk>/settings/clickup-test/` | Verify the stored ClickUp token works |
 
-`TeamService` ([apps/accounts/services.py](../apps/accounts/services.py)) owns the
-invariants, each inside `transaction.atomic`: adding an existing member raises
-`ConflictError`; removing the owner raises `ForbiddenError`; changing the owner's
-role raises `ForbiddenError`; operating on a non-member raises `NotFoundError`.
-
-`InvitationService.accept()` selects the invitation `FOR UPDATE`, refuses if the
-email does not match the accepting user, adds the membership, marks the invitation
-accepted, and sets `active_team` if the user had none.
+`TeamService` ([apps/accounts/services.py](../apps/accounts/services.py)) creates a
+team (making it the owner's active team) and adds members inside
+`transaction.atomic`; adding an existing member raises `ConflictError`.
 
 ---
 
@@ -806,7 +801,6 @@ dashboard KPI matches the detail page.
 | GET | `/api/v1/websites/expiring-domains/?days=30` | Domain expiry list |
 | GET | `/api/v1/websites/expiring-ssl/?days=14` | SSL expiry list |
 | GET | `/api/v1/websites/expiring-hosting/?days=30` | Hosting expiry list |
-| GET | `/api/v1/websites/fleet-summary/` | Team-wide SEO / performance / security / vulnerability / tracking roll-up |
 
 ### 8.5 Scan, verify and platform detection
 
@@ -886,26 +880,6 @@ because they are one of eight inputs, whereas this score has three and needs the
 range to stay meaningful. The **SSL window was reconciled** — it now uses the same
 7/14/30 → 20/12/5 tiers as overall health, because it previously deducted a flat 15
 inside 14 days and produced contradictory readings for one certificate.
-
-### 8.9 Fleet summary
-
-`GET /api/v1/websites/fleet-summary/` is one aggregate call per area rather than per
-website — the dashboard needs all four for every site, and fanning out would be
-4 × N requests. It **only reads stored scan results and never triggers a scan**.
-
-- **SEO** — count checked, indexable, blocked (`robots_blocks_all` OR
-  `homepage_indexable=False`), summed `noindex_count`.
-- **Performance** — the newest run per `(site, strategy)`, then averages, plus
-  Lighthouse's own bands (`<50` poor, `90+` good) for mobile.
-- **Security headers** — count checked, average score, grade histogram, and
-  `failing` = grades starting C/D/F.
-- **Vulnerabilities** — counts by severity plus distinct sites affected.
-- **Tracking coverage** — distinct sites carrying analytics or tag management
-  (`missing_analytics` is the complement — "a site with no measurement is invisible
-  to the client's reporting"), tag manager, advertising, call tracking, unknown
-  scripts, and suspicious sites/scripts.
-
----
 
 ## 9. Script ingest pipeline
 

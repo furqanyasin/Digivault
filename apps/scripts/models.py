@@ -14,8 +14,6 @@ class ScriptQuerySet(TeamScopedQuerySet, ActiveQuerySet):
     def unknown(self):
         return self.filter(provider="unknown")
 
-    def by_category(self, category: str):
-        return self.filter(category=category)
 
 
 class Script(BaseModel):

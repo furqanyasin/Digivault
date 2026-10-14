@@ -182,8 +182,3 @@ class ClickUpClient:
             json=body,
             version="v3",
         )
-
-    def list_custom_fields(self, list_id: str) -> list:
-        """Field definitions for a list — needed to map ClickUp columns onto
-        Client fields when the CSM sync lands."""
-        return self._request("GET", f"list/{list_id}/field").get("fields", [])

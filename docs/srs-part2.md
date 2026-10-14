@@ -451,8 +451,7 @@ lookup needs **no decryption**.
 Password health is computed **at set time** so strength never requires decryption:
 `score_password_strength()` returns 0–4 from length ≥ 8, length ≥ 12, mixed case,
 a digit, and a non-alphanumeric (capped at 4). `set_password()` also stamps
-`last_password_changed_at`; a `password_age_days` property and a
-`stale_passwords(older_than_days=180)` queryset method expose ageing.
+`last_password_changed_at`; a `password_age_days` property exposes ageing.
 
 ### 22.3 Visibility and permissions
 
@@ -728,7 +727,6 @@ degrades one card rather than the page. Each is individually justified in the so
 - `/auth/teams/` for the member count, because it already carries `member_count` per
   team — this replaced a sequential `/auth/me/` then that team's members, two round
   trips in series after the parallel batch, on every page load and filter change.
-- One `/websites/fleet-summary/` call instead of three requests × N sites.
 
 Derived values are computed in `getData`, not during render: `reportingCount` uses
 `Date.now()`, which is not idempotent and which React's purity rule rightly rejects
@@ -898,7 +896,6 @@ Measures actually taken, each with a recorded reason:
   growing linearly.
 - **Team-wide `/changes/`, `/forms/`, `/form-errors/`** replaced one request per
   website (60+ for a real agency) with a single query.
-- **`/websites/fleet-summary/`** is one query per area instead of 4 × N requests.
 - **Dashboard** issues 12 parallel requests, fetches the widest trend window once and
   slices client-side, and reads `member_count` off `/auth/teams/` to kill two
   sequential round trips.
@@ -965,7 +962,7 @@ Pure, side-effect-free modules are the backbone of the testable surface:
 `diff_engine`, `classifier`, `normalize`, `suspicion`, `js_errors`, `form_errors`,
 `dedup`, `checker`, `header_checker`, `seo_checker` (parse functions),
 `platform_detect`, `trends`, `features`, `ssrf`. Business logic sits in services
-(`TeamService`, `InvitationService`, `CredentialService`, `AlertService`,
+(`TeamService`, `CredentialService`, `AlertService`,
 `AuditService`, `DomainIntelligenceService`, `PageSpeedService`, `CruxService`,
 `ReportBuilder`). Comments in this codebase consistently record *why* a decision was
 made and what broke before it — that is the primary maintenance aid and should be
@@ -1103,7 +1100,7 @@ model change produces confusing schema errors.
 `GET <pk>/health/` · `GET <pk>/snippet/` · `POST <pk>/regenerate-snippet/` ·
 `GET/POST <pk>/scan/` · `POST <pk>/verify-snippet/` · `GET/PUT <pk>/assignments/` ·
 `POST <pk>/wp-sso-secret/` · `POST <pk>/wp-login/` · `GET expiring-domains/` ·
-`GET expiring-ssl/` · `GET expiring-hosting/` · `GET fleet-summary/`
+`GET expiring-ssl/` · `GET expiring-hosting/`
 
 **Scripts, forms, errors** — `GET websites/<w>/scripts/` ·
 `PATCH websites/<w>/scripts/<pk>/review/` · `POST websites/<w>/scripts/bulk-review/` ·
