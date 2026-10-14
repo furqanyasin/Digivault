@@ -33,9 +33,12 @@ def _report(website, score, days_ago, strategy="mobile"):
 
 @pytest.mark.django_db
 def test_weekly_trend_buckets_by_week(perf_website):
-    _report(perf_website, 90, days_ago=10)
-    _report(perf_website, 80, days_ago=9)
-    _report(perf_website, 70, days_ago=2)
+    # Anchor on the weekday: fixed offsets like 10 and 9 days ago land in one
+    # ISO week on some days and straddle a Monday on others.
+    monday_two_weeks_ago = timezone.now().weekday() + 14
+    _report(perf_website, 90, days_ago=monday_two_weeks_ago)
+    _report(perf_website, 80, days_ago=monday_two_weeks_ago - 1)
+    _report(perf_website, 70, days_ago=0)
     trend = weekly_trend(perf_website, "mobile", weeks=8)
     assert len(trend) == 2
     assert all("avg_score" in row for row in trend)
