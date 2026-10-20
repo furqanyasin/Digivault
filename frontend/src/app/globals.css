@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Fonts, type scale, radius, spacing, shadows, breakpoints: one file. */
+@import "../styles/design-tokens.css";
 
 @custom-variant dark (&:is(.dark *));
 

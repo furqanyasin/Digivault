@@ -9,6 +9,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { AuthLogo } from "@/components/auth-logo";
 
 type Step = "credentials" | "totp";
 
@@ -82,12 +83,18 @@ export default function LoginPage() {
   }
 
   function _onAuthenticated() {
-    router.push("/dashboard");
+    // The proxy sends a logged-out visitor here with ?next=<path> (an
+    // invitation link, say). Only a same-site path is followed: "//host" and
+    // "/\host" are read by browsers as another origin.
+    const next = new URLSearchParams(window.location.search).get("next") ?? "";
+    const safe = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\");
+    router.push(safe ? next : "/dashboard");
   }
 
   if (step === "totp") {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-muted/40 px-4">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-muted/40 px-4 py-10">
+        <AuthLogo />
         <Card className="w-full max-w-md">
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold">Two-factor authentication</CardTitle>
@@ -134,7 +141,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/40 px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-muted/40 px-4 py-10">
+      <AuthLogo />
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Sign in</CardTitle>
@@ -171,6 +179,12 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground text-center">
               <Link href="/forgot-password" className="underline hover:text-foreground">
                 Forgot password?
+              </Link>
+            </p>
+            <p className="text-sm text-muted-foreground text-center">
+              New to Stacks Monitor?{" "}
+              <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
+                Create a free account
               </Link>
             </p>
           </CardFooter>

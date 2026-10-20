@@ -5,14 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Users } from "lucide-react";
 import { TeamManagementClient } from "@/components/team-management-client";
 
-interface PasswordResetReq {
-  id: string;
-  user_email: string;
-  user_name: string;
-  status: string;
-  created_at: string;
-}
-
 async function getData(token: string) {
   const [userResult, teamsResult] = await Promise.allSettled([
     api.get<User>("/api/v1/auth/me/", token),
@@ -23,22 +15,18 @@ async function getData(token: string) {
   const teams = teamsResult.status === "fulfilled" ? teamsResult.value : [];
 
   let members: TeamMember[] = [];
-  let resetRequests: PasswordResetReq[] = [];
   let groups: SubTeam[] = [];
   let activeTeam: Team | null = null;
 
   if (user && teams.length > 0) {
     activeTeam = teams.find((t) => t.id === user.active_team) ?? teams[0];
     if (activeTeam) {
-      const [membersResult, resetResult, groupsResult] = await Promise.allSettled([
+      const [membersResult, groupsResult] = await Promise.allSettled([
         api.getAll<TeamMember>(`/api/v1/auth/teams/${activeTeam.id}/members/`, token),
-        api.getAll<PasswordResetReq>("/api/v1/auth/password-reset/", token),
         api.getAll<SubTeam>(`/api/v1/auth/teams/${activeTeam.id}/sub-teams/`, token),
       ]);
       members = membersResult.status === "fulfilled" && Array.isArray(membersResult.value)
         ? membersResult.value : [];
-      resetRequests = resetResult.status === "fulfilled" && Array.isArray(resetResult.value)
-        ? resetResult.value : [];
       // Tolerated as empty if the backend predates groups: the frontend
       // deploys separately, so this page must still render without them.
       groups = groupsResult.status === "fulfilled" && Array.isArray(groupsResult.value)
@@ -46,12 +34,12 @@ async function getData(token: string) {
     }
   }
 
-  return { user, members, resetRequests, groups, activeTeam };
+  return { user, members, groups, activeTeam };
 }
 
 export default async function TeamPage() {
   const token = await getAccessToken();
-  const { user, members, resetRequests, groups, activeTeam } = await getData(token ?? "");
+  const { user, members, groups, activeTeam } = await getData(token ?? "");
 
   const myMembership = user ? members.find((m) => m.user.id === user.id) : null;
   const myRole = activeTeam?.my_role ?? myMembership?.role ?? "viewer";
@@ -85,7 +73,6 @@ export default async function TeamPage() {
           myRole={myRole}
           myMembershipId={myMembershipId}
           initialMembers={members}
-          initialResetRequests={resetRequests}
           initialGroups={groups}
         />
       )}

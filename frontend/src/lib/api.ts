@@ -143,6 +143,11 @@ export interface User {
   last_name: string;
   timezone: string;
   active_team: string | null;
+  totp_enabled?: boolean;
+  // Platform owner (superuser): sees every workspace on /platform.
+  is_platform_admin?: boolean;
+  // True until 2FA is on, except for 24h after "Remind me tomorrow".
+  show_2fa_reminder?: boolean;
   created_at: string;
 }
 
@@ -151,6 +156,7 @@ export interface Team {
   name: string;
   slug: string;
   plan: string;
+  require_2fa?: boolean;
   my_role?: string | null;
   // Effective feature keys for the requesting user — every role except owner is
   // gated by these, not just "custom". Drives nav and dashboard gating.

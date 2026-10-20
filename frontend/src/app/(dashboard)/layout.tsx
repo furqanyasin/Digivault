@@ -12,6 +12,8 @@ import { GlobalSearch } from "@/components/global-search";
 import { NotificationBell } from "@/components/notification-bell";
 import { FeatureGuard } from "@/components/feature-guard";
 import { PRODUCT_NAME } from "@/lib/brand";
+import { Providers } from "@/components/providers";
+import { TwoFactorReminder } from "@/components/two-factor-reminder";
 
 // `feature` maps a nav item to a custom-access key; `always` items are shown to
 // everyone (incl. custom members). Items with neither and managerOnly are
@@ -61,8 +63,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
     if (item.feature) return myFeatures.includes(item.feature);
     return true;
   });
+  if (user?.is_platform_admin) {
+    visibleNavItems.push({ href: "/platform", label: "Platform", icon: "platform", always: true });
+  }
 
   return (
+    <Providers>
     <div className="flex min-h-screen">
       {/* Sidebar — sticks to the top while the page body scrolls */}
       <aside className="w-64 shrink-0 border-r bg-card flex flex-col sticky top-0 h-screen self-start overflow-y-auto">
@@ -109,11 +115,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
           tables) stay contained instead of forcing page-wide overflow. */}
       <main className="flex-1 min-w-0 pb-[var(--chat-safe-area)]">
         {!isOwner && <FeatureGuard features={myFeatures} isManager={isManager} />}
+        {user?.show_2fa_reminder && <TwoFactorReminder />}
         {children}
       </main>
 
       <ChatWidget />
       <ExtensionAuthBridge />
     </div>
+    </Providers>
   );
 }

@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { Users, ArrowRight } from "lucide-react";
+import { Users } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { InvitationAcceptClient } from "@/components/invitation-accept-client";
 import { roleLabel } from "@/lib/roles";
@@ -56,12 +55,6 @@ export default async function InvitePage({
 
         <InvitationAcceptClient token={token} inviteEmail={invite.email} />
 
-        <p className="text-center text-xs text-muted-foreground">
-          Don&apos;t have an account?{" "}
-          <Link href={`/register?email=${encodeURIComponent(invite.email)}&next=/invite/${token}`} className="underline underline-offset-2">
-            Register first <ArrowRight className="inline h-3 w-3" />
-          </Link>
-        </p>
       </div>
     </div>
   );
