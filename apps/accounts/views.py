@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.utils.timezone import timedelta
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
 from apps.accounts.models import (
@@ -20,7 +21,6 @@ from apps.accounts.models import (
     User,
 )
 from apps.accounts.serializers import (
-    PasswordResetRequestSerializer,
     SubTeamSerializer,
     TeamInvitationSerializer,
     TeamMembershipSerializer,
@@ -152,6 +152,33 @@ def _issue_set_password_link(user, actor):
     return f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
 
 
+def _upsert_invitation(team, email, role, invited_by, sub_team=None):
+    """Create the pending invitation, or refresh an existing one (new role,
+    group and 7-day expiry) so resending never piles up duplicates."""
+    invitation, _ = TeamInvitation.objects.update_or_create(
+        team=team, email=email,
+        defaults={
+            "invited_by": invited_by,
+            "role": role,
+            "sub_team": sub_team,
+            "accepted": False,
+            "accepted_at": None,
+            "expires_at": timezone.now() + timedelta(days=7),
+        },
+    )
+    return invitation
+
+
+def _ensure_seat_for(team, email):
+    """Raise the plan-limit error unless the team has a free seat. A resend
+    to someone already invited does not take a second seat."""
+    from apps.accounts.plans import ensure_can_add
+
+    if TeamInvitation.objects.filter(team=team, email__iexact=email, accepted=False).exists():
+        return
+    ensure_can_add(team, "members")
+
+
 def _send_account_email(subject, body, recipient):
     """Send an onboarding email. Returns True if it was delivered, False on
     failure (logged, never raised) so onboarding can fall back to the link."""
@@ -192,6 +219,15 @@ class TeamListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        current = request.user.active_team
+        if (
+            getattr(settings, "ENFORCE_PLAN_LIMITS", True)
+            and not (current and current.plan == Team.Plan.INTERNAL)
+            and Team.objects.filter(owner=request.user, plan=Team.Plan.FREE).exists()
+        ):
+            # One free workspace per person, or "1 website" means nothing.
+            from apps.accounts.plans import PlanLimitReached
+            raise PlanLimitReached("You already have a free workspace. Upgrade it to add more.")
         team = TeamService.create(name=serializer.validated_data["name"], owner=request.user)
         AuditService.log(
             actor=request.user, action=ActivityLog.Action.TEAM_CREATED, team=team,
@@ -218,6 +254,10 @@ class TeamDetailView(generics.RetrieveUpdateAPIView):
 
     def update(self, request, *args, **kwargs):
         team = self.get_object()
+        # TeamRolePermission reads the role in the *active* team. The team in
+        # the URL can be a different one where this user is only a viewer.
+        if _my_level(request.user, team)[0] < ROLE_LEVELS[ROLE_MANAGER]:
+            return Response({"detail": "Manager or higher required."}, status=status.HTTP_403_FORBIDDEN)
         old_name = team.name
         response = super().update(request, *args, **kwargs)
         new_name = response.data.get("data", {}).get("name") or team.name
@@ -581,17 +621,8 @@ class TeamInviteView(APIView):
         if TeamMembership.objects.filter(team=team, user__email=email).exists():
             return Response({"detail": "This user is already a team member."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Upsert invitation (resend if already pending) — always refresh expiry
-        invitation, _ = TeamInvitation.objects.update_or_create(
-            team=team, email=email,
-            defaults={
-                "invited_by": request.user,
-                "role": role,
-                "accepted": False,
-                "accepted_at": None,
-                "expires_at": timezone.now() + timedelta(days=7),
-            },
-        )
+        _ensure_seat_for(team, email)
+        invitation = _upsert_invitation(team, email, role, request.user)
 
         from django.conf import settings
         from django.core.mail import send_mail
@@ -727,36 +758,29 @@ class InvitationAcceptView(APIView):
         })
 
     def post(self, request, token):
-        from django.contrib.auth import authenticate
-        from rest_framework_simplejwt.tokens import RefreshToken
-
         inv, err = self._get_invitation(token)
         if err:
             return err
 
-        # Resolve the user
-        if request.user.is_authenticated:
-            user = request.user
-            if user.email.lower() != inv.email.lower():
-                return Response(
-                    {"detail": f"This invitation is for {inv.email}. Log in with that account."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            tokens = None
-        else:
-            # Allow accepting with email+password in one step
-            password = request.data.get("password", "")
-            user = authenticate(request, username=inv.email, password=password)
-            if user is None:
-                return Response(
-                    {"detail": "Invalid password. Check your invitation email for your temporary password."},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-            refresh = RefreshToken.for_user(user)
-            tokens = {"access": str(refresh.access_token), "refresh": str(refresh)}
+        # Accepting needs a real login. It used to also take email + password
+        # and hand back tokens, which skipped 2FA: anyone holding the password
+        # and an invitation they had sent themselves got a full session.
+        if not request.user.is_authenticated:
+            return Response(
+                {"detail": f"Log in as {inv.email} to accept this invitation."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        user = request.user
+        if user.email.lower() != inv.email.lower():
+            return Response(
+                {"detail": f"This invitation is for {inv.email}. Log in with that account."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-        # Create membership
-        TeamMembership.objects.get_or_create(user=user, team=inv.team, defaults={"role": inv.role})
+        TeamMembership.objects.get_or_create(
+            user=user, team=inv.team,
+            defaults={"role": inv.role, "sub_team": inv.sub_team},
+        )
 
         # Set as active team if none
         if not user.active_team:
@@ -772,10 +796,7 @@ class InvitationAcceptView(APIView):
             resource_type="team_membership",
         )
 
-        payload = {"detail": f"You have joined {inv.team.name} as {inv.role}."}
-        if tokens:
-            payload["tokens"] = tokens
-        return Response(payload)
+        return Response({"detail": f"You have joined {inv.team.name} as {inv.role}."})
 
 
 class TeamCreateUserView(APIView):
@@ -819,65 +840,10 @@ class TeamCreateUserView(APIView):
         if TeamMembership.objects.filter(team=team, user__email=email).exists():
             return Response({"detail": "A user with this email is already a team member."}, status=status.HTTP_400_BAD_REQUEST)
 
+        _ensure_seat_for(team, email)
         existing_user = User.objects.filter(email__iexact=email).first()
         if existing_user:
-            # User account exists (e.g. previously removed from team) — add the membership.
-            membership = TeamMembership.objects.create(
-                user=existing_user, team=team, role=role, sub_team=group
-            )
-            user_updates = {}
-            if not existing_user.active_team:
-                user_updates["active_team"] = team
-            if not existing_user.is_active:
-                # Account was deactivated when removed from its last team — revive it.
-                user_updates["is_active"] = True
-            if user_updates:
-                User.objects.filter(pk=existing_user.pk).update(**user_updates)
-                existing_user.refresh_from_db()
-            AuditService.log(
-                actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_JOINED,
-                team=team,
-                description=f"{existing_user.email} added to team as {role} (existing account)",
-                resource_type="team_membership",
-            )
-            resp_data = {"detail": f"{existing_user.email} added to team as {role}.", "id": str(membership.pk)}
-            if existing_user.has_usable_password():
-                # Fully-active account — they log in with their current password.
-                # Still email them a reset link in case they've forgotten it, but
-                # never return that link in the response: exposing it to the admin
-                # would be a hijack vector for a live account.
-                resp_data["already_active"] = True
-                first_name = existing_user.first_name or existing_user.email.split("@")[0]
-                reset_url = _issue_set_password_link(existing_user, request.user)
-                email_body = (
-                    f"Hi {first_name},\n\n"
-                    f"You've been added to {team.name} on Stacks Monitor as {role} by {request.user.email}.\n\n"
-                    f"Log in with your existing password at: {settings.FRONTEND_URL}/login\n\n"
-                    f"Forgot your password? Use this link to set a new one "
-                    f"(valid for 7 days):\n{reset_url}\n"
-                )
-                resp_data["email_sent"] = _send_account_email(
-                    f"You've been added to {team.name} on Stacks Monitor", email_body, existing_user.email,
-                )
-            else:
-                # Account exists but was never fully onboarded (no usable password,
-                # e.g. invited earlier while SMTP was down). Re-issue a fresh
-                # set-password link and email it so they can finally log in.
-                first_name = existing_user.first_name or existing_user.email.split("@")[0]
-                set_password_url = _issue_set_password_link(existing_user, request.user)
-                email_body = (
-                    f"Hi {first_name},\n\n"
-                    f"You've been added to {team.name} on Stacks Monitor as {role} by {request.user.email}.\n\n"
-                    f"Email: {existing_user.email}\n\n"
-                    f"Set your password (link valid for 7 days):\n{set_password_url}\n\n"
-                    f"After setting your password you'll be guided through two-factor "
-                    f"authentication setup.\n"
-                )
-                resp_data["email_sent"] = _send_account_email(
-                    "Your Stacks Monitor account has been created", email_body, existing_user.email,
-                )
-                resp_data["set_password_url"] = set_password_url
-            return Response(resp_data, status=status.HTTP_201_CREATED)
+            return self._invite_existing_user(request, team, existing_user, role, group)
 
         parts = name.split(" ", 1)
         first_name = parts[0]
@@ -942,125 +908,126 @@ class TeamCreateUserView(APIView):
 
         return Response(resp_data, status=status.HTTP_201_CREATED)
 
+    def _invite_existing_user(self, request, team, existing_user, role, group):
+        """An account with this email already exists, possibly in another
+        tenant. Adding it directly would let any team owner pull a stranger's
+        account into their team (and, with the old set-password link in the
+        response, take it over). So the person gets an invitation they accept
+        while logged in as themselves, and no link ever reaches the admin."""
+        invitation = _upsert_invitation(team, existing_user.email, role, request.user, group)
+        accept_url = f"{settings.FRONTEND_URL}/invite/{invitation.token}"
+
+        if not existing_user.is_active and not TeamMembership.objects.filter(user=existing_user).exists():
+            # Deactivated when removed from their last team. They need to log
+            # in to accept, and reviving grants nothing until they do.
+            User.objects.filter(pk=existing_user.pk).update(is_active=True)
+
+        first_name = existing_user.first_name or existing_user.email.split("@")[0]
+        email_body = (
+            f"Hi {first_name},\n\n"
+            f"{request.user.email} has invited you to join {team.name} on Stacks Monitor as {role}.\n\n"
+        )
+        if existing_user.has_usable_password():
+            email_body += (
+                f"Log in with your existing account, then accept the invitation "
+                f"(valid for 7 days):\n{accept_url}\n\n"
+                f"Forgot your password? Use \"Forgot password\" on {settings.FRONTEND_URL}/login\n"
+            )
+        else:
+            # Never finished onboarding: they need a password before they can
+            # log in and accept. The link goes to their inbox only.
+            set_password_url = _issue_set_password_link(existing_user, request.user)
+            email_body += (
+                f"Step 1: set your password (link valid for 7 days):\n{set_password_url}\n\n"
+                f"Step 2: log in and accept the invitation:\n{accept_url}\n"
+            )
+        email_sent = _send_account_email(
+            f"You've been invited to join {team.name} on Stacks Monitor", email_body, existing_user.email,
+        )
+
+        AuditService.log(
+            actor=request.user, action=ActivityLog.Action.TEAM_MEMBER_INVITED,
+            team=team,
+            description=f"Invited {existing_user.email} as {role} (existing account)",
+            resource_type="team_invitation", resource_id=str(invitation.pk),
+        )
+        return Response(
+            {
+                "detail": (
+                    f"{existing_user.email} already has an account, so they were sent an "
+                    f"invitation. They join {team.name} once they accept it."
+                ),
+                "invited": True,
+                "email_sent": email_sent,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class PasswordResetThrottle(AnonRateThrottle):
+    """Requests arrive through the Next.js server, so per-IP limits are loose.
+    The per-account cooldown in the view is what actually stops mail floods."""
+    scope = "auth"
+
 
 class PasswordResetRequestView(APIView):
-    """POST /api/v1/auth/password-reset/ — user submits email to request a reset (public).
-    GET  /api/v1/auth/password-reset/ — manager lists pending requests for their team's users.
+    """POST /api/v1/auth/password-reset/ — self-service reset (public).
+
+    Emails a single-use link straight to the account's address. It used to
+    queue the request for a manager to approve, and the approval response
+    carried the link: any manager who shared a team with the user could reset
+    their password, which is a takeover once strangers can own teams.
     """
 
-    def get_permissions(self):
-        if self.request.method == "GET":
-            return [permissions.IsAuthenticated()]
-        return [permissions.AllowAny()]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [PasswordResetThrottle]
+
+    GENERIC_REPLY = "If that email is registered, we've sent a link to reset your password."
+    LINK_LIFETIME = timedelta(hours=1)
+    COOLDOWN = timedelta(minutes=2)
 
     def post(self, request):
         email = (request.data.get("email") or "").strip().lower()
         if not email:
             return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            user = User.objects.get(email__iexact=email)
-        except User.DoesNotExist:
-            # Don't leak whether the email exists
-            return Response({"detail": "If that email is registered, a reset request has been submitted for admin approval."})
+        # Every branch below returns the same reply, so this endpoint never
+        # tells a caller which emails have accounts.
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user is None:
+            return Response({"detail": self.GENERIC_REPLY})
 
-        # Prevent duplicate pending requests
-        existing = PasswordResetRequest.objects.filter(user=user, status=PasswordResetRequest.Status.PENDING).first()
-        if existing:
-            return Response({"detail": "A reset request is already pending admin approval."})
+        now = timezone.now()
+        if PasswordResetRequest.objects.filter(user=user, created_at__gte=now - self.COOLDOWN).exists():
+            return Response({"detail": self.GENERIC_REPLY})
 
-        PasswordResetRequest.objects.create(user=user)
-        return Response({"detail": "Your reset request has been submitted. An admin will review it shortly."})
-
-    def get(self, request):
-        # Return pending requests for users in any team managed by the requester
-        managed_teams = TeamMembership.objects.filter(
-            user=request.user, role__in=["manager", "owner"]
-        ).values_list("team_id", flat=True)
-        team_user_ids = TeamMembership.objects.filter(team_id__in=managed_teams).values_list("user_id", flat=True)
-        requests_qs = PasswordResetRequest.objects.filter(
-            user_id__in=team_user_ids,
-            status=PasswordResetRequest.Status.PENDING,
-        ).select_related("user")
-        return Response(PasswordResetRequestSerializer(requests_qs, many=True).data)
-
-
-class PasswordResetApproveView(APIView):
-    """POST /api/v1/auth/password-reset/<pk>/approve/ — manager approves and sends reset email."""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            reset_req = PasswordResetRequest.objects.select_related("user").get(pk=pk, status=PasswordResetRequest.Status.PENDING)
-        except PasswordResetRequest.DoesNotExist:
-            return Response({"detail": "Request not found or already processed."}, status=status.HTTP_404_NOT_FOUND)
-
-        # Must be a manager/owner of a team that this user belongs to
-        shared_teams = TeamMembership.objects.filter(
-            team__memberships__user=reset_req.user,
-            user=request.user,
-            role__in=["manager", "owner"],
-        ).exists()
-        if not shared_teams:
-            return Response({"detail": "Not authorised to approve this request."}, status=status.HTTP_403_FORBIDDEN)
+        # Only the newest link works. Older unused ones, including a 7-day
+        # onboarding link, are retired so a leaked old email cannot be used.
+        PasswordResetRequest.objects.filter(
+            user=user, status=PasswordResetRequest.Status.APPROVED,
+        ).update(status=PasswordResetRequest.Status.USED, reset_token=None)
 
         token = secrets.token_urlsafe(48)
-        PasswordResetRequest.objects.filter(pk=pk).update(
+        PasswordResetRequest.objects.create(
+            user=user,
             status=PasswordResetRequest.Status.APPROVED,
             reset_token=token,
-            approved_by=request.user,
-            approved_at=timezone.now(),
-            expires_at=timezone.now() + timedelta(hours=24),
+            approved_at=now,
+            expires_at=now + self.LINK_LIFETIME,
         )
-
         reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
-        try:
-            send_mail(
-                subject="Reset your Stacks Monitor password",
-                message=(
-                    f"Hi,\n\n"
-                    f"Your password reset request has been approved.\n\n"
-                    f"Click the link below to set a new password (expires in 24 hours):\n"
-                    f"{reset_url}\n\n"
-                    f"If you didn't request this, please contact your team admin.\n"
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[reset_req.user.email],
-                fail_silently=False,
-            )
-        except Exception as exc:
-            logger.error("Failed to send password reset email to %s: %s", reset_req.user.email, exc)
-            return Response({"detail": "Approved but failed to send email. Check server logs."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        return Response({"detail": "Request approved and reset email sent.", "reset_url": reset_url})
-
-
-class PasswordResetRejectView(APIView):
-    """POST /api/v1/auth/password-reset/<pk>/reject/ — manager rejects a reset request."""
-
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, pk):
-        try:
-            reset_req = PasswordResetRequest.objects.select_related("user").get(pk=pk, status=PasswordResetRequest.Status.PENDING)
-        except PasswordResetRequest.DoesNotExist:
-            return Response({"detail": "Request not found or already processed."}, status=status.HTTP_404_NOT_FOUND)
-
-        shared_teams = TeamMembership.objects.filter(
-            team__memberships__user=reset_req.user,
-            user=request.user,
-            role__in=["manager", "owner"],
-        ).exists()
-        if not shared_teams:
-            return Response({"detail": "Not authorised to reject this request."}, status=status.HTTP_403_FORBIDDEN)
-
-        PasswordResetRequest.objects.filter(pk=pk).update(
-            status=PasswordResetRequest.Status.REJECTED,
-            approved_by=request.user,
-            approved_at=timezone.now(),
+        _send_account_email(
+            "Reset your Stacks Monitor password",
+            (
+                "Hi,\n\n"
+                "Someone asked to reset the password for your Stacks Monitor account.\n\n"
+                f"Set a new password (link valid for 1 hour, works once):\n{reset_url}\n\n"
+                "If this wasn't you, ignore this email. Your password stays the same.\n"
+            ),
+            user.email,
         )
-        return Response({"detail": "Request rejected."})
+        return Response({"detail": self.GENERIC_REPLY})
 
 
 class PasswordResetConfirmView(APIView):

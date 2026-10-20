@@ -36,7 +36,12 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
         return qs
 
     def perform_create(self, serializer):
-        monitor = serializer.save(team=self.request.user.active_team)
+        from apps.accounts.plans import ensure_can_add, ensure_check_interval
+
+        team = self.request.user.active_team
+        ensure_can_add(team, "monitors")
+        ensure_check_interval(team, serializer.validated_data.get("check_interval"))
+        monitor = serializer.save(team=team)
         AuditService.log_request(
             self.request, ActivityLog.Action.MONITOR_CREATED,
             description=f"Created {monitor.monitor_type} monitor '{monitor.name}'",
@@ -168,6 +173,12 @@ class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def perform_update(self, serializer):
+        from apps.accounts.plans import ensure_check_interval
+
+        if "check_interval" in serializer.validated_data:
+            ensure_check_interval(
+                self.request.user.active_team, serializer.validated_data["check_interval"]
+            )
         monitor = serializer.save()
         AuditService.log_request(
             self.request, ActivityLog.Action.MONITOR_UPDATED,

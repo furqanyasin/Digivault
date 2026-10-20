@@ -254,7 +254,12 @@ def _auto_create_website(client, request) -> None:
     if not domain:
         return
 
+    from apps.accounts.plans import can_add
+
     existing = Website.objects.filter(team=client.team, domain__iexact=domain).first()
+    if existing is None and not can_add(client.team, "websites"):
+        # The client is saved either way; the plan only caps monitored sites.
+        return
     if existing is not None:
         if existing.client_id is None:
             existing.client = client

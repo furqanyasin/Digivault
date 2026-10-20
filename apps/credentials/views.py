@@ -2342,9 +2342,13 @@ class VaultFolderMembersView(APIView):
             return None, Response(status=status.HTTP_404_NOT_FOUND)
         return folder, None
 
-    def post(self, request, pk):
+    # One view serves both routes, so each method refuses the other's shape
+    # with a 405 instead of crashing on the missing or extra argument.
+    def post(self, request, pk, user_id=None):
         from apps.accounts.models import TeamMembership
 
+        if user_id is not None:
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
         folder, err = self._folder(request, pk)
         if err:
             return err
@@ -2381,7 +2385,9 @@ class VaultFolderMembersView(APIView):
             )
         return Response({"shared_with": len(targets)})
 
-    def delete(self, request, pk, user_id):
+    def delete(self, request, pk, user_id=None):
+        if user_id is None:
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
         folder, err = self._folder(request, pk)
         if err:
             return err

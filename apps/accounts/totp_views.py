@@ -25,6 +25,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.common.client_ip import client_ip
+from apps.common.permissions import ROLE_LEVELS
 from apps.credentials.encryption import decrypt, encrypt
 
 
@@ -76,7 +77,10 @@ class AuthRateThrottle(AnonRateThrottle):
 
 
 def _issue_tokens(user) -> dict:
+    from django.contrib.auth.models import update_last_login
+
     refresh = RefreshToken.for_user(user)
+    update_last_login(None, user)
     return {"access": str(refresh.access_token), "refresh": str(refresh)}
 
 
@@ -210,7 +214,6 @@ class TotpDisableView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        from apps.accounts.models import User
         target_id = request.data.get("user_id")
 
         if target_id and str(target_id) != str(request.user.pk):
@@ -225,10 +228,29 @@ class TotpDisableView(APIView):
                 return Response({"detail": "Not authorised."}, status=status.HTTP_403_FORBIDDEN)
             if me.role not in ("manager", "owner"):
                 return Response({"detail": "Manager or owner required."}, status=status.HTTP_403_FORBIDDEN)
-            try:
-                target = User.objects.get(pk=target_id)
-            except User.DoesNotExist:
+            # The target must be in this team. Looking the user up globally let
+            # a manager of any team switch off 2FA on any account by id.
+            target_membership = (
+                TeamMembership.objects.select_related("user")
+                .filter(team=team, user_id=target_id)
+                .first()
+            )
+            if target_membership is None:
                 return Response(status=status.HTTP_404_NOT_FOUND)
+            # A manager resets only people below them; an owner resets anyone
+            # except the primary owner, who holds the team.
+            my_level = ROLE_LEVELS.get(me.role, 0)
+            target_level = ROLE_LEVELS.get(target_membership.role, 0)
+            allowed = (
+                target_level < my_level
+                or (me.role == "owner" and target_membership.user_id != team.owner_id)
+            )
+            if not allowed:
+                return Response(
+                    {"detail": "You cannot reset 2FA for this member."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            target = target_membership.user
         else:
             target = request.user
 
@@ -280,6 +302,15 @@ class TotpStatusView(APIView):
             "totp_enabled": request.user.totp_enabled,
             "backup_codes_count": len(request.user.totp_backup_codes),
         })
+
+
+def _two_factor_required(user) -> bool:
+    """2FA setup is forced for the platform owner and for anyone in a team that
+    requires it. Any team, not only the active one, or a member of the
+    internal team could dodge it by switching to a free workspace they made."""
+    if user.is_superuser or user.is_staff:
+        return True
+    return user.memberships.filter(team__require_2fa=True).exists()
 
 
 class LoginView(APIView):
@@ -366,8 +397,19 @@ class LoginView(APIView):
 
             return Response({"requires_2fa": True, "session_key": session_key})
 
-        # 2FA mandatory — not yet set up
-        return Response({"requires_setup": True, "session_key": session_key})
+        if _two_factor_required(user):
+            return Response({"requires_setup": True, "session_key": session_key})
+
+        # 2FA is optional for this account (self-signup workspaces). The
+        # dashboard shows a daily reminder until it is turned on.
+        cache.delete(f"preauth:{session_key}")
+        AuditService.log(
+            actor=user, action=ActivityLog.Action.AUTH_LOGIN,
+            team=user.active_team,
+            description="Logged in (2FA not set up)",
+            ip_address=_get_ip(request),
+        )
+        return Response(_issue_tokens(user))
 
 
 class PasswordTokenObtainPairView(TokenObtainPairView):
@@ -496,6 +538,11 @@ class FirstPasswordView(APIView):
         user.set_password(new_password)
         user.must_change_password = False
         user.save(update_fields=["password", "must_change_password"])
+
+        if not _two_factor_required(user):
+            # 2FA is optional here, so the new password is the whole sign-in.
+            cache.delete(f"preauth:{session_key}")
+            return Response({"detail": "Password set.", **_issue_tokens(user)})
 
         # Refresh the pre-auth window so 2FA setup (same session_key) can proceed.
         cache.set(f"preauth:{session_key}", str(user.pk), timeout=_SESSION_TTL)

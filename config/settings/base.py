@@ -230,6 +230,11 @@ REST_FRAMEWORK = {
         "anon": env("THROTTLE_ANON", default="1000/hour"),
         "user": env("THROTTLE_USER", default="10000/day"),
         "auth": env("THROTTLE_AUTH", default="120/minute"),
+        # Public signup and email verification, per client IP.
+        "signup": env("THROTTLE_SIGNUP", default="20/hour"),
+        # Free website tools on the marketing site (SSL, domain, uptime,
+        # script checks). Each call makes outbound requests, so keep it tight.
+        "public_tools": env("THROTTLE_PUBLIC_TOOLS", default="30/hour"),
         # All three ingest scopes are keyed per site_id, not per IP. They are
         # separate buckets because the endpoints are not comparable: the script
         # ingest posts several times per pageview, while a form submission
@@ -616,6 +621,19 @@ VAULT_ENCRYPTION_KEYS = env.list("VAULT_ENCRYPTION_KEYS", default=[])
 # ------------------------------------------------------------------
 
 FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:3000")
+
+# ------------------------------------------------------------------
+# Plans
+# ------------------------------------------------------------------
+
+# Per-plan caps (websites, monitors, members...) from apps/accounts/plans.py.
+# Off in the test settings, where fixtures build teams of any size; the plan
+# tests switch it back on.
+ENFORCE_PLAN_LIMITS = env.bool("ENFORCE_PLAN_LIMITS", default=True)
+
+# Accounts that run the platform itself: superuser + staff, see /platform and
+# Django admin. Applied on every api start by `make_platform_owner`.
+PLATFORM_OWNER_EMAILS = env.list("PLATFORM_OWNER_EMAILS", default=["furqanyasin1997@gmail.com"])
 
 # ------------------------------------------------------------------
 # Product identity

@@ -19,6 +19,9 @@ class ActivityLog(BaseModel):
         AUTH_2FA_DISABLED = "auth.2fa_disabled", "2FA disabled"
         AUTH_2FA_SETUP_STARTED = "auth.2fa_setup_started", "2FA setup started"
         AUTH_BACKUP_CODES_REGEN = "auth.backup_codes_regenerated", "Backup codes regenerated"
+        AUTH_SIGNUP = "auth.signup", "Signed up"
+        PLATFORM_PLAN_CHANGED = "platform.plan_changed", "Plan changed by platform owner"
+        PLATFORM_USER_UPDATED = "platform.user_updated", "User updated by platform owner"
         # Credentials
         CREDENTIAL_CREATED = "credential.created", "Credential created"
         CREDENTIAL_REVEALED = "credential.revealed", "Credential revealed"

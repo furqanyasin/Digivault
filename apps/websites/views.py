@@ -750,6 +750,9 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         return Response(self.get_serializer(obj).data)
 
     def perform_create(self, serializer):
+        from apps.accounts.plans import ensure_can_add
+
+        ensure_can_add(self.request.user.active_team, "websites")
         website = serializer.save(team=self.request.user.active_team)
         AuditService.log_request(
             self.request, ActivityLog.Action.WEBSITE_CREATED,
