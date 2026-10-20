@@ -47,6 +47,10 @@ class User(AbstractUser):
     # password change on first login before any other access.
     must_change_password = models.BooleanField(default=False)
 
+    # When the user last clicked "Remind me tomorrow" on the enable-2FA banner.
+    # The banner shows again 24 hours later until 2FA is on.
+    twofa_reminder_dismissed_at = models.DateTimeField(null=True, blank=True)
+
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []  # email is already required by USERNAME_FIELD
 
@@ -70,10 +74,14 @@ class Team(BaseModel):
     """
 
     class Plan(models.TextChoices):
+        # Self-signup workspaces start here. Limits live in apps/accounts/plans.py.
+        FREE = "free", "Free"
         STARTER = "starter", "Starter"
         AGENCY = "agency", "Agency"
         AGENCY_PRO = "agency_pro", "Agency Pro"
         ENTERPRISE = "enterprise", "Enterprise"
+        # The original agency team. No limits, never shown on the pricing page.
+        INTERNAL = "internal", "Internal"
 
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=120, unique=True, blank=True)
@@ -83,10 +91,14 @@ class Team(BaseModel):
         related_name="owned_teams",
     )
     plan = models.CharField(
-        max_length=20, choices=Plan.choices, default=Plan.STARTER
+        max_length=20, choices=Plan.choices, default=Plan.FREE
     )
+    # When on, every member must set up 2FA before the dashboard opens. Off for
+    # self-signup workspaces (they get a daily reminder instead); on for the
+    # internal team, whose vault holds every client's logins.
+    require_2fa = models.BooleanField(default=False)
     _clickup_api_token = models.BinaryField(blank=True, editable=False)
-    # ClickUp List that Digivault opens issue tasks in. Blank means the team
+    # ClickUp List that Stacks Monitor opens issue tasks in. Blank means the team
     # has not wired that up yet, and reporting stays a no-op.
     clickup_list_id = models.CharField(max_length=64, blank=True, default="")
     # ClickUp Chat channel the whole web team sits in — where website problems
@@ -284,6 +296,15 @@ class TeamInvitation(BaseModel):
         choices=TeamMembership.Role.choices,
         default=TeamMembership.Role.DEVELOPER,
     )
+    # Credential-access group the member joins on acceptance. Set only by an
+    # owner (see _resolve_sub_team); always a group of `team`.
+    sub_team = models.ForeignKey(
+        SubTeam,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     token = models.CharField(max_length=64, unique=True, blank=True)
     accepted = models.BooleanField(default=False)
     accepted_at = models.DateTimeField(null=True, blank=True)
@@ -300,3 +321,28 @@ class TeamInvitation(BaseModel):
 
     def __str__(self) -> str:
         return f"Invitation for {self.email} to {self.team.name}"
+
+
+class PendingSignup(BaseModel):
+    """A signup waiting for its email to be confirmed.
+
+    No User row exists until the link is clicked, so an unconfirmed signup
+    cannot squat an address, and a stranger typing someone else's email
+    creates nothing they can log in to. Only the hash of the token is stored.
+    """
+
+    email = models.EmailField(db_index=True)
+    first_name = models.CharField(max_length=150, blank=True, default="")
+    last_name = models.CharField(max_length=150, blank=True, default="")
+    workspace_name = models.CharField(max_length=100, blank=True, default="")
+    # Output of make_password(), never the raw password.
+    password_hash = models.CharField(max_length=256)
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"PendingSignup({self.email})"

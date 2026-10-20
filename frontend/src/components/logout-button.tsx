@@ -12,7 +12,7 @@ export function LogoutButton() {
     // Tell the browser extension to drop its stored tokens too, so signing out
     // of the portal signs out of the extension. No-op if it isn't installed.
     try {
-      window.postMessage({ type: "DIGIVAULT_EXTENSION_LOGOUT" }, window.location.origin);
+      window.postMessage({ type: "STACKSMONITOR_EXTENSION_LOGOUT" }, window.location.origin);
     } catch {
       /* best-effort */
     }

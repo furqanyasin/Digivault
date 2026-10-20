@@ -37,7 +37,7 @@ class ClientSerializer(BaseModelSerializer):
             "hosting_renewal_date", "domain_renewal_date",
             "domain_access_location", "website_access_level",
             "departments", "running_ppc_ads",
-            "website_built_by_digi", "website_maintained_by_digi",
+            "website_built_by_us", "website_maintained_by_us",
             "notes", "notify_desktop", "notify_email",
             "assigned_to", "monthly_revenue",
             "assigned_websites_count",
@@ -69,8 +69,8 @@ class ClientLookupSerializer(serializers.Serializer):
     domain_access_location = serializers.CharField()
     website_access_level = serializers.CharField()
     running_ppc_ads = serializers.CharField()
-    website_built_by_digi = serializers.CharField()
-    website_maintained_by_digi = serializers.CharField()
+    website_built_by_us = serializers.CharField()
+    website_maintained_by_us = serializers.CharField()
     hosting_renewal_date = serializers.DateField(allow_null=True)
     domain_renewal_date = serializers.DateField(allow_null=True)
     notes = serializers.CharField()

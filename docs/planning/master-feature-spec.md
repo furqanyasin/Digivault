@@ -1,16 +1,16 @@
-# DigiVault / Digilatics WebOps Platform
+# Stacks Monitor WebOps Platform
 
 ## Master Feature Specification
 
 Version: 1.0  
-Prepared For: Digilatics Internal Team  
+Prepared For: Stacks Monitor  
 Platform Type: Agency Operating System / Website Operations Intelligence Platform
 
 ---
 
 # 1. Platform Vision
 
-DigiVault is not just a monitoring dashboard.
+Stacks Monitor is not just a monitoring dashboard.
 
 The platform should evolve into a full:
 
@@ -1400,7 +1400,7 @@ Escalate incidents automatically based on severity.
 
 # 27. Final Strategic Positioning
 
-DigiVault should position itself as:
+Stacks Monitor should position itself as:
 
 # “The Operating System for Website Agencies”
 

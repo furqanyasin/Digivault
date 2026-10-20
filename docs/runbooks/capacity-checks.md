@@ -58,11 +58,11 @@ bloat behind and competes with live traffic. Monthly partitions turn the purge
 into an instant `DROP` ("Phase 4").
 
 ```bash
-$C exec db psql -U digivault -c "
+$C exec db psql -U stacksmonitor -c "
   select relname, pg_size_pretty(pg_total_relation_size(relid)) as size
   from pg_statio_user_tables order by pg_total_relation_size(relid) desc limit 8;"
 
-$C exec db psql -U digivault -c "
+$C exec db psql -U stacksmonitor -c "
   select date(captured_at) as day, count(*) from scripts_scriptsnapshot
   where captured_at > now() - interval '7 days' group by 1 order by 1;"
 ```

@@ -115,7 +115,7 @@ export function WpConnectCard({ website }: { website: Website }) {
           every 5 minutes it reports the site&rsquo;s uptime to us from the site itself. That report keeps
           uptime working when the host&rsquo;s firewall (SiteGround and similar) blocks our monitor, with no
           IP to allowlist. Paste it into WPCode or Code Snippets as a PHP snippet,{" "}
-          <strong className="text-foreground">replacing</strong> any older Digivault snippet.
+          <strong className="text-foreground">replacing</strong> any older Stacks Monitor snippet.
         </p>
 
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">

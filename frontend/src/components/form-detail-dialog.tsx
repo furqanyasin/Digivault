@@ -126,7 +126,7 @@ function Destination({ form, embedded }: { form: FormRow; embedded: boolean }) {
             Netlify all keep the address in the site&apos;s admin, where no in-page
             script can reach it. On WordPress, save a credential for this site with
             an{" "}
-            <span className="font-medium">Application Password</span> and Digivault
+            <span className="font-medium">Application Password</span> and Stacks Monitor
             will read the real recipient from Elementor and Gravity Forms through
             the site&apos;s own API.
           </>

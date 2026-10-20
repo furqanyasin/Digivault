@@ -39,7 +39,7 @@ def _hsts(value: str | None, headers: dict):
 
 def _csp(value: str | None, headers: dict):
     if not value:
-        # Digivault's own fix guide tells operators to deploy a starter policy in
+        # Stacks Monitor's own fix guide tells operators to deploy a starter policy in
         # Report-Only first and read the violation reports. Grading that as a flat
         # failure would contradict our own advice, so it earns partial credit —
         # the site is mid-rollout, not unprotected by neglect.

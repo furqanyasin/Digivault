@@ -58,7 +58,7 @@ class TestBuilder:
     def test_render_csv_has_sections(self, report_website):
         data = ReportBuilder.gather(report_website, PERIOD_START, PERIOD_END)
         csv_text = ReportBuilder.render_csv(data)
-        assert "Digivault Report" in csv_text
+        assert "Stacks Monitor Report" in csv_text
         assert "Recommendations" in csv_text
         assert "report.io" in csv_text
 

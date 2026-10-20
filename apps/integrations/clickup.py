@@ -22,7 +22,7 @@ BASE_URL = "https://api.clickup.com/api"
 DEFAULT_TIMEOUT = 10
 
 # Matches a ClickUp Chat channel link, e.g.
-# https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438
+# https://acme.clickup.com/25658037/chat/r/rf0nn-49438
 _CHAT_URL_RE = re.compile(r"clickup\.com/(\d+)/chat/(?:r/)?([^/?#]+)", re.I)
 
 
@@ -120,7 +120,7 @@ class ClickUpClient:
     def workspaces(self) -> list:
         """The workspaces (ClickUp calls them "teams") this token can see.
 
-        Each carries a `members` list, which is how a Digivault user is matched
+        Each carries a `members` list, which is how a Stacks Monitor user is matched
         to a ClickUp user id.
         """
         return self._request("GET", "team").get("teams", [])
@@ -182,8 +182,3 @@ class ClickUpClient:
             json=body,
             version="v3",
         )
-
-    def list_custom_fields(self, list_id: str) -> list:
-        """Field definitions for a list — needed to map ClickUp columns onto
-        Client fields when the CSM sync lands."""
-        return self._request("GET", f"list/{list_id}/field").get("fields", [])

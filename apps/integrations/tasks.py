@@ -1,4 +1,4 @@
-"""Reporting Digivault issues into ClickUp as tasks.
+"""Reporting Stacks Monitor issues into ClickUp as tasks.
 
 Give `report_issue` a stable subject and it either opens a task or adds a
 comment to the one already open for that subject.

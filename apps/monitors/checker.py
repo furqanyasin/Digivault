@@ -22,6 +22,8 @@ import urllib.error
 from datetime import datetime, timezone as dt_timezone
 from urllib.parse import urlsplit
 
+from django.conf import settings
+
 from apps.common import outbound
 from apps.common.ssrf import BlockedURLError
 
@@ -37,7 +39,7 @@ _CLOUDFLARE_ORIGIN_ERRORS = {
     526: "origin server has an invalid certificate",
 }
 
-_ALLOWLIST_PAGE = "https://digivault.digilatics.co/bot"
+_ALLOWLIST_PAGE = settings.BOT_INFO_URL
 
 
 # Where each vendor's allowlist lives, because "allowlist our monitor" is a dead
@@ -54,7 +56,7 @@ _VENDOR_FIX = {
     ),
     "Cloudflare": (
         "In Cloudflare, allowlist our monitor with a WAF custom rule that skips "
-        "bot protection for user-agent \"Digivault-Monitor\""
+        f"bot protection for user-agent \"{outbound.ALLOWLIST_TOKEN}\""
     ),
     "Wordfence": "In Wordfence → Firewall → Blocking, allowlist our monitor's IP",
     "Sucuri": "In the Sucuri dashboard → Access Control, allowlist our monitor's IP",

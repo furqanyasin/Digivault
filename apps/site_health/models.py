@@ -263,7 +263,7 @@ class FileManifest(BaseModel):
     """One WordPress file walk: path -> md5 across wp-content.
 
     Stored from Phase 0, diffed from Phase 3. The snippet keeps no baseline of
-    its own — Digivault holds it and diffs. MalCare markets "we don't bloat your
+    its own — Stacks Monitor holds it and diffs. MalCare markets "we don't bloat your
     database", and keeping a 50k-row checksum table on the client would be doing
     the thing they market against; the diff also belongs in Python, where it can
     be tested as a pure function beside DiffEngine.

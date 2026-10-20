@@ -143,6 +143,11 @@ export interface User {
   last_name: string;
   timezone: string;
   active_team: string | null;
+  totp_enabled?: boolean;
+  // Platform owner (superuser): sees every workspace on /platform.
+  is_platform_admin?: boolean;
+  // True until 2FA is on, except for 24h after "Remind me tomorrow".
+  show_2fa_reminder?: boolean;
   created_at: string;
 }
 
@@ -151,6 +156,7 @@ export interface Team {
   name: string;
   slug: string;
   plan: string;
+  require_2fa?: boolean;
   my_role?: string | null;
   // Effective feature keys for the requesting user — every role except owner is
   // gated by these, not just "custom". Drives nav and dashboard gating.
@@ -801,57 +807,3 @@ export interface PublicStatusPage {
   maintenance: PublicMaintenance[];
   updated_at: string;
 }
-
-export const authApi = {
-  refresh: (refresh: string) =>
-    api.post<{ access: string }>("/api/v1/auth/token/refresh/", { refresh }),
-
-  me: (token: string) => api.get<User>("/api/v1/auth/me/", token),
-};
-
-export const websitesApi = {
-  list: (token: string) => api.getAll<Website>("/api/v1/websites/", token),
-  create: (token: string, data: Partial<Website>) =>
-    api.post<Website>("/api/v1/websites/", data, token),
-  get: (token: string, id: string) =>
-    api.get<Website>(`/api/v1/websites/${id}/`, token),
-  update: (token: string, id: string, data: Partial<Website>) =>
-    api.patch<Website>(`/api/v1/websites/${id}/`, data, token),
-  delete: (token: string, id: string) =>
-    api.delete(`/api/v1/websites/${id}/`, token),
-};
-
-export const scriptsApi = {
-  list: (token: string, websiteId: string) =>
-    api.getAll<Script>(`/api/v1/websites/${websiteId}/scripts/`, token),
-  changes: (token: string, scriptId: string) =>
-    api.getAll<ScriptChange>(`/api/v1/scripts/${scriptId}/changes/`, token),
-  acknowledge: (token: string, changeId: string) =>
-    api.post(`/api/v1/changes/${changeId}/acknowledge/`, {}, token),
-};
-
-export const alertsApi = {
-  rules: (token: string) => api.getAll<AlertRule>("/api/v1/alert-rules/", token),
-  createRule: (token: string, data: Partial<AlertRule>) =>
-    api.post<AlertRule>("/api/v1/alert-rules/", data, token),
-  notifications: (token: string) =>
-    api.getAll<Notification>("/api/v1/notifications/", token),
-};
-
-export const statusPagesApi = {
-  list: (token: string) => api.getAll<StatusPage>("/api/v1/status-pages/", token),
-  create: (token: string, data: { name: string; slug: string; description?: string; allow_indexing?: boolean }) =>
-    api.post<StatusPage>("/api/v1/status-pages/", data, token),
-  get: (token: string, id: string) =>
-    api.get<StatusPage>(`/api/v1/status-pages/${id}/`, token),
-  update: (token: string, id: string, data: Partial<StatusPage>) =>
-    api.patch<StatusPage>(`/api/v1/status-pages/${id}/`, data, token),
-  delete: (token: string, id: string) =>
-    api.delete(`/api/v1/status-pages/${id}/`, token),
-  listMonitors: (token: string, pageId: string) =>
-    api.getAll<StatusPageMonitor>(`/api/v1/status-pages/${pageId}/monitors/`, token),
-  addMonitor: (token: string, pageId: string, data: { monitor_id: string; display_name?: string; display_order?: number }) =>
-    api.post<StatusPageMonitor>(`/api/v1/status-pages/${pageId}/monitors/`, data, token),
-  removeMonitor: (token: string, pageId: string, entryId: string) =>
-    api.delete(`/api/v1/status-pages/${pageId}/monitors/${entryId}/`, token),
-};

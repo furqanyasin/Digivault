@@ -22,7 +22,7 @@ from django.utils import timezone
 
 # Written into Website.tags (and mirrored on the client's notes) so --purge can
 # find exactly what this command created.
-DEMO_TAG = "digivault-demo"
+DEMO_TAG = "stacksmonitor-demo"
 
 # name, domain, platform, health shape
 SITES = [
@@ -220,10 +220,10 @@ class Command(BaseCommand):
                     "hosting_platform": ["wpengine", "siteground", "cloudways", "godaddy"][idx % 4],
                     "hosting_renewal_date": (now + timedelta(days=[18, 40, 75, 120][idx % 4])).date(),
                     "domain_renewal_date": (now + timedelta(days=[25, 58, 88, 200][idx % 4])).date(),
-                    "domain_access_location": "Digilatics GoDaddy account",
+                    "domain_access_location": "Agency GoDaddy account",
                     "website_access_level": ["full_admin", "delegate", "none", "not_working"][idx % 4],
-                    "website_built_by_digi": "YES" if idx % 3 else "NO",
-                    "website_maintained_by_digi": "YES" if idx % 2 else "NO",
+                    "website_built_by_us": "YES" if idx % 3 else "NO",
+                    "website_maintained_by_us": "YES" if idx % 2 else "NO",
                     "running_ppc_ads": ["yes", "no", ""][idx % 3],
                     # The purge marker. Kept in notes because Client has no tags.
                     "notes": f"Demo record created by seed_demo_data ({DEMO_TAG}).",

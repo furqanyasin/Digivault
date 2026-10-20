@@ -1,7 +1,7 @@
 """A single failed request must not become an outage.
 
 UptimeRobot re-checks up to three times, 10-20s apart, before marking a monitor
-down. Digivault checked once, and auto-provisioned monitors alerted on that one
+down. Stacks Monitor checked once, and auto-provisioned monitors alerted on that one
 result. One 403, one TCP reset or one slow DNS lookup was a page-out.
 """
 

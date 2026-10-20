@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_CHECKS_PER_TICK = 8
 
 # A failing request is a suspicion, not evidence. UptimeRobot re-checks up to
-# three times, 10-20s apart, before marking a monitor down; Digivault checked
+# three times, 10-20s apart, before marking a monitor down; Stacks Monitor checked
 # once, and auto-provisioned monitors alerted on that single result. Waiting a
 # whole check_interval to see the failure again is useless — 15 minutes of
 # silence before confirming an outage is worse than a false alarm — so the
@@ -131,7 +131,7 @@ def check_single_monitor(self, monitor_id: str, attempt: int = 1):
     transition out of is_alerting, and no duplicates while a monitor stays down.
     """
     from apps.monitors.checker import run_check
-    from apps.monitors.models import Monitor, MonitorCheck
+    from apps.monitors.models import Monitor
 
     try:
         monitor = Monitor.objects.get(pk=monitor_id)

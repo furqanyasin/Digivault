@@ -28,10 +28,10 @@ def _alert_message(alert) -> tuple[str, str]:
 
     label = website.name or website.domain
     days_txt = f"{days} days" if days is not None else f"{alert.days_until_expiry} days"
-    subject = f"[Digivault] {kind} for {label} expires in {days_txt}"
+    subject = f"[Stacks Monitor] {kind} for {label} expires in {days_txt}"
     body = (
         f"{kind} for {label} ({website.domain}) expires in {days_txt}.\n\n"
-        "Log in to Digivault to review and renew before it lapses."
+        "Log in to Stacks Monitor to review and renew before it lapses."
     )
     return subject, body
 
@@ -41,7 +41,7 @@ def _send_email(channel, subject: str, body: str) -> None:
     if not addresses:
         logger.warning("Email channel %s has no addresses", channel.id)
         return
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
+    from_email = settings.DEFAULT_FROM_EMAIL
     send_mail(subject, body, from_email, addresses, fail_silently=False)
 
 

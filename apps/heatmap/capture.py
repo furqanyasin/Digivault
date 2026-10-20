@@ -6,7 +6,7 @@ frame the live site, which fails for most origins (``X-Frame-Options`` / CSP
 against. Capturing the page once at a known width and height is what makes a
 Hotjar-style overlay possible at all.
 
-**This is the one place Digivault drives a real browser at a customer origin,
+**This is the one place Stacks Monitor drives a real browser at a customer origin,
 and that needs care.** ``apps/common/outbound.py`` exists because every
 server-side fetch leaves from one public IP, and the rule there is: one honest
 user-agent, a shared per-host budget, and back off when told to. A headless
@@ -16,7 +16,7 @@ pulls every image, font and script on the page. So this module:
 * takes a token from the **same** per-host bucket as the monitor and the SEO
   checker, so a capture sweep cannot eat the monitoring budget,
 * honours the same cooldowns — a host that just 429'd is not screenshotted,
-* sets the **Digivault-Monitor user-agent**, not Chrome's. The TLS fingerprint
+* sets **our monitor's user-agent**, not Chrome's. The TLS fingerprint
   really is Chrome's here (it *is* Chrome), which is exactly why the UA must
   stay honest: we want to be allowlistable, not to look like a scraper,
 * re-applies the SSRF guard to the URL before navigating.

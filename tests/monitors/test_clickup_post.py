@@ -36,7 +36,7 @@ def session(monkeypatch):
 
 
 def test_parse_clickup_chat_link():
-    ws, ch = parse_clickup_chat("https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438")
+    ws, ch = parse_clickup_chat("https://acme.clickup.com/25658037/chat/r/rf0nn-49438")
     assert ws == "25658037"
     assert ch == "rf0nn-49438"
     assert parse_clickup_chat("") == (None, None)

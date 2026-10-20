@@ -18,23 +18,6 @@ class Client(BaseModel):
         PAUSED = "paused", "Paused"
         OFFBOARDED = "offboarded", "Offboarded"
 
-    class HostingPlatform(models.TextChoices):
-        WPENGINE = "wpengine", "WPEngine"
-        SITEGROUND = "siteground", "SiteGround"
-        CLOUDWAYS = "cloudways", "Cloudways"
-        BLUEHOST = "bluehost", "Bluehost"
-        GODADDY = "godaddy", "GoDaddy"
-        SQUARESPACE = "squarespace", "Squarespace"
-        WIXCOM = "wix", "Wix"
-        SHOPIFY = "shopify", "Shopify"
-        OTHER = "other", "Other"
-        UNKNOWN = "", "Unknown"
-
-    class PpcStatus(models.TextChoices):
-        YES = "yes", "Yes"
-        NO = "no", "No"
-        UNKNOWN = "", "Unknown"
-
     class Tier(models.TextChoices):
         GOLD = "gold", "Gold"
         SILVER = "silver", "Silver"
@@ -81,8 +64,8 @@ class Client(BaseModel):
     # Subset of DEPARTMENTS, e.g. ["seo", "ads"].
     departments = models.JSONField(default=list, blank=True)
     running_ppc_ads = models.CharField(max_length=10, blank=True, default="")
-    website_built_by_digi = models.CharField(max_length=50, blank=True, default="")
-    website_maintained_by_digi = models.CharField(max_length=50, blank=True, default="")
+    website_built_by_us = models.CharField(max_length=50, blank=True, default="")
+    website_maintained_by_us = models.CharField(max_length=50, blank=True, default="")
     notes = models.TextField(blank=True)
 
     # Per-client notification toggles, honored by alert delivery.

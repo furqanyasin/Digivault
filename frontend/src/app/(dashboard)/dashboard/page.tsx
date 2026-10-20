@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import { healthBand } from "@/lib/chart-theme";
 import type { Website, ScriptChange, Monitor, User } from "@/lib/api";
 import { fmtDateTime, fmtRelative } from "@/lib/utils";
+import { INTERNAL_DOMAINS } from "@/lib/brand";
 
 interface LogEntry {
   id: string;
@@ -178,9 +179,8 @@ export default async function DashboardPage() {
   const isManager = isOwner || role === "manager";
   const can = (feature: string) => isOwner || features.includes(feature);
 
-  // Digivault's own infra is hidden from the Change Log and can never be
+  // Stacks Monitor's own infra is hidden from the Change Log and can never be
   // acknowledged, so it must not be counted as an alert either.
-  const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
   const isInternal = (c: ScriptChange) => {
     const hit = (s?: string) => s && INTERNAL_DOMAINS.some((d) => s.includes(d));
     return hit(c.script?.src_url) || hit(c.description);

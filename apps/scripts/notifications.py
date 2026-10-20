@@ -61,13 +61,13 @@ def _fields(error) -> list[tuple[str, str]]:
 def _email_message(error) -> tuple[str, str]:
     website = error.website
     label = website.name or website.domain
-    subject = f"[Digivault] Form submission failing on {website.domain}"
+    subject = f"[Stacks Monitor] Form submission failing on {website.domain}"
     detail = "\n".join(f"{name}: {value}" for name, value in _fields(error) if str(value).strip())
     body = (
         f"A form on {label} ({website.domain}) is failing to submit.\n\n"
         f"{detail}\n\n"
         "This is a server-side failure reported by visitors, not a validation "
-        "message. Log in to Digivault to review the form's error history."
+        "message. Log in to Stacks Monitor to review the form's error history."
     )
     return subject, body
 
@@ -119,7 +119,7 @@ def _send_email(channel, error) -> None:
         logger.warning("Email channel %s has no addresses", channel.id)
         return
     subject, body = _email_message(error)
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
+    from_email = settings.DEFAULT_FROM_EMAIL
     send_mail(subject, body, from_email, addresses, fail_silently=False)
 
 

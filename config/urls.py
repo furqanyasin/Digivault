@@ -20,6 +20,10 @@ urlpatterns = [
     path("api/ready/", ReadyView.as_view(), name="ready"),
     # Auth + teams
     path("api/v1/auth/", include("apps.accounts.urls")),
+    # Platform owner (superuser) view across every workspace
+    path("api/v1/platform/", include("apps.accounts.platform_urls")),
+    # Free website tools on the marketing site, no login
+    path("api/v1/public/tools/", include("apps.common.public_tools_urls")),
     # Websites CRUD
     path("api/v1/", include(website_urlpatterns)),
     # Scripts, changes, acknowledge

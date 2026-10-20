@@ -100,11 +100,11 @@ def create_request(user, credential: Credential, reason: str, hours: int | None)
         requested_hours=hours,
     )
     _mail(
-        f"[Digivault] {_name(user)} is asking for '{credential.label}'",
+        f"[Stacks Monitor] {_name(user)} is asking for '{credential.label}'",
         f"{_name(user)} ({user.email}) asked for access to '{credential.label}' "
         f"{_duration_label(hours)}.\n\n"
         f"Reason: {req.reason or '(none given)'}\n\n"
-        "Approve or deny it on the Credentials page in Digivault.",
+        "Approve or deny it on the Credentials page in Stacks Monitor.",
         [e for e in _approver_emails(credential) if e != user.email],
     )
     return req, True
@@ -168,7 +168,7 @@ def decide_request(
         f"approved {_duration_label(hours)}" if approve else "denied"
     )
     _mail(
-        f"[Digivault] Your request for '{req.credential.label}' was {'approved' if approve else 'denied'}",
+        f"[Stacks Monitor] Your request for '{req.credential.label}' was {'approved' if approve else 'denied'}",
         f"{_name(approver)} {verdict} your request for '{req.credential.label}'."
         + (f"\n\nNote: {req.decision_note}" if req.decision_note else ""),
         [req.requester.email],

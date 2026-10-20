@@ -7,6 +7,7 @@ import { CreateAlertRuleDialog } from "@/components/create-alert-rule-dialog";
 import { AlertRulesClient } from "@/components/alert-rules-client";
 import { AlertsFeedClient, type FeedChange } from "@/components/alerts-feed-client";
 import { AlertHistoryClient } from "@/components/alert-history-client";
+import { INTERNAL_DOMAINS } from "@/lib/brand";
 
 // A change tagged with the website it belongs to (added during fetch).
 type ChangeWithSite = ScriptChange & { _websiteName: string; _websiteId: string };
@@ -43,7 +44,6 @@ export default async function AlertsPage() {
   const token = await getAccessToken();
   const { notifications, rules, allChanges, websites } = await getData(token ?? "");
 
-  const INTERNAL_DOMAINS = ["digilaticsvps", "digivault.digilatics.co", "cdn.digivault.digilatics.co"];
   function isInternal(c: ChangeWithSite) {
     const hit = (s?: string) => !!s && INTERNAL_DOMAINS.some((d) => s.includes(d));
     return hit(c.script?.src_url) || hit(c.description);

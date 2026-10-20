@@ -5,7 +5,7 @@ from apps.common.models import BaseModel
 
 
 class ClickUpTaskLink(BaseModel):
-    """Links a Digivault issue to the ClickUp task that reports it.
+    """Links a Stacks Monitor issue to the ClickUp task that reports it.
 
     `subject` is a stable key for the *issue*, not the event — e.g.
     "monitor:<uuid>:down". A monitor that stays down keeps firing, and without
@@ -44,7 +44,7 @@ class ClickUpTaskLink(BaseModel):
 
 
 class ClickUpMemberLink(BaseModel):
-    """Maps a Digivault user to their ClickUp user id, per team.
+    """Maps a Stacks Monitor user to their ClickUp user id, per team.
 
     Email is the only join key ClickUp exposes, and agency people routinely have
     a different address in each system — so this is a stored mapping that can be

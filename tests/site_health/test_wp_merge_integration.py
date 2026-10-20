@@ -28,9 +28,9 @@ def post(client, website, payload):
         "/api/wp-activity/",
         data=body,
         content_type="application/json",
-        HTTP_X_DIGIVAULT_SITE=website.site_id,
-        HTTP_X_DIGIVAULT_TIMESTAMP=ts,
-        HTTP_X_DIGIVAULT_SIGNATURE=sig,
+        HTTP_X_STACKSMONITOR_SITE=website.site_id,
+        HTTP_X_STACKSMONITOR_TIMESTAMP=ts,
+        HTTP_X_STACKSMONITOR_SIGNATURE=sig,
     )
 
 

@@ -1,6 +1,6 @@
 ---
 marp: true
-title: Digivault Security Architecture
+title: Stacks Monitor Security Architecture
 paginate: true
 theme: default
 ---
@@ -12,10 +12,10 @@ Presentable deck. Render with Marp:
 Every claim maps to real code — file references are in the speaker notes.
 -->
 
-# Securing Digivault
+# Securing Stacks Monitor
 ### Defense‑in‑Depth across every layer
 
-Digivault stores agency clients' credentials, hosting access, and site data —
+Stacks Monitor stores agency clients' credentials, hosting access, and site data —
 so security is **layered**, not bolted on. No single control is trusted alone.
 
 **The five layers**
@@ -117,7 +117,7 @@ apps/common/exceptions.py, apps/common/renderers.py -->
 - **Vulnerability scanning** of detected plugins/themes
 - **Third‑party script change detection** — alerts on tampering / supply‑chain risk
 
-> Result: layered controls protect Digivault's **own code and data**, and the
+> Result: layered controls protect Stacks Monitor's **own code and data**, and the
 > platform turns that same rigor outward to harden the client sites it monitors.
 
 <!-- apps/audit/models.py, apps/site_health (headers + vuln scan),

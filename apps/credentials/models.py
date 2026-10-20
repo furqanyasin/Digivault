@@ -68,11 +68,6 @@ def normalize_totp_secret(value: str) -> str:
 
 
 class CredentialQuerySet(models.QuerySet):
-    def stale_passwords(self, older_than_days: int = 180):
-        """Credentials whose password hasn't changed in `older_than_days`."""
-        cutoff = timezone.now() - timezone.timedelta(days=older_than_days)
-        return self.filter(last_password_changed_at__lt=cutoff)
-
     def visible_to(self, user):
         if user is None or not user.is_authenticated:
             return self.none()

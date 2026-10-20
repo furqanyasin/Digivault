@@ -1,4 +1,4 @@
-"""report_issue() — create a ClickUp task for a Digivault issue, once.
+"""report_issue() — create a ClickUp task for a Stacks Monitor issue, once.
 
 The point of the link table is deduplication. A monitor that stays down keeps
 firing; without a link, every repeat opens another task and the board fills

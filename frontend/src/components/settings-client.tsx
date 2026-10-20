@@ -87,7 +87,7 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
       const res = await fetch(`/api/teams/${activeTeamId}/settings/clickup-channel`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Digivault — Web Team" }),
+        body: JSON.stringify({ name: "Stacks Monitor — Web Team" }),
       });
       const data = await res.json();
       const payload = data?.data ?? data;
@@ -162,7 +162,7 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
       toast({
         title: "Saved",
         description: listId.trim()
-          ? "Digivault will open issue tasks in that list."
+          ? "Stacks Monitor will open issue tasks in that list."
           : "Issue list cleared — no tasks will be created.",
       });
     } catch {
@@ -336,13 +336,13 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
             )}
           </div>
 
-          {/* Issue list — where Digivault opens tasks. Separate from the token
+          {/* Issue list — where Stacks Monitor opens tasks. Separate from the token
               because it is a different question: the token says who we are,
               this says where our work goes. */}
           <div className="space-y-2 border-t pt-5">
             <Label htmlFor="clickup-list">Issue list</Label>
             <p className="text-xs text-muted-foreground">
-              Digivault opens a task here when a website has a problem. Open the list in
+              Stacks Monitor opens a task here when a website has a problem. Open the list in
               ClickUp and copy the ID from the URL —{" "}
               <code className="font-mono bg-muted px-1 rounded">app.clickup.com/…/li/901234</code>{" "}
               means the ID is <code className="font-mono bg-muted px-1 rounded">901234</code>.
@@ -372,7 +372,7 @@ export function SettingsClient({ settings, activeTeamId }: Props) {
           <div className="space-y-3 border-t pt-5">
             <Label htmlFor="clickup-chat">Web team channel</Label>
             <p className="text-xs text-muted-foreground">
-              Digivault posts website problems here and addresses the developer assigned to
+              Stacks Monitor posts website problems here and addresses the developer assigned to
               that client. Leave it blank and nothing is posted.
             </p>
 

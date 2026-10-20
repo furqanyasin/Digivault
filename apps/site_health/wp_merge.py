@@ -13,7 +13,7 @@ shows one plugin update twice.
 What is left over is the interesting part. A passive component change still
 unmatched after the window means the site changed with no corresponding admin
 action — an SFTP edit, a WP-CLI run, or a compromise. That is a signal, not
-dedupe residue, and it exists only because Digivault has both detection paths.
+dedupe residue, and it exists only because Stacks Monitor has both detection paths.
 MalCare, having only the hook path, cannot produce it.
 """
 from __future__ import annotations

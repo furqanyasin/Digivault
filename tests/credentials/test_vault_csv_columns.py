@@ -1,7 +1,7 @@
 """The vault CSV carries every writable credential field, plus group access.
 
 The importer historically read a LastPass export's own eight columns, so a
-Digivault export could not round-trip: `credential_type` was re-guessed from the
+Stacks Monitor export could not round-trip: `credential_type` was re-guessed from the
 URL, the website link survived only when the login URL happened to sit on the
 site's own host, and group grants had no column at all. These tests pin the
 native header, the LastPass fallback that still has to work, and the owner-only

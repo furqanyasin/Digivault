@@ -9,7 +9,7 @@ def build():
     return build_wp_sso_snippet(
         SECRET,
         site_id="site_abc",
-        ingest_url="https://digivault.example/api/wp-activity/",
+        ingest_url="https://stacksmonitor.example/api/wp-activity/",
     )
 
 
@@ -41,7 +41,7 @@ def test_secret_site_id_and_url_are_baked_in():
     php = build()
     assert SECRET in php
     assert "site_abc" in php
-    assert "https://digivault.example/api/wp-activity/" in php
+    assert "https://stacksmonitor.example/api/wp-activity/" in php
 
 
 def test_buffer_table_is_capped():

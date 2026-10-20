@@ -2,7 +2,7 @@
 
 `sync_member_links` only runs when a manager opens Settings, and it joins on
 email alone. Anyone hired since the last sync — or anyone whose ClickUp address
-differs from their Digivault one — therefore had no link, which is why alerts
+differs from their Stacks Monitor one — therefore had no link, which is why alerts
 rendered "Managed by: Junaid" as a bare name and left him out of `followers`
 entirely. `resolve_member_link` closes that gap: it looks the person up the
 first time an alert needs them, falls back to name matching, and stores the
@@ -57,7 +57,7 @@ def team_with_dev(db):
     team.clickup_api_token = "pk_test"
     team.save()
     dev = User.objects.create_user(
-        email="junaid@digivault.io", password="Pass123!",
+        email="junaid@example.com", password="Pass123!",
         first_name="Junaid", last_name="Naseem",
     )
     TeamMembership.objects.create(user=dev, team=team, role=TeamMembership.Role.DEVELOPER)
@@ -79,7 +79,7 @@ def test_an_existing_link_is_returned_without_calling_clickup(team_with_dev):
 def test_an_unlinked_member_is_looked_up_by_email_and_stored(team_with_dev):
     """The gap that made alerts say "Junaid" instead of "@junaid"."""
     team, dev = team_with_dev
-    session = WorkspaceSession([_member(42, "JUNAID@digivault.io", "junaid")])
+    session = WorkspaceSession([_member(42, "JUNAID@example.com", "junaid")])
 
     link = resolve_member_link(team, dev, client=_client(session))
 

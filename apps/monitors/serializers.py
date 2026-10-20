@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import serializers
 
 from apps.common.serializers import BaseModelSerializer
@@ -152,7 +153,7 @@ class MonitorSerializer(BaseModelSerializer):
             "reason": "firewall" if (latest.error_message or "").startswith("Blocked by") else "visitors",
             "since": since,
             "consecutive_blocks": max(run, obj.consecutive_blocks),
-            "help_url": "https://digivault.digilatics.co/bot",
+            "help_url": settings.BOT_INFO_URL,
             # Which evidence could stand in for our check (monitors.evidence),
             # so the page can say what would end the block without a ticket.
             "has_heartbeat": bool(website and website.wp_connect_loopback_at),

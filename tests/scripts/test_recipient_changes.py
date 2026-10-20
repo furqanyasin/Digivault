@@ -48,7 +48,7 @@ class TestDescribeRecipientChange:
     def test_first_discovery_is_not_a_change(self):
         """Empty → populated is detection catching up, not an edit to the form.
 
-        Every form Digivault already knows about goes through this transition
+        Every form Stacks Monitor already knows about goes through this transition
         the first time WP Connect answers; announcing it would post once per
         form on the whole estate.
         """

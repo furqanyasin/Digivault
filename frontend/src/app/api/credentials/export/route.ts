@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest) {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": 'attachment; filename="digivault-vault-export.csv"',
+      "Content-Disposition": 'attachment; filename="stacksmonitor-vault-export.csv"',
       "Cache-Control": "no-store, no-cache, must-revalidate, private",
     },
   });

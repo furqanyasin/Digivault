@@ -42,13 +42,13 @@ export default function ForgotPasswordPage() {
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Forgot password</CardTitle>
           <CardDescription>
-            Enter your email and an admin will review your reset request.
+            Enter your email and we&apos;ll send you a link to set a new password.
           </CardDescription>
         </CardHeader>
         {submitted ? (
           <CardContent className="space-y-4">
             <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md p-3">
-              Your request has been submitted. An admin will review it and send you a reset link shortly.
+              If that email has an account, a reset link is on its way. It works once and expires in 1 hour.
             </p>
           </CardContent>
         ) : (
@@ -69,7 +69,7 @@ export default function ForgotPasswordPage() {
             </CardContent>
             <CardFooter className="flex flex-col gap-3">
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? "Submitting…" : "Request reset"}
+                {loading ? "Sending…" : "Send reset link"}
               </Button>
             </CardFooter>
           </form>

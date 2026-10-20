@@ -3,7 +3,7 @@
 **Date:** 2026-07-31
 **Status:** Research + plan. No code written.
 **Goal:** Sync CSM client data from ClickUp automatically, so the CSV round-trip
-stops being the way data gets into Digivault.
+stops being the way data gets into Stacks Monitor.
 
 ---
 
@@ -11,7 +11,7 @@ stops being the way data gets into Digivault.
 
 The picture is better than it looks: ClickUp is already wired **outbound**, and
 the hardest part of an inbound sync — translating ClickUp's field vocabulary into
-Digivault's — is already written inside the CSV importer.
+Stacks Monitor's — is already written inside the CSV importer.
 
 ### Live today
 
@@ -26,7 +26,7 @@ Digivault's — is already written inside the CSV importer.
 ### Does NOT exist
 
 - **No inbound sync of any kind.** No ClickUp → Client import, no Celery task.
-- **No mapping key.** `Client` has no `clickup_task_id`. Nothing ties a Digivault
+- **No mapping key.** `Client` has no `clickup_task_id`. Nothing ties a Stacks Monitor
   client to a ClickUp task.
 - **`CLIENT_SYNCED` is dead code.** `ActivityLog.Action.CLIENT_SYNCED`
   (`"Client synced from ClickUp"`, `audit/models.py:59`) is declared and **never
@@ -74,7 +74,7 @@ Client.objects.update_or_create(team=team, name=name, defaults=defaults)
 
 Consequences:
 
-- Rename a client in ClickUp → **a duplicate is created** in Digivault, and the
+- Rename a client in ClickUp → **a duplicate is created** in Stacks Monitor, and the
   old row lingers with stale renewal dates still feeding the Renewal Center.
 - Two clients with the same name can never coexist.
 - Fixing a typo in a name silently forks the record.
@@ -89,16 +89,16 @@ A stable external id is a prerequisite for any real sync, not an optimisation.
 - **Excel mangles dates.** A `YYYY-MM-DD` column becomes locale-dependent on open
   and save. `_parse_date` compensates, which is itself evidence of the problem.
 - **No provenance.** After import, nothing records which values came from ClickUp
-  versus which a person typed in Digivault. So a re-import overwrites local edits
+  versus which a person typed in Stacks Monitor. So a re-import overwrites local edits
   with no warning, and there is no way to tell that it happened.
 - **Blind to deletions.** A task deleted or archived in ClickUp leaves its client
-  active in Digivault forever.
+  active in Stacks Monitor forever.
 - **All-or-nothing.** The endpoint reports `created/updated/skipped` counts, but a
   partially bad sheet gives no per-row remediation path.
 
 ### 2.3 Direction is undefined
 
-Nothing states whether ClickUp or Digivault owns a given field. Today it is
+Nothing states whether ClickUp or Stacks Monitor owns a given field. Today it is
 implicitly "whoever imported last". That is the actual root problem — and it is a
 policy decision, not a technical one.
 
@@ -113,8 +113,8 @@ Everything else follows from it. Recommendation:
 | Field group | Owner | Why |
 |---|---|---|
 | Name, Status, Tier, Departments, Notes | **ClickUp** | CSM-managed commercial facts; ClickUp is where account managers already work. |
-| Hosting Platform, Domain Access, Website Access Level, renewal dates | **ClickUp initially, Digivault after first local edit** | Ops correct these while working; a sync must not clobber that. |
-| Everything observed — scripts, uptime, SSL, health, performance | **Digivault only** | ClickUp never has this data. Never written by sync. |
+| Hosting Platform, Domain Access, Website Access Level, renewal dates | **ClickUp initially, Stacks Monitor after first local edit** | Ops correct these while working; a sync must not clobber that. |
+| Everything observed — scripts, uptime, SSL, health, performance | **Stacks Monitor only** | ClickUp never has this data. Never written by sync. |
 
 The middle row is the one that needs a mechanism: **per-field provenance**. Store
 which fields were last set by sync; if a human has since edited a field, sync
@@ -139,7 +139,7 @@ On `Team` (integration config):
 
 - `clickup_list_id` — which ClickUp List holds client tasks. Required; a token
   alone doesn't say *what* to sync.
-- `clickup_field_map` (JSON) — ClickUp custom-field id → Digivault field. Custom
+- `clickup_field_map` (JSON) — ClickUp custom-field id → Stacks Monitor field. Custom
   fields are addressed by **id**, not name, and ids differ per workspace, so this
   cannot be hardcoded.
 - `clickup_sync_enabled`, `clickup_sync_interval_minutes`.
@@ -157,7 +157,7 @@ task**, mirroring `DiffEngine` and `monitors/checker.py`.
   rate-limit handling, timeouts. ClickUp allows ~100 req/min per token, so
   fetching one List page-by-page matters.
 - `apps/integrations/clickup/mapper.py` — **pure**: ClickUp task dict + field map
-  → Digivault field dict. No DB access, so it's cheaply unit-testable.
+  → Stacks Monitor field dict. No DB access, so it's cheaply unit-testable.
   **Reuses the existing `_parse_*` helpers**, which should move out of
   `clients/views.py` into a shared module first (they're import-time helpers doing
   domain work in a view file).
@@ -210,9 +210,9 @@ Each phase is independently shippable and useful on its own.
 - *Value:* this is where the manual dependency actually disappears.
 
 ### Phase 4 — Field-map UI, and only then consider write-back
-- Let a manager map ClickUp custom fields to Digivault fields in the UI instead of
+- Let a manager map ClickUp custom fields to Stacks Monitor fields in the UI instead of
   a JSON blob.
-- **Write-back (Digivault → ClickUp) is explicitly out of scope** until 1–3 have
+- **Write-back (Stacks Monitor → ClickUp) is explicitly out of scope** until 1–3 have
   run in production for a while. Bidirectional sync without a proven conflict
   model is how both systems end up wrong.
 
@@ -223,10 +223,10 @@ Each phase is independently shippable and useful on its own.
 1. **Where do clients live in ClickUp?** One List per workspace, or a Folder of
    Lists? Determines whether config is one `list_id` or several.
 2. **Ownership call:** per-field provenance (§3.1) or the simpler "ClickUp always
-   wins, fields read-only in Digivault"? This is the biggest design fork.
+   wins, fields read-only in Stacks Monitor"? This is the biggest design fork.
 3. **Which ClickUp field is the client's website URL,** and is it reliably filled?
    It drives `_auto_create_website`, so a blank means no site gets provisioned.
-4. **Are Departments a ClickUp multi-select or tags?** Digivault stores a JSON
+4. **Are Departments a ClickUp multi-select or tags?** Stacks Monitor stores a JSON
    list validated against six values (`Client.DEPARTMENTS`); the mapper must
    handle unknown incoming values without failing the row.
 5. **Does the ClickUp task status vocabulary match** `active/paused/offboarded`, or
@@ -243,7 +243,7 @@ Each phase is independently shippable and useful on its own.
 | A bad field map silently corrupts 27 client records | Mandatory dry-run diff in Phase 2; `IntegrationSyncRun` keeps a full before/after audit trail |
 | Rate limiting (~100 req/min/token) | Page through one List, cache per run, back off on 429; never per-client API calls |
 | Token leakage | Already handled — Fernet-encrypted, `editable=False`, write-only in the serializer. Keep it that way; never log the token or echo it back |
-| Sync overwrites a correction someone made in Digivault | The ownership rule in §3.1 — the entire reason it must be decided first |
+| Sync overwrites a correction someone made in Stacks Monitor | The ownership rule in §3.1 — the entire reason it must be decided first |
 | Overlapping runs double-writing | Redis lock per team, as `monitors.run_due_checks` already does |
 | ClickUp permission change looks like mass deletion | Never auto-delete; mark `orphaned` and surface it |
 

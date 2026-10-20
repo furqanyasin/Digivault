@@ -134,7 +134,9 @@ class StatusPageListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         from apps.audit.models import ActivityLog
+        from apps.accounts.plans import ensure_can_add
         from apps.audit.services import AuditService
+        ensure_can_add(self.request.user.active_team, "status_pages")
         page = serializer.save(team=self.request.user.active_team)
         AuditService.log_request(
             self.request, ActivityLog.Action.STATUS_PAGE_CREATED,

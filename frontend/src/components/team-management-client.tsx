@@ -4,14 +4,14 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  UserPlus, Trash2, Check, ShieldAlert, ShieldCheck, ShieldOff, X, ScrollText,
+  UserPlus, Trash2, ShieldAlert, ShieldCheck, ShieldOff, ScrollText,
   MoreHorizontal, Search, SlidersHorizontal, KeyRound, Users, ArrowRightLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
-import { fmtDate, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -107,14 +107,6 @@ function initials(m: TeamMember): string {
   return (pair || m.user.email.charAt(0)).toUpperCase();
 }
 
-interface PasswordResetReq {
-  id: string;
-  user_email: string;
-  user_name: string;
-  status: string;
-  created_at: string;
-}
-
 interface Props {
   teamId: string;
   teamName: string;
@@ -122,7 +114,6 @@ interface Props {
   myRole: string;
   myMembershipId: string;
   initialMembers: TeamMember[];
-  initialResetRequests: PasswordResetReq[];
   initialGroups: SubTeam[];
 }
 
@@ -133,7 +124,6 @@ export function TeamManagementClient({
   myRole,
   myMembershipId,
   initialMembers,
-  initialResetRequests,
   initialGroups,
 }: Props) {
   const router = useRouter();
@@ -155,10 +145,6 @@ export function TeamManagementClient({
   const [roleFilter, setRoleFilter] = useState("all");
   const [accessOpen, setAccessOpen] = useState<string | null>(null);
   const [handoverFor, setHandoverFor] = useState<TeamMember | null>(null);
-
-  // Password reset state
-  const [resetRequests, setResetRequests] = useState<PasswordResetReq[]>(initialResetRequests);
-  const [processingReset, setProcessingReset] = useState<string | null>(null);
 
   const myLevel = ROLE_LEVELS[myRole as Role] ?? 0;
   const canManage = myLevel >= ROLE_LEVELS["manager"];
@@ -195,11 +181,13 @@ export function TeamManagementClient({
         return;
       }
       setAddResult({
-        msg: data?.already_active
-          ? `${addForm.name || addForm.email} was added — they already have an account and can log in with their existing password. ${
+        // An existing account is never added directly: it gets an invitation
+        // the person accepts while logged in, so no link comes back here.
+        msg: data?.invited
+          ? `${addForm.email} already has a Stacks Monitor account, so we sent them an invitation. They join once they accept it. ${
               data?.email_sent
-                ? "We've emailed them a notification that includes a password-reset link in case they've forgotten it."
-                : "The notification email could not be sent (check SMTP) — if they've forgotten their password, ask them to use “Forgot password” on the login page."
+                ? "The invitation is in their inbox."
+                : "The invitation email could not be sent (check SMTP). Resend it from pending invitations once email works."
             }`
           : `${addForm.name || addForm.email} has been added to the team.`,
         link: data?.set_password_url,
@@ -293,16 +281,6 @@ You can demote them again later.`
       body: JSON.stringify({ user_id: userId }),
     });
     if (res.ok) refresh();
-  }
-
-  async function handleResetAction(id: string, action: "approve" | "reject") {
-    setProcessingReset(id);
-    try {
-      await fetch(`/api/password-reset/${id}/${action}`, { method: "POST" });
-      setResetRequests((prev) => prev.filter((r) => r.id !== id));
-    } finally {
-      setProcessingReset(null);
-    }
   }
 
   // "Owner" is offered like any other role, which the level check alone already
@@ -742,64 +720,6 @@ You can demote them again later.`
           })
         )}
       </div>
-
-      {/* Password reset requests — a work queue, so it keeps the amber edge and
-          spells its actions out rather than hiding them behind bare icons. */}
-      {canManage && resetRequests.length > 0 && (
-        <section className="space-y-3">
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-base font-semibold flex items-center gap-2">
-              <ShieldAlert className="h-4 w-4 text-amber-500" />
-              Password reset requests
-            </h2>
-            <span className="text-sm text-muted-foreground">
-              {resetRequests.length} waiting on you
-            </span>
-          </div>
-
-          <div className="rounded-xl border border-amber-300/60 dark:border-amber-500/25 bg-amber-50/40 dark:bg-amber-500/[0.04] overflow-hidden">
-            {resetRequests.map((req, i) => (
-              <div
-                key={req.id}
-                className={cn(
-                  "flex flex-wrap items-center gap-x-4 gap-y-2 p-4",
-                  i > 0 && "border-t border-amber-300/50 dark:border-amber-500/20"
-                )}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium text-sm">{req.user_name}</div>
-                  <div className="truncate text-xs text-muted-foreground">{req.user_email}</div>
-                </div>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  Asked {fmtDate(req.created_at)}
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 bg-background"
-                    disabled={processingReset === req.id}
-                    onClick={() => handleResetAction(req.id, "reject")}
-                  >
-                    <X className="h-3.5 w-3.5 mr-1.5" />
-                    Reject
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="h-8"
-                    disabled={processingReset === req.id}
-                    title="Sends this member a password reset email"
-                    onClick={() => handleResetAction(req.id, "approve")}
-                  >
-                    <Check className="h-3.5 w-3.5 mr-1.5" />
-                    {processingReset === req.id ? "Sending…" : "Send reset link"}
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
 
       {handoverFor && (
         <CredentialHandoverDialog

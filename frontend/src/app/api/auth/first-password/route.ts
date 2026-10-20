@@ -13,6 +13,15 @@ export async function POST(req: NextRequest) {
     });
     const data = await upstream.json().catch(() => ({}));
     const payload = data?.data ?? data;
+    // 2FA is optional for this account, so the backend signed it in directly.
+    if (upstream.ok && payload?.access && payload?.refresh) {
+      const res = NextResponse.json({ ok: true, signed_in: true });
+      const secure = process.env.NODE_ENV === "production";
+      const opts = { httpOnly: true, secure, sameSite: "lax" as const, path: "/" };
+      res.cookies.set("ss_access", payload.access, { ...opts, maxAge: 60 * 5 });
+      res.cookies.set("ss_refresh", payload.refresh, { ...opts, maxAge: 60 * 60 * 24 * 7 });
+      return res;
+    }
     return NextResponse.json(payload, { status: upstream.status });
   } catch {
     return NextResponse.json(

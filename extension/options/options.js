@@ -1,4 +1,4 @@
-const DEFAULT_URL = "https://digivault.digilatics.co";
+const DEFAULT_URL = "https://stacksmonitor.com";
 
 // ------------------------------------------------------------------
 // Server URL form

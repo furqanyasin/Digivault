@@ -184,8 +184,8 @@ EXPORT_HEADERS = [
     "Domain Access",
     "Hosting Renewal Date",
     "Domain Renewal Date",
-    "Website Built by Digi",
-    "Website Maintained by Digi",
+    "Website Built by Us",
+    "Website Maintained by Us",
     "Departments",
     "Desktop Notifications",
     "Email Notifications",
@@ -254,7 +254,12 @@ def _auto_create_website(client, request) -> None:
     if not domain:
         return
 
+    from apps.accounts.plans import can_add
+
     existing = Website.objects.filter(team=client.team, domain__iexact=domain).first()
+    if existing is None and not can_add(client.team, "websites"):
+        # The client is saved either way; the plan only caps monitored sites.
+        return
     if existing is not None:
         if existing.client_id is None:
             existing.client = client
@@ -499,11 +504,11 @@ class ClientImportView(APIView):
             ).strip()
             notes = (row.get("Notes") or "").strip()
 
-            raw_built = (row.get("Website Built by Digi") or row.get("Website built by Digi  (drop down)") or "").strip()
-            built_by_digi = raw_built if raw_built else ""
+            raw_built = (row.get("Website Built by Us") or "").strip()
+            built_by_us = raw_built if raw_built else ""
 
-            raw_maintained = (row.get("Website Maintained by Digi") or row.get("Website Maintained by Digi (drop down)") or "").strip()
-            maintained_by_digi = raw_maintained if raw_maintained else ""
+            raw_maintained = (row.get("Website Maintained by Us") or "").strip()
+            maintained_by_us = raw_maintained if raw_maintained else ""
 
             defaults = {
                 "name": name,
@@ -518,8 +523,8 @@ class ClientImportView(APIView):
                 "website_access_level": _parse_access_level(row.get("Website Access Level") or ""),
                 "departments": _parse_departments(row.get("Departments") or ""),
                 "notes": notes,
-                "website_built_by_digi": built_by_digi,
-                "website_maintained_by_digi": maintained_by_digi,
+                "website_built_by_us": built_by_us,
+                "website_maintained_by_us": maintained_by_us,
                 "notify_desktop": notify_desktop,
                 "notify_email": notify_email,
             }
@@ -583,8 +588,8 @@ class ClientExportView(APIView):
                 c.domain_access_location,
                 c.hosting_renewal_date.isoformat() if c.hosting_renewal_date else "",
                 c.domain_renewal_date.isoformat() if c.domain_renewal_date else "",
-                c.website_built_by_digi,
-                c.website_maintained_by_digi,
+                c.website_built_by_us,
+                c.website_maintained_by_us,
                 ",".join(c.departments or []),
                 "Yes" if c.notify_desktop else "No",
                 "Yes" if c.notify_email else "No",

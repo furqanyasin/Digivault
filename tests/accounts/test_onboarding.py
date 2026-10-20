@@ -2,7 +2,7 @@
 
 import pytest
 
-from apps.accounts.models import PasswordResetRequest, TeamMembership, User
+from apps.accounts.models import PasswordResetRequest, TeamInvitation, TeamMembership, User
 
 
 def _make_member(team, *, must_change, totp_enabled=False, password="TempPass1!"):
@@ -130,9 +130,14 @@ def test_create_user_with_password_sets_must_change(auth_client, team):
 
 
 @pytest.mark.django_db
-def test_re_add_existing_unonboarded_user_reissues_set_password_link(auth_client, team):
+def test_re_add_existing_unonboarded_user_emails_links_but_returns_none(auth_client, team):
     # A user that exists but never finished onboarding (no usable password),
     # e.g. invited earlier while SMTP was down and later removed from the team.
+    # The account may belong to another tenant, so it gets an invitation, and
+    # the set-password link goes to their inbox only. Returning it to the admin
+    # was a takeover: anyone could claim an unclaimed account by email.
+    from django.core import mail
+
     stale = User.objects.create_user(email="stale@example.com", password=None)
     stale.set_unusable_password()
     stale.save(update_fields=["password"])
@@ -143,20 +148,22 @@ def test_re_add_existing_unonboarded_user_reissues_set_password_link(auth_client
         format="json",
     )
     assert resp.status_code == 201
-    # A fresh set-password link is issued and returned so they can finally log in.
+    assert resp.data["invited"] is True
+    assert "set_password_url" not in resp.data
+    assert not TeamMembership.objects.filter(user=stale, team=team).exists()
+
     pr = PasswordResetRequest.objects.filter(user=stale).latest("created_at")
-    assert pr.status == PasswordResetRequest.Status.APPROVED
-    assert pr.reset_token in resp.data["set_password_url"]
-    assert "email_sent" in resp.data
-    assert TeamMembership.objects.filter(user=stale, team=team).exists()
+    invitation = TeamInvitation.objects.get(team=team, email="stale@example.com")
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == ["stale@example.com"]
+    assert pr.reset_token in mail.outbox[0].body
+    assert invitation.token in mail.outbox[0].body
 
 
 @pytest.mark.django_db
-def test_re_add_existing_active_user_emails_reset_link_but_hides_it(auth_client, team):
-    # A fully-active account (usable password) gets team membership plus an
-    # email containing a password-reset link (they may not remember their
-    # password). The link must NEVER appear in the API response — that would
-    # let an admin hijack a live account by re-adding its email.
+def test_re_add_existing_active_user_sends_an_invitation(auth_client, team):
+    # An existing account is never pulled into a team directly: it may be
+    # someone else's, in another tenant. They get an invitation by email.
     from django.core import mail
 
     active = User.objects.create_user(email="active@example.com", password="RealPass1!")
@@ -167,15 +174,13 @@ def test_re_add_existing_active_user_emails_reset_link_but_hides_it(auth_client,
         format="json",
     )
     assert resp.status_code == 201
-    assert resp.data.get("already_active") is True
+    assert resp.data["invited"] is True
     assert "set_password_url" not in resp.data
-    assert "email_sent" in resp.data
-    assert TeamMembership.objects.filter(user=active, team=team).exists()
+    assert not TeamMembership.objects.filter(user=active, team=team).exists()
+    assert not PasswordResetRequest.objects.filter(user=active).exists()
 
-    # A reset link was issued and emailed to the member only.
-    pr = PasswordResetRequest.objects.get(user=active)
-    assert pr.status == PasswordResetRequest.Status.APPROVED
+    invitation = TeamInvitation.objects.get(team=team, email="active@example.com")
+    assert invitation.role == "developer"
     assert len(mail.outbox) == 1
     assert mail.outbox[0].to == ["active@example.com"]
-    assert pr.reset_token in mail.outbox[0].body
-    assert pr.reset_token not in str(resp.data)
+    assert invitation.token in mail.outbox[0].body

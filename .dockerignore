@@ -48,8 +48,8 @@ dump.rdb
 # pytest inside it, so dropping the suite would cost more than the few hundred
 # kilobytes it saves.
 docs/
-digivault-extension/
-digivault-extension.zip
+extension/
+*.zip
 .claude/
 .agents/
 .superpowers/

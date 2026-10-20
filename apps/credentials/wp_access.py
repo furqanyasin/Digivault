@@ -1,4 +1,4 @@
-"""Which WordPress credential Digivault may use to read a site's own API.
+"""Which WordPress credential Stacks Monitor may use to read a site's own API.
 
 Kept apart from the vault's request-facing code because the caller here is a
 scheduled task with no user: it resolves a credential, records that it did, and

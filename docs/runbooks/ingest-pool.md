@@ -6,7 +6,7 @@ sharing one set of uvicorn workers:
 
 - **Before:** the snippet (`/api/s.js`) and every ingest endpoint shared the
   api's 4 workers with the dashboard. A traffic spike on one client site, at six
-  or more posts per pageview, slowed every Digivault page for the whole team.
+  or more posts per pageview, slowed every Stacks Monitor page for the whole team.
 - **After:** public traffic goes to `api-ingest` (2 workers,
   `UVICORN_INGEST_WORKERS`). The dashboard keeps the api's 4 to itself.
 
@@ -16,7 +16,7 @@ CloudPanel UI, not in this repo. Until then nothing changes.
 
 ## Routing it (once)
 
-CloudPanel → Sites → `digivault.digilatics.co` → **Vhost**.
+CloudPanel → Sites → `stacksmonitor.com` → **Vhost**.
 
 1. Confirm `api-ingest` is up first. A route to a stopped container answers 502
    to every client site:
@@ -71,7 +71,7 @@ CloudPanel → Sites → `digivault.digilatics.co` → **Vhost**.
 
 ```bash
 # The snippet still serves, now from api-ingest:
-curl -s https://digivault.digilatics.co/api/s.js | grep -c snippet_version     # 1
+curl -s https://stacksmonitor.com/api/s.js | grep -c snippet_version     # 1
 
 # Ingest requests are reaching api-ingest (open a client site in a browser first):
 docker compose -f docker-compose.production.cloudpanel.yml logs --since 2m api-ingest | grep -c "POST /api/ingest/"

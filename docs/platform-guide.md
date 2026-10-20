@@ -1,6 +1,6 @@
-# Digivault — Complete Platform Guide
+# Stacks Monitor — Complete Platform Guide
 
-Digivault is an all-in-one platform for web agencies to monitor client websites: track third-party scripts, store credentials securely, monitor uptime, measure performance, and publish status pages — all under one account with team-based access control.
+Stacks Monitor is an all-in-one platform for web agencies to monitor client websites: track third-party scripts, store credentials securely, monitor uptime, measure performance, and publish status pages — all under one account with team-based access control.
 
 ---
 
@@ -27,11 +27,11 @@ Digivault is an all-in-one platform for web agencies to monitor client websites:
 
 **5 minutes to get your first site monitored:**
 
-1. Register at `https://digivault.digilatics.co/register`
+1. Register at `https://stacksmonitor.com/register`
 2. Create your team (your agency name)
 3. Add a website (client domain)
 4. Copy the 2-line snippet from the **Snippet** tab → paste it into the site's `<head>`
-5. Visit the site — Digivault receives the first payload and starts building your script inventory
+5. Visit the site — Stacks Monitor receives the first payload and starts building your script inventory
 
 That's it. Scripts appear in the **Scripts** tab within seconds of the first page load.
 
@@ -82,7 +82,7 @@ If you're a member of multiple teams (e.g. a freelancer working with two agencie
    - **Platform** — WordPress, Webflow, Wix, Shopify, Framer, Squarespace, or Custom
 3. Click **Create**
 
-Digivault generates a unique **Site ID** and a ready-to-paste snippet for this site.
+Stacks Monitor generates a unique **Site ID** and a ready-to-paste snippet for this site.
 
 ### Regenerating the snippet
 
@@ -99,7 +99,7 @@ Website detail page → **Delete** (Owner only). Deletes all associated scripts,
 The snippet is two lines of HTML. Copy it from the **Snippet** tab.
 
 ```html
-<script async src="https://digivault.digilatics.co/s.js"
+<script async src="https://stacksmonitor.com/s.js"
         data-site="YOUR_SITE_ID"></script>
 ```
 
@@ -119,14 +119,14 @@ Paste it in the `<head>` of every page you want to monitor (ideally via your CMS
 
 ### Verify the snippet is installed
 
-Website → **Snippet** tab → **Verify installation**. Digivault fetches your homepage and checks for the `data-site` attribute.
+Website → **Snippet** tab → **Verify installation**. Stacks Monitor fetches your homepage and checks for the `data-site` attribute.
 
 ### How the snippet works
 
 The snippet loads asynchronously (never blocks your page). When the DOM is ready it:
 1. Scans all `<script>` tags on the page
 2. Records: URL, location (head/body), async/defer flags
-3. Sends a lightweight beacon to Digivault (fire-and-forget, uses `sendBeacon` API for zero performance impact)
+3. Sends a lightweight beacon to Stacks Monitor (fire-and-forget, uses `sendBeacon` API for zero performance impact)
 
 ---
 
@@ -148,7 +148,7 @@ Open any website → **Scripts** tab. You get a full inventory of every third-pa
 
 Analytics · Advertising · Tag Management · Session Recording · Call Tracking · Chat · CRM · Payment · SEO · Security · Performance · Social · **Unknown**
 
-**Unknown** scripts are ones Digivault hasn't classified yet. They appear orange in the extension badge. Investigate these — they're the most likely to be problematic.
+**Unknown** scripts are ones Stacks Monitor hasn't classified yet. They appear orange in the extension badge. Investigate these — they're the most likely to be problematic.
 
 ### Reviewing scripts
 
@@ -159,13 +159,13 @@ For each script you can set a review status:
 
 ### Server-side scan
 
-Website → **Scan** button. Digivault fetches your homepage server-side and extracts scripts from the raw HTML — useful if the snippet hasn't been installed yet or you want a second opinion.
+Website → **Scan** button. Stacks Monitor fetches your homepage server-side and extracts scripts from the raw HTML — useful if the snippet hasn't been installed yet or you want a second opinion.
 
 ---
 
 ## 6. Script Change Alerts
 
-Digivault's diff engine compares every new page load against the previous snapshot and creates a **Change** record whenever something is different.
+Stacks Monitor's diff engine compares every new page load against the previous snapshot and creates a **Change** record whenever something is different.
 
 ### Change types
 
@@ -254,7 +254,7 @@ See [Section 12 — Chrome Extension](#12-chrome-extension) for full details.
 
 ## 8. Domain & SSL Tracking
 
-Digivault automatically checks domain and SSL expiry for every registered website.
+Stacks Monitor automatically checks domain and SSL expiry for every registered website.
 
 ### What's tracked
 
@@ -277,7 +277,7 @@ Website → **Domain** tab. Last checked timestamp shown. Click **Refresh** to r
 
 ### Expiry alerts
 
-Digivault sends alerts as expiry approaches. Thresholds: 90 days · 30 days · 14 days · 7 days.
+Stacks Monitor sends alerts as expiry approaches. Thresholds: 90 days · 30 days · 14 days · 7 days.
 
 Alerts appear in the notification feed and are sent via your configured alert channels.
 
@@ -391,7 +391,7 @@ Publish a public uptime status page for your clients — they can bookmark it an
 | Setting | Notes |
 |---|---|
 | **Name** | e.g. "Acme Corp — Service Status" |
-| **Slug** | URL-safe identifier; becomes `https://digivault.digilatics.co/status/<slug>` |
+| **Slug** | URL-safe identifier; becomes `https://stacksmonitor.com/status/<slug>` |
 | **Description** | Optional subtitle shown on the public page |
 | **Allow indexing** | Off by default — turn on if the page should be publicly searchable |
 
@@ -412,7 +412,7 @@ Publish a public uptime status page for your clients — they can bookmark it an
 
 ### Sharing with clients
 
-Send clients the public URL: `https://digivault.digilatics.co/status/<slug>`
+Send clients the public URL: `https://stacksmonitor.com/status/<slug>`
 
 The page auto-refreshes every 60 seconds. It shows:
 - Overall status banner (green / yellow / red)
@@ -432,7 +432,7 @@ Install by loading the `extension/` folder unpacked in `chrome://extensions` (De
 A badge on the toolbar icon shows the script count for every registered site you visit:
 - **Green badge** — all scripts from known providers
 - **Orange badge** — one or more unknown scripts detected
-- **No badge** — site not registered in Digivault
+- **No badge** — site not registered in Stacks Monitor
 
 You see this without clicking anything. It's the fastest way to spot a rogue script on a client site.
 
@@ -446,7 +446,7 @@ Click the extension icon on any registered site to see:
 
 ### Feature 3 — Credential autofill
 
-**Setup:** Click ⚙ in the popup → enter your Digivault email and password → Log in.
+**Setup:** Click ⚙ in the popup → enter your Stacks Monitor email and password → Log in.
 
 **Using it:**
 1. Visit any login page for a site with saved credentials
@@ -461,11 +461,11 @@ Click the extension icon on any registered site to see:
 
 ### Feature 4 — Auto-login to the web app
 
-If you're signed into the extension and visit `https://digivault.digilatics.co/login`, you're automatically logged into the web app and redirected to `/dashboard` — no typing required.
+If you're signed into the extension and visit `https://stacksmonitor.com/login`, you're automatically logged into the web app and redirected to `/dashboard` — no typing required.
 
 ### Feature 5 — Auth status in popup
 
-Open the popup while on the Digivault website to see your account status, jump to the dashboard, or sign out.
+Open the popup while on the Stacks Monitor website to see your account status, jump to the dashboard, or sign out.
 
 ### Settings
 

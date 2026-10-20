@@ -6,8 +6,9 @@ removed member keeps reading team data with a still-valid JWT.
 """
 
 import pytest
+from rest_framework.test import APIClient
 
-from apps.accounts.models import Team, TeamMembership, User
+from apps.accounts.models import Team, TeamInvitation, TeamMembership, User
 
 
 def _add_member(team, email="member@example.com", role="developer"):
@@ -96,5 +97,14 @@ def test_re_add_reactivates_deactivated_account(auth_client, team):
     )
     assert resp.status_code == 201
     member.refresh_from_db()
+    # Revived so they can log in, but back in the team only once they accept.
     assert member.is_active is True
+    assert not TeamMembership.objects.filter(user=member, team=team).exists()
+
+    invitation = TeamInvitation.objects.get(team=team, email=member.email)
+    member_client = APIClient()
+    member_client.force_authenticate(member)
+    accepted = member_client.post(f"/api/v1/auth/invitations/{invitation.token}/accept/")
+    assert accepted.status_code == 200
+    member.refresh_from_db()
     assert member.active_team == team

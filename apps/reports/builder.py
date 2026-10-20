@@ -10,6 +10,7 @@ import csv
 import io
 from datetime import date, datetime, time
 
+from django.conf import settings
 from django.db.models import Count
 from django.utils import timezone
 
@@ -58,7 +59,7 @@ class ReportBuilder:
             )
 
         # Active scripts currently running on the site, grouped by domain and
-        # excluding Digivault's own infra (the tracking snippet) — matches the
+        # excluding Stacks Monitor's own infra (the tracking snippet) — matches the
         # website detail "Active Scripts" list.
         active_scripts: list = []
         if "active_scripts" in included:
@@ -227,7 +228,7 @@ class ReportBuilder:
         buf = io.StringIO()
         w = csv.writer(buf)
         site = data["website"]
-        w.writerow(["Digivault Report", site["name"], site["domain"]])
+        w.writerow(["Stacks Monitor Report", site["name"], site["domain"]])
         w.writerow(["Period", data["period"]["start"], data["period"]["end"]])
         w.writerow([])
         w.writerow(["Health score", site["health_score"]])
@@ -338,7 +339,7 @@ class ReportBuilder:
                 self.setFillColor(brand)
                 self.rect(0, h - 0.18 * cm, w, 0.18 * cm, stroke=0, fill=1)
                 self.setFont("Helvetica-Bold", 13)
-                self.drawString(LM, h - 1.25 * cm, "DIGIVAULT")
+                self.drawString(LM, h - 1.25 * cm, settings.PRODUCT_NAME.upper())
                 self.setFont("Helvetica", 8)
                 self.setFillColor(muted)
                 self.drawRightString(w - RM, h - 1.05 * cm, header_title)
@@ -357,7 +358,7 @@ class ReportBuilder:
                 )
                 self.drawString(
                     LM, 0.8 * cm,
-                    "Confidential — prepared by Digivault for the named recipient only.",
+                    f"Confidential — prepared by {settings.PRODUCT_NAME} for the named recipient only.",
                 )
 
         # --- Bookmarks: register an outline entry for each section heading, ---
@@ -374,8 +375,8 @@ class ReportBuilder:
         doc = _BookmarkDoc(
             buf,
             pagesize=A4,
-            title=f"Digivault Report — {site['name']}",
-            author="Digivault",
+            title=f"{settings.PRODUCT_NAME} Report — {site['name']}",
+            author=settings.PRODUCT_NAME,
             leftMargin=LM,
             rightMargin=RM,
             topMargin=2.3 * cm,

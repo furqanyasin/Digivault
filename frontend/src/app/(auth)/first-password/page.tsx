@@ -41,6 +41,10 @@ export default function FirstPasswordPage() {
         setError(data?.detail ?? "Could not set your password.");
         return;
       }
+      if (data?.signed_in) {
+        router.push("/dashboard");
+        return;
+      }
       // Continue into the mandatory 2FA setup, reusing the same pre-auth session.
       router.push(`/2fa/setup?session_key=${sessionKey}`);
     } catch {

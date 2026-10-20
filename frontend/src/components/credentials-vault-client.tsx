@@ -2407,7 +2407,7 @@ export function CredentialsVaultClient({
     );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "digivault-vault-sample.csv";
+    link.download = "stacksmonitor-vault-sample.csv";
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -2502,7 +2502,7 @@ export function CredentialsVaultClient({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "digivault-vault-export.csv";
+      link.download = "stacksmonitor-vault-export.csv";
       link.click();
       URL.revokeObjectURL(url);
       toast({

@@ -317,7 +317,7 @@ class WpActivityThrottle(AnonRateThrottle):
     scope = "wp_activity"
 
     def get_cache_key(self, request, view):
-        site_id = (request.META.get("HTTP_X_DIGIVAULT_SITE") or "").strip()
+        site_id = (request.META.get("HTTP_X_STACKSMONITOR_SITE") or "").strip()
         if site_id:
             return self.cache_format % {"scope": self.scope, "ident": site_id}
         return super().get_cache_key(request, view)
@@ -350,7 +350,7 @@ class WpActivityIngestView(APIView):
         except (TypeError, ValueError):
             pass
 
-        site_id = request.META.get("HTTP_X_DIGIVAULT_SITE", "")
+        site_id = request.META.get("HTTP_X_STACKSMONITOR_SITE", "")
         try:
             website = Website.objects.get(site_id=site_id)
         except Website.DoesNotExist:
@@ -358,9 +358,9 @@ class WpActivityIngestView(APIView):
 
         if not verify_signature(
             website.wp_sso_secret,
-            request.META.get("HTTP_X_DIGIVAULT_TIMESTAMP", ""),
+            request.META.get("HTTP_X_STACKSMONITOR_TIMESTAMP", ""),
             request.body,
-            request.META.get("HTTP_X_DIGIVAULT_SIGNATURE", ""),
+            request.META.get("HTTP_X_STACKSMONITOR_SIGNATURE", ""),
         ):
             return Response(status=status.HTTP_403_FORBIDDEN)
 
@@ -488,7 +488,7 @@ class WpActivityIngestView(APIView):
 class WebsiteTimelineView(APIView):
     """GET /api/v1/websites/{id}/timeline/?around=<iso>&window=30m
 
-    Everything that happened around one moment, from every source Digivault
+    Everything that happened around one moment, from every source Stacks Monitor
     already holds: WordPress activity, script changes, PHP errors and failed
     monitor checks, interleaved newest-first.
 

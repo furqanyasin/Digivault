@@ -1,6 +1,6 @@
-# Digivault Extension — User Guide
+# Stacks Monitor Extension — User Guide
 
-The Digivault Chrome extension gives your team instant visibility into third-party scripts on any client website, plus a built-in password manager for saved credentials — all without leaving the browser.
+The Stacks Monitor Chrome extension gives your team instant visibility into third-party scripts on any client website, plus a built-in password manager for saved credentials — all without leaving the browser.
 
 ---
 
@@ -9,7 +9,7 @@ The Digivault Chrome extension gives your team instant visibility into third-par
 1. Open **Chrome** and go to `chrome://extensions`
 2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked** → select the `extension/` folder from this repo
-4. The Digivault shield icon appears in your toolbar
+4. The Stacks Monitor shield icon appears in your toolbar
 
 > Once the extension is on the Chrome Web Store, step 2–3 will be replaced by a single "Add to Chrome" click.
 
@@ -20,7 +20,7 @@ The Digivault Chrome extension gives your team instant visibility into third-par
 Before the password manager and autofill features work, you need to sign in once:
 
 1. Click the **⚙ settings icon** in the extension popup (or right-click the toolbar icon → **Options**)
-2. Enter your **Digivault email and password** and click **Log in**
+2. Enter your **Stacks Monitor email and password** and click **Log in**
 3. You'll see "Logged in as you@example.com" — done
 
 You stay logged in until you click **Log out** or your session expires (7 days).
@@ -31,13 +31,13 @@ You stay logged in until you click **Log out** or your session expires (7 days).
 
 ## Feature 1 — Script badge on every tab
 
-**What it does:** As soon as a page finishes loading, the extension checks whether that site is registered in Digivault. If it is, a badge appears on the extension icon showing how many third-party scripts are running.
+**What it does:** As soon as a page finishes loading, the extension checks whether that site is registered in Stacks Monitor. If it is, a badge appears on the extension icon showing how many third-party scripts are running.
 
 | Badge colour | Meaning |
 |---|---|
 | **Green** | All scripts are from known providers |
 | **Orange** | One or more scripts are from an unknown provider |
-| No badge | Site is not registered in Digivault |
+| No badge | Site is not registered in Stacks Monitor |
 
 **Why it matters:** You can spot a newly-added or rogue script on a client site the moment you visit it — no need to open the dashboard.
 
@@ -48,7 +48,7 @@ You stay logged in until you click **Log out** or your session expires (7 days).
 **What it does:** Click the extension icon on any registered site to see a breakdown of all detected scripts — provider name, category, and source domain.
 
 ```
-Digivault                              ⚙
+Stacks Monitor                              ⚙
 ─────────────────────────────────────────
   12 scripts detected    [1 unknown]
 
@@ -62,14 +62,14 @@ Digivault                              ⚙
 
 **Why it matters:**
 - Instantly see what's running on a client site during a site visit or audit
-- The orange "unknown" badge flags scripts that Digivault hasn't classified — these are worth investigating
+- The orange "unknown" badge flags scripts that Stacks Monitor hasn't classified — these are worth investigating
 - Click **Open dashboard →** to jump straight to the full script history for that site
 
 ---
 
 ## Feature 3 — Password autofill
 
-**What it does:** When you visit a login page for a site that has saved credentials in Digivault, a small green shield icon appears inside the username field. Click it to see your saved credentials and fill them in with one click.
+**What it does:** When you visit a login page for a site that has saved credentials in Stacks Monitor, a small green shield icon appears inside the username field. Click it to see your saved credentials and fill them in with one click.
 
 **How to use it:**
 
@@ -83,20 +83,20 @@ Digivault                              ⚙
 
 **Why it matters:**
 - No more searching for passwords in spreadsheets, sticky notes, or chat messages
-- Credentials are stored encrypted in Digivault's vault — the extension never stores plaintext passwords locally
+- Credentials are stored encrypted in Stacks Monitor's vault — the extension never stores plaintext passwords locally
 - Every credential access is audit-logged (who filled what, when, from which IP)
 - The "Viewer" role can use autofill but cannot reveal or copy the raw password
 
-> To save credentials for a site, go to the Digivault dashboard → that website → **Credentials → Add**.
+> To save credentials for a site, go to the Stacks Monitor dashboard → that website → **Credentials → Add**.
 
 ---
 
-## Feature 4 — Auto-login to the Digivault web app
+## Feature 4 — Auto-login to the Stacks Monitor web app
 
-**What it does:** If you are already signed into the extension and you navigate to `https://digivault.digilatics.co/login`, the extension automatically logs you into the web app and redirects you to the dashboard — no password re-entry.
+**What it does:** If you are already signed into the extension and you navigate to `https://stacksmonitor.com/login`, the extension automatically logs you into the web app and redirects you to the dashboard — no password re-entry.
 
 **How it works:**
-1. Visit `https://digivault.digilatics.co/login`
+1. Visit `https://stacksmonitor.com/login`
 2. The extension detects the login page
 3. A secure one-time token is exchanged in the background (expires in 60 seconds)
 4. You land directly on `/dashboard`
@@ -107,11 +107,11 @@ Digivault                              ⚙
 
 ## Feature 5 — Auth status in the popup
 
-**What it does:** When you open the extension popup while on the Digivault website (`digivault.digilatics.co`), it shows your account status instead of the script list.
+**What it does:** When you open the extension popup while on the Stacks Monitor website (`stacksmonitor.com`), it shows your account status instead of the script list.
 
 **Logged in:**
 ```
-Digivault                              ⚙
+Stacks Monitor                              ⚙
 ─────────────────────────────────────
   you@example.com
 
@@ -121,7 +121,7 @@ Digivault                              ⚙
 
 **Not logged in:**
 ```
-Digivault                              ⚙
+Stacks Monitor                              ⚙
 ─────────────────────────────────────────
   Sign in to the extension to enable
   autofill on this site.
@@ -135,7 +135,7 @@ Digivault                              ⚙
 
 The extension only **uses** credentials — it doesn't create them. To add, edit, or delete:
 
-1. Open the Digivault dashboard → **Websites** → select a site
+1. Open the Stacks Monitor dashboard → **Websites** → select a site
 2. Go to the **Credentials** tab
 3. Click **Add credential** → fill in label, type, login URL, username, password
 4. Save — the credential is immediately available in the extension autofill
@@ -163,7 +163,7 @@ Open the extension options page (⚙ icon → Settings):
 | Setting | Default | When to change |
 |---|---|---|
 | **Account** | — | Log in / log out |
-| **API Server URL** | `https://digivault.digilatics.co` | Only if using a self-hosted or staging server |
+| **API Server URL** | `https://stacksmonitor.com` | Only if using a self-hosted or staging server |
 
 ---
 

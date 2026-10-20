@@ -1,4 +1,4 @@
-# Digivault — Website & SEO Module Structure
+# Stacks Monitor — Website & SEO Module Structure
 
 **Goal:** reorganize the product around **two primary modules — Website and SEO** —
 so every feature has an obvious home, the SEO side can grow into a full product,

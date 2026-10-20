@@ -1,4 +1,4 @@
-# Digivault — Internal Production Readiness Roadmap
+# Stacks Monitor — Internal Production Readiness Roadmap
 
 **Version:** 1.0
 **Status:** Internal Launch Plan
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-Digivault already contains a strong foundation: monitoring, security, performance tracking, credential management, script monitoring, domain intelligence, status pages, team management, Chrome extension support, and client management.
+Stacks Monitor already contains a strong foundation: monitoring, security, performance tracking, credential management, script monitoring, domain intelligence, status pages, team management, Chrome extension support, and client management.
 
 **The goal is not to build additional features before launch.**
 
@@ -21,7 +21,7 @@ The goal is to ensure every existing feature is:
 - Production ready
 - Useful for daily agency operations
 
-This document defines the work required to launch Digivault internally with confidence.
+This document defines the work required to launch Stacks Monitor internally with confidence.
 
 ---
 
@@ -353,7 +353,7 @@ Daily screenshots. Detect: layout changes · white screens · missing pages.
 
 ## Final Internal Launch Definition
 
-Digivault is not just a monitoring platform. Digivault should become the agency's **centralized operations platform** for:
+Stacks Monitor is not just a monitoring platform. Stacks Monitor should become the agency's **centralized operations platform** for:
 
 - Website management
 - Security monitoring

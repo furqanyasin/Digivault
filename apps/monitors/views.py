@@ -36,7 +36,12 @@ class MonitorListCreateView(TeamScopedMixin, generics.ListCreateAPIView):
         return qs
 
     def perform_create(self, serializer):
-        monitor = serializer.save(team=self.request.user.active_team)
+        from apps.accounts.plans import ensure_can_add, ensure_check_interval
+
+        team = self.request.user.active_team
+        ensure_can_add(team, "monitors")
+        ensure_check_interval(team, serializer.validated_data.get("check_interval"))
+        monitor = serializer.save(team=team)
         AuditService.log_request(
             self.request, ActivityLog.Action.MONITOR_CREATED,
             description=f"Created {monitor.monitor_type} monitor '{monitor.name}'",
@@ -67,7 +72,7 @@ class BlockedMonitorSummaryView(APIView):
 
         team = request.user.active_team
         ips = outbound.egress_ips()
-        ip_text = ", ".join(ips) if ips else "(our monitoring IP — see https://digivault.digilatics.co/bot)"
+        ip_text = ", ".join(ips) if ips else f"(our monitoring IP — see {settings.BOT_INFO_URL})"
         groups: dict[str, list] = defaultdict(list)
         monitors = Monitor.objects.filter(
             team=team, status=Monitor.Status.BLOCKED, is_active=True,
@@ -136,7 +141,7 @@ def _vendor_fix(vendor: str, ips: list[str], ip_text: str, domains: list[str]) -
         return {
             "how": "Add this rule once per Cloudflare account (Security → WAF → Custom rules → Create rule), Action: Skip → all remaining custom rules + Bot Fight Mode. It covers every site in the account.",
             "copy_label": "Copy WAF expression",
-            "text": f'(http.user_agent contains "Digivault-Monitor"){ip_rule}',
+            "text": f'(http.user_agent contains "{outbound.ALLOWLIST_TOKEN}"){ip_rule}',
         }
     if vendor == "Wordfence":
         return {
@@ -168,6 +173,12 @@ class MonitorDetailView(TeamScopedMixin, generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated, IsTeamMember, TeamRolePermission]
 
     def perform_update(self, serializer):
+        from apps.accounts.plans import ensure_check_interval
+
+        if "check_interval" in serializer.validated_data:
+            ensure_check_interval(
+                self.request.user.active_team, serializer.validated_data["check_interval"]
+            )
         monitor = serializer.save()
         AuditService.log_request(
             self.request, ActivityLog.Action.MONITOR_UPDATED,
@@ -521,7 +532,7 @@ def _test_slack(channel) -> tuple[bool, str]:
     webhook_url = channel.config.get("webhook_url", "")
     if not webhook_url:
         return False, "Missing webhook_url in config."
-    payload = {"text": "[Digivault] Test notification — your Slack alerts are working."}
+    payload = {"text": "[Stacks Monitor] Test notification — your Slack alerts are working."}
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         webhook_url, data=data,
@@ -540,11 +551,11 @@ def _test_email(channel) -> tuple[bool, str]:
     addresses = channel.config.get("addresses", [])
     if not addresses:
         return False, "No email addresses configured."
-    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "alerts@digivault.digilatics.co")
+    from_email = settings.DEFAULT_FROM_EMAIL
     try:
         send_mail(
-            subject="[Digivault] Test notification",
-            message="This is a test notification from Digivault. Your email alerts are working correctly.",
+            subject="[Stacks Monitor] Test notification",
+            message="This is a test notification from Stacks Monitor. Your email alerts are working correctly.",
             from_email=from_email,
             recipient_list=addresses,
             fail_silently=False,
@@ -593,7 +604,7 @@ class MonitorNotificationRuleListCreateView(generics.ListCreateAPIView):
         channel = NotificationChannel.objects.get(
             pk=serializer.validated_data.pop("channel_id"), team=team
         )
-        rule = serializer.save(monitor=monitor, channel=channel)
+        serializer.save(monitor=monitor, channel=channel)
         AuditService.log_request(
             self.request, ActivityLog.Action.MONITOR_RULE_CREATED,
             description=f"Added notification rule to monitor '{monitor.name}'",
@@ -632,7 +643,7 @@ class MonitoringInfoView(APIView):
 
     Deliberately unauthenticated. The person who needs this is a site owner
     staring at a firewall log, or an agency staffer pasting a rule into a
-    client's Cloudflare dashboard — neither is signed into Digivault at that
+    client's Cloudflare dashboard — neither is signed into Stacks Monitor at that
     moment. There is nothing secret here: the user-agent is already in every
     request we send, and the egress IP is already in the client's access log.
 
@@ -656,14 +667,14 @@ class MonitoringInfoView(APIView):
             "allowlist": {
                 "cloudflare": (
                     "Security → WAF → Custom rules → Create rule.\n"
-                    f'Expression:  (http.user_agent contains "Digivault-Monitor")'
+                    f'Expression:  (http.user_agent contains "{outbound.ALLOWLIST_TOKEN}")'
                     f'{" or (ip.src in {" + " ".join(ips) + "})" if ips else ""}\n'
                     "Action: Skip → All remaining custom rules, plus Bot Fight Mode."
                 ),
                 "wordfence": (
                     "Wordfence → Firewall → Blocking → Whitelisted IP addresses.\n"
                     f"Add: {ip_list}\n"
-                    "Also add 'Digivault-Monitor' under Tools → Whitelisted URLs if "
+                    f"Also add '{outbound.ALLOWLIST_TOKEN}' under Tools → Whitelisted URLs if "
                     "rate limiting is set to block unknown crawlers."
                 ),
                 "siteground": (
@@ -676,7 +687,7 @@ class MonitoringInfoView(APIView):
                     f"Whitelist IP addresses.\nAdd: {ip_list}"
                 ),
                 "htaccess": (
-                    "# Digivault uptime monitor\n"
+                    "# Stacks Monitor uptime monitor\n"
                     "<RequireAny>\n"
                     "  Require all granted\n"
                     f"  Require ip {first_ip}\n"
@@ -684,7 +695,7 @@ class MonitoringInfoView(APIView):
                 ),
             },
             "docs": (
-                "Digivault checks your site from a single IP and identifies itself "
+                "Stacks Monitor checks your site from a single IP and identifies itself "
                 "honestly on every request. If your firewall blocks it, the "
                 "dashboard reports 'blocked' rather than 'down' — your site is "
                 "fine, we just cannot see it. Allowlisting restores coverage."

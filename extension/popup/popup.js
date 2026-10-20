@@ -28,7 +28,7 @@ function storageRemove(keys) {
 
 async function getServerHost() {
   const { serverUrl } = await storageGetSync("serverUrl");
-  return new URL((serverUrl || "https://digivault.digilatics.co").replace(/\/$/, "")).origin;
+  return new URL((serverUrl || "https://stacksmonitor.com").replace(/\/$/, "")).origin;
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -182,6 +182,7 @@ async function renderVault(filter, search) {
         c.label.toLowerCase().includes(search) ||
         (c.credential_type ?? "").toLowerCase().includes(search) ||
         (c.website_name ?? "").toLowerCase().includes(search) ||
+        (c.client_name ?? "").toLowerCase().includes(search) ||
         credHostname(c).includes(search)
     );
   }
@@ -221,7 +222,7 @@ async function renderVault(filter, search) {
           </svg>
         </div>
         <p class="empty-title">Your vault is empty</p>
-        <p class="empty-sub">Credentials you save in Digivault will appear here for one-click access.</p>
+        <p class="empty-sub">Credentials you save in Stacks Monitor will appear here for one-click access.</p>
       `;
     } else {
       empty.innerHTML = `
@@ -246,8 +247,13 @@ async function renderVault(filter, search) {
     const typeLabel = escapeHtml(
       { wordpress: "WordPress", cpanel: "cPanel", godaddy: "GoDaddy", cloudflare: "Cloudflare",
         ftp: "FTP/SFTP", shopify: "Shopify", namecheap: "Namecheap", hostinger: "Hostinger",
-        wix: "Wix", webflow: "Webflow", custom: "Custom" }[cred.credential_type] ?? cred.credential_type
-    );
+        wix: "Wix", webflow: "Webflow", custom: "Custom",
+        google_search_console: "Search Console", google_analytics: "Google Analytics",
+        google_business_profile: "Business Profile", google_tag_manager: "Tag Manager",
+        google_ads: "Google Ads", meta_business: "Meta Business", semrush: "Semrush",
+        ahrefs: "Ahrefs", secure_note: "Secure Note", server: "Server", database: "Database",
+        api_key: "API Key", wifi: "Wi-Fi" }[cred.credential_type] ?? cred.credential_type
+    ) + (cred.client_name ? " · " + escapeHtml(cred.client_name) : "");
     const domain = credHostname(cred);
     const openUrl = credOpenUrl(cred);
     // "Fill" only makes sense on the matching site's own page; elsewhere the
@@ -264,14 +270,59 @@ async function renderVault(filter, search) {
       <div class="cred-info">
         <div class="cred-label">${escapeHtml(cred.label)}</div>
         <div class="cred-meta">${typeLabel}${domain ? " · " + escapeHtml(domain) : ""}</div>
+        ${cred.broken ? `<div class="cred-broken" title="${escapeHtml(cred.broken.note || "")}">⚠ Reported not working${cred.broken.by_email ? " by " + escapeHtml(cred.broken.by_email) : ""}</div>` : ""}
       </div>
       <div class="cred-actions">
+        ${cred.has_totp ? `<button class="cred-open-btn cred-totp-btn" title="Copy the 2FA code">2FA</button>` : ""}
         ${openUrl ? `<button class="cred-open-btn" title="Open site and fill login">Open</button>` : ""}
+        ${onMatchingSite && !cred.broken ? `<button class="cred-open-btn cred-broken-btn" title="Tell the team this login no longer works">Broken?</button>` : ""}
         ${onMatchingSite ? `<button class="cred-fill-btn" data-id="${escapeHtml(cred.id)}">Fill</button>` : ""}
       </div>
     `;
 
-    const openBtn = card.querySelector(".cred-open-btn");
+    // The 2FA code: copied, and shown on the button for the seconds it is
+    // valid, since a site that asks for it often asks after the popup has
+    // already closed and the clipboard is the only way to carry it there.
+    const totpBtn = card.querySelector(".cred-totp-btn");
+    if (totpBtn) {
+      totpBtn.addEventListener("click", async function () {
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = "…";
+        const result = await msg("GET_TOTP", { credentialId: cred.id });
+        btn.disabled = false;
+        if (chrome.runtime.lastError || !result || result.error || !result.code) {
+          btn.textContent = "Error";
+          setTimeout(() => { btn.textContent = "2FA"; }, 1500);
+          return;
+        }
+        try { await navigator.clipboard.writeText(result.code); } catch { /* shown below */ }
+        btn.textContent = `${result.code.slice(0, 3)} ${result.code.slice(3)}`;
+        btn.title = "Copied — valid for " + result.expiresIn + "s";
+        setTimeout(() => { btn.textContent = "2FA"; btn.title = "Copy the 2FA code"; },
+          Math.max(1, result.expiresIn) * 1000);
+      });
+    }
+
+    // "This login no longer works" — reported from where it was discovered, so
+    // the next person does not retry a dead password into a lockout.
+    const brokenBtn = card.querySelector(".cred-broken-btn");
+    if (brokenBtn) {
+      brokenBtn.addEventListener("click", async function () {
+        const note = prompt("What happened? (optional)", "");
+        if (note === null) return;
+        this.disabled = true;
+        const result = await msg("REPORT_BROKEN", { credentialId: cred.id, note });
+        if (chrome.runtime.lastError || !result || result.error) {
+          this.disabled = false;
+          this.textContent = "Error";
+          return;
+        }
+        this.textContent = "Reported";
+      });
+    }
+
+    const openBtn = card.querySelector(".cred-open-btn:not(.cred-totp-btn):not(.cred-broken-btn)");
     if (openBtn) {
       openBtn.addEventListener("click", async function () {
         // Open the site in a new tab and hand off the credential id so the
@@ -331,14 +382,27 @@ function generatePassword(len, lower, upper, nums, syms) {
   if (!sets.length) sets.push("abcdefghijklmnopqrstuvwxyz");
 
   const pool = sets.join("");
-  let pw = "";
+  const chars = [];
   // Guarantee at least one char from each set
-  sets.forEach((s) => { pw += s[Math.floor(Math.random() * s.length)]; });
-  for (let i = pw.length; i < len; i++) {
-    pw += pool[Math.floor(Math.random() * pool.length)];
+  sets.forEach((s) => { chars.push(s[randomIndex(s.length)]); });
+  for (let i = chars.length; i < len; i++) {
+    chars.push(pool[randomIndex(pool.length)]);
   }
-  // Shuffle
-  return pw.split("").sort(() => Math.random() - 0.5).join("");
+  // Fisher–Yates. `sort(() => Math.random() - 0.5)` is neither uniform nor
+  // unpredictable, and Math.random() is not a CSPRNG at all.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomIndex(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+// Uniform integer in [0, n) from the CSPRNG, rejecting the biased tail.
+function randomIndex(n) {
+  const limit = Math.floor(0x100000000 / n) * n;
+  const buf = new Uint32Array(1);
+  do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+  return buf[0] % n;
 }
 
 function calcStrength(pw) {
@@ -436,7 +500,7 @@ function renderAlerts() {
         </svg>
       </div>
       <p class="empty-title">Site not monitored</p>
-      <p class="empty-sub">Add this site to Digivault to monitor third-party scripts and get security alerts.</p>
+      <p class="empty-sub">Add this site to Stacks Monitor to monitor third-party scripts and get security alerts.</p>
     `;
     body.appendChild(empty);
     return;
@@ -514,11 +578,12 @@ document.getElementById("acc-settings-btn").addEventListener("click", () => {
 
 document.getElementById("acc-about-btn").addEventListener("click", async () => {
   const manifest = chrome.runtime.getManifest();
-  alert("Digivault Extension v" + manifest.version + "\n\nMonitor third-party scripts and manage credentials for your websites.");
+  alert("Stacks Monitor Extension v" + manifest.version + "\n\nMonitor third-party scripts and manage credentials for your websites.");
 });
 
 document.getElementById("acc-logout-btn").addEventListener("click", async () => {
   await storageRemove(["access", "refresh", "email"]);
+  await chrome.storage.session.remove("dv_domains");
   showScreen("login");
   loginEmail.value = "";
   loginPw.value = "";

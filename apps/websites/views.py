@@ -3,6 +3,7 @@ import re
 from html import unescape
 from urllib.parse import parse_qs
 
+from django.conf import settings
 from django.db.models import Count, Q
 from rest_framework import permissions, status
 from rest_framework.throttling import UserRateThrottle
@@ -459,7 +460,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         from apps.scripts.tasks import _internal_hosts
 
         qs = _restrict_to_assignments(super().get_queryset(), self.request)
-        # Exclude Digivault's own infra scripts (the tracking snippet etc.) so the
+        # Exclude Stacks Monitor's own infra scripts (the tracking snippet etc.) so the
         # dashboard counts match the website detail page, which hides them.
         internal_q = Q()
         for host in _internal_hosts():
@@ -488,7 +489,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             return WebsiteCreateSerializer
         return WebsiteSerializer
 
-    # Digivault role → WordPress role for one-click wp-admin login.
+    # Stacks Monitor role → WordPress role for one-click wp-admin login.
     _WP_ROLE_MAP = {
         "owner": "administrator",
         "manager": "administrator",
@@ -586,7 +587,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                     "detail": (
                         "Add a WordPress credential for this site in the "
                         "Credentials tab, using an Application Password, and "
-                        "Digivault can read where these forms deliver."
+                        "Stacks Monitor can read where these forms deliver."
                     ),
                 },
                 status=status.HTTP_409_CONFLICT,
@@ -636,7 +637,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         domain = website.domain
         if not domain.startswith(("http://", "https://")):
             domain = f"https://{domain}"
-        url = f"{domain.rstrip('/')}/wp-json/digivault/v1/sso?p={payload_b64}&s={sig}"
+        url = f"{domain.rstrip('/')}/wp-json/stacksmonitor/v1/sso?p={payload_b64}&s={sig}"
 
         AuditService.log_request(
             request, ActivityLog.Action.WEBSITE_WP_LOGIN,
@@ -749,6 +750,9 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
         return Response(self.get_serializer(obj).data)
 
     def perform_create(self, serializer):
+        from apps.accounts.plans import ensure_can_add
+
+        ensure_can_add(self.request.user.active_team, "websites")
         website = serializer.save(team=self.request.user.active_team)
         AuditService.log_request(
             self.request, ActivityLog.Action.WEBSITE_CREATED,
@@ -846,7 +850,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
                             f"{vendor} answered instead of {website.domain} "
                             f"(HTTP {result.status_code}), so we never saw the page. "
                             "Allowlist our scanner "
-                            "(https://digivault.digilatics.co/bot) and try again."
+                            f"({settings.BOT_INFO_URL}) and try again."
                         ),
                         "code": "blocked",
                     },
@@ -914,7 +918,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "page_url": final_url,
             "scripts": scripts,
             "forms": forms,
-            "user_agent": "Digivault-Scanner/1.0",
+            "user_agent": "StacksMonitor-Scanner/1.0",
             "snippet_version": ScriptSnapshot.SERVER_SCAN_VERSION,
         }
         process_ingest_payload.delay(website.site_id, payload)
@@ -1028,7 +1032,7 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             "blocked. It verifies itself as soon as a visitor loads the page. To let "
             "our checks through, allowlist our monitor"
             + (f" (IP {', '.join(ips)})" if ips else "")
-            + " — see https://digivault.digilatics.co/bot."
+            + f" — see {settings.BOT_INFO_URL}."
         )
 
         if result.status_code >= 400:
@@ -1116,138 +1120,6 @@ class WebsiteViewSet(TeamScopedMixin, ModelViewSet):
             for w in qs
         ]
         return Response(data)
-
-    @action(detail=False, methods=["get"], url_path="fleet-summary")
-    def fleet_summary(self, request):
-        """Team-wide roll-up of SEO, performance, security-header and
-        vulnerability state.
-
-        One query per area rather than per website: the dashboard needs all four
-        for every site, and fanning out would be 4 requests x N sites. Only
-        reads stored scan results — never triggers a scan.
-        """
-        from django.db.models import Avg, Count, Q, Sum
-        from django.db.models.functions import Coalesce
-
-        from apps.performance.models import PerformanceReport
-        from apps.site_health.models import (
-            SecurityHeaderReport,
-            SeoReport,
-            VulnerabilityReport,
-        )
-
-        site_ids = list(self.get_queryset().values_list("id", flat=True))
-        total = len(site_ids)
-        if not total:
-            return Response({
-                "total_sites": 0,
-                "seo": {}, "performance": {}, "security": {}, "vulnerabilities": {},
-            })
-
-        # ---- SEO -----------------------------------------------------------
-        seo = SeoReport.objects.filter(website_id__in=site_ids, check_status="done")
-        seo_agg = seo.aggregate(
-            checked=Count("id"),
-            indexable=Count("id", filter=Q(homepage_indexable=True)),
-            blocked=Count(
-                "id", filter=Q(robots_blocks_all=True) | Q(homepage_indexable=False)
-            ),
-            noindex_pages=Coalesce(Sum("noindex_count"), 0),
-        )
-
-        # ---- Performance: the newest run per site, per strategy -------------
-        # Ordered newest-first by the model's own Meta, so the first row seen for
-        # a (site, strategy) pair is the current one.
-        latest = {}
-        for row in (
-            PerformanceReport.objects
-            .filter(website_id__in=site_ids, performance_score__isnull=False)
-            # PerformanceReport keeps its own timestamp — checked_at, not the
-            # BaseModel created_at, since it does not inherit from it.
-            .order_by("website_id", "strategy", "-checked_at")
-            .values("website_id", "strategy", "performance_score")
-        ):
-            latest.setdefault((row["website_id"], row["strategy"]), row["performance_score"])
-        mobile = [v for (_, strat), v in latest.items() if strat == "mobile"]
-        desktop = [v for (_, strat), v in latest.items() if strat == "desktop"]
-        avg = lambda xs: round(sum(xs) / len(xs)) if xs else None
-
-        # ---- Security headers ----------------------------------------------
-        headers = SecurityHeaderReport.objects.filter(
-            website_id__in=site_ids, check_status="done"
-        )
-        header_agg = headers.aggregate(checked=Count("id"), avg_score=Avg("score"))
-        grades = dict(
-            headers.values_list("grade").annotate(n=Count("id")).values_list("grade", "n")
-        )
-
-        # ---- Vulnerabilities ------------------------------------------------
-        vulns = VulnerabilityReport.objects.filter(website_id__in=site_ids)
-        vuln_agg = vulns.aggregate(
-            critical=Count("id", filter=Q(severity="critical")),
-            high=Count("id", filter=Q(severity="high")),
-            medium=Count("id", filter=Q(severity="medium")),
-            low=Count("id", filter=Q(severity="low")),
-        )
-        vuln_agg["sites_affected"] = (
-            vulns.values("website_id").distinct().count()
-        )
-
-        # ---- Tracking coverage ---------------------------------------------
-        # Distinct sites carrying each kind of tag, from the classifier's own
-        # categories. "Has analytics" is the question an agency actually asks —
-        # a site with no measurement is invisible to the client's reporting.
-        from apps.scripts.models import Script
-
-        def sites_with(**flt):
-            return (
-                Script.objects.filter(website_id__in=site_ids, is_active=True, **flt)
-                .values("website_id").distinct().count()
-            )
-
-        analytics_sites = sites_with(category__in=["analytics", "tag_management"])
-        tracking = {
-            "analytics": analytics_sites,
-            "missing_analytics": total - analytics_sites,
-            "tag_manager": sites_with(category="tag_management"),
-            "advertising": sites_with(category="advertising"),
-            "call_tracking": sites_with(category="call_tracking"),
-            "unknown_scripts": sites_with(provider="unknown"),
-            "suspicious_sites": sites_with(is_suspicious=True),
-            "suspicious_scripts": Script.objects.filter(
-                website_id__in=site_ids, is_active=True, is_suspicious=True
-            ).count(),
-        }
-
-        return Response({
-            "total_sites": total,
-            "tracking": tracking,
-            "seo": {
-                "checked": seo_agg["checked"],
-                "not_checked": total - seo_agg["checked"],
-                "indexable": seo_agg["indexable"],
-                "blocked": seo_agg["blocked"],
-                "noindex_pages": seo_agg["noindex_pages"],
-            },
-            "performance": {
-                "measured": len({wid for wid, _ in latest}),
-                "not_measured": total - len({wid for wid, _ in latest}),
-                "avg_mobile": avg(mobile),
-                "avg_desktop": avg(desktop),
-                # Lighthouse's own bands: <50 poor, 50-89 needs work, 90+ good.
-                "poor_mobile": sum(1 for v in mobile if v < 50),
-                "good_mobile": sum(1 for v in mobile if v >= 90),
-            },
-            "security": {
-                "checked": header_agg["checked"],
-                "not_checked": total - header_agg["checked"],
-                "avg_score": round(header_agg["avg_score"]) if header_agg["avg_score"] is not None else None,
-                "grades": grades,
-                # A and B pass; C and below need work.
-                "failing": sum(n for g, n in grades.items() if g and g[0] in "CDF"),
-            },
-            "vulnerabilities": vuln_agg,
-        })
 
     @action(detail=False, methods=["get"], url_path="expiring-hosting")
     def expiring_hosting(self, request):

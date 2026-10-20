@@ -80,7 +80,7 @@ def test_detection_failure_is_empty_not_an_error():
 def test_block_message_names_the_ip_and_is_not_cut_off():
     msg = _block_message("SiteGround", 202)
     assert "203.0.113.7" in msg
-    assert msg.endswith("https://digivault.digilatics.co/bot")
+    assert msg.endswith("https://stacksmonitor.com/bot")
 
 
 @override_settings(MONITOR_EGRESS_IPS=["203.0.113.7"])
@@ -122,10 +122,10 @@ def test_summary_gives_one_ticket_for_every_siteground_site(owner, team):
     ticket = sg["fix"]["text"]
     assert "203.0.113.7" in ticket
     assert "- 3wavecleaning.com" in ticket and "- acme.io" in ticket
-    assert "Digivault-Monitor" in ticket
+    assert "StacksMonitor-Bot" in ticket
 
     cf = groups["Cloudflare"]["fix"]["text"]
-    assert 'http.user_agent contains "Digivault-Monitor"' in cf and "203.0.113.7" in cf
+    assert 'http.user_agent contains "StacksMonitor-Bot"' in cf and "203.0.113.7" in cf
 
 
 @pytest.mark.django_db

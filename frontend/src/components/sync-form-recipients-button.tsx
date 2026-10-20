@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 /** Ask a WordPress site where its forms deliver, on demand.
  *
  *  A form plugin keeps its "To" address in the database, so the tracking snippet
- *  never sees it and the Goes to column reads "Server-side". Digivault reads it
+ *  never sees it and the Goes to column reads "Server-side". Stacks Monitor reads it
  *  from the site's own WordPress API with a saved Application Password, but only
  *  nightly — which is a long time to wait to find out whether the credential you
  *  just saved works. This runs the same read now.

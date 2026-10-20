@@ -128,7 +128,7 @@ export function FormsTab({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-4 py-3">
           <p className="text-xs text-muted-foreground">
             Some forms don&apos;t show where they deliver — WordPress keeps that address
-            out of the page. With a saved WordPress credential Digivault can read it
+            out of the page. With a saved WordPress credential Stacks Monitor can read it
             from Elementor and Gravity Forms through the site&apos;s own API.
           </p>
           <SyncFormRecipientsButton websiteId={websiteId} />

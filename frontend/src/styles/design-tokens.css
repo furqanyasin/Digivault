@@ -1,0 +1,311 @@
+/* ===========================================================================
+   STACKS MONITOR DESIGN TOKENS
+
+   The one file to change the look of the whole product: website and
+   dashboard. Imported by app/globals.css right after Tailwind, so every token
+   below is also a Tailwind utility (shadow-card, rounded-card, max-w-container,
+   breakpoint `xs:` / `3xl:` ...).
+
+   Layout rhythm, breakpoints and the soft card shadows follow the
+   Strikingdash reference template. Colours stay on the brand palette defined
+   in globals.css (brand-500 is the logo colour, #7678ED).
+
+   Sections:
+     1. Breakpoints
+     2. Fonts and type scale (headings h1 to h6, body, small)
+     3. Colours used by the website (aliases of the palette)
+     4. Radius
+     5. Spacing, padding, margins, containers
+     6. Shadows
+     7. Motion and layers
+     8. Base heading styles + reusable website classes (.ds-*)
+   =========================================================================== */
+
+@theme {
+  /* 1. Breakpoints. Mobile first: `md:` means "768px and wider".
+        Same steps as the reference template (Bootstrap based). */
+  --breakpoint-xs: 30rem;   /* 480px  large phones */
+  --breakpoint-sm: 36rem;   /* 576px  phones landscape */
+  --breakpoint-md: 48rem;   /* 768px  tablets */
+  --breakpoint-lg: 62rem;   /* 992px  small laptops */
+  --breakpoint-xl: 75rem;   /* 1200px laptops */
+  --breakpoint-2xl: 87.5rem; /* 1400px desktops */
+  --breakpoint-3xl: 100rem; /* 1600px wide screens */
+
+  /* 2. Type scale. Fluid: each heading grows between 375px and 1400px
+        viewports, so one class works on phones and desktops. */
+  --text-display: clamp(2.5rem, 1.6rem + 3.8vw, 4.25rem);
+  --text-display--line-height: 1.05;
+  --text-h1: clamp(2.125rem, 1.6rem + 2.2vw, 3.25rem);
+  --text-h1--line-height: 1.1;
+  --text-h2: clamp(1.75rem, 1.4rem + 1.5vw, 2.5rem);
+  --text-h2--line-height: 1.15;
+  --text-h3: clamp(1.375rem, 1.2rem + 0.75vw, 1.75rem);
+  --text-h3--line-height: 1.25;
+  --text-h4: 1.25rem;
+  --text-h4--line-height: 1.35;
+  --text-h5: 1.0625rem;
+  --text-h5--line-height: 1.4;
+  --text-h6: 0.875rem;
+  --text-h6--line-height: 1.4;
+  --text-lead: clamp(1.0625rem, 1rem + 0.3vw, 1.25rem);
+  --text-lead--line-height: 1.6;
+  --text-body: 1rem;
+  --text-body--line-height: 1.65;
+  --text-small: 0.875rem;
+  --text-small--line-height: 1.55;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.4;
+
+  /* 4. Radius */
+  --radius-xs: 0.25rem;   /* 4px  tags, small chips */
+  --radius-btn: 0.5rem;   /* 8px  buttons, inputs */
+  --radius-card: 0.75rem; /* 12px cards (template uses 10px) */
+  --radius-panel: 1.25rem; /* 20px large panels, hero frames */
+  --radius-pill: 999px;
+
+  /* 5. Containers */
+  --container-container: 75rem;      /* 1200px main content width */
+  --container-container-wide: 87.5rem; /* 1400px hero, footer */
+  --container-prose: 45rem;          /* 720px long-form text */
+
+  /* 6. Shadows. Soft and tinted toward the brand, like the template's
+        0 5px 20px rgba(146,153,184,.2). Dark mode overrides below. */
+  --shadow-xs: 0 1px 2px oklch(0.45 0.03 282 / 0.06);
+  --shadow-card: 0 5px 20px oklch(0.62 0.04 282 / 0.12);
+  --shadow-card-hover: 0 12px 32px oklch(0.55 0.08 282 / 0.18);
+  --shadow-panel: 0 20px 50px oklch(0.45 0.08 282 / 0.16);
+  --shadow-btn: 0 6px 16px oklch(0.545 0.17 279.5 / 0.28);
+  --shadow-focus: 0 0 0 3px oklch(0.718 0.149 279.5 / 0.35);
+
+  /* 7. Motion */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:root {
+  /* 3. Website colour roles. Aliases only: change the palette in globals.css. */
+  --ds-surface: var(--background);
+  --ds-surface-raised: var(--card);
+  --ds-surface-sunken: oklch(0.968 0.010 282);
+  --ds-surface-brand: var(--color-brand-50);
+  --ds-text: var(--foreground);
+  --ds-text-muted: var(--muted-foreground);
+  --ds-heading: oklch(0.205 0.030 282);
+  --ds-link: var(--primary);
+  --ds-line: var(--border);
+  --ds-hero-glow: oklch(0.718 0.149 279.5 / 0.18);
+
+  /* 5. Spacing scale (4px base) for anything outside Tailwind utilities. */
+  --space-1: 0.25rem;  /* 4  */
+  --space-2: 0.5rem;   /* 8  */
+  --space-3: 0.75rem;  /* 12 */
+  --space-4: 1rem;     /* 16 */
+  --space-5: 1.25rem;  /* 20 */
+  --space-6: 1.5rem;   /* 24 */
+  --space-8: 2rem;     /* 32 */
+  --space-10: 2.5rem;  /* 40 */
+  --space-12: 3rem;    /* 48 */
+  --space-16: 4rem;    /* 64 */
+  --space-20: 5rem;    /* 80 */
+  --space-24: 6rem;    /* 96 */
+
+  /* Page gutters and vertical section padding, per breakpoint below. */
+  --gutter: 1rem;
+  --section-y: 3.5rem;
+  --card-padding: 1.25rem;
+  --header-height: 4rem;
+
+  /* 7. Layers */
+  --z-header: 40;
+  --z-menu: 50;
+  --z-toast: 100;
+}
+
+@media (min-width: 48rem) {
+  :root {
+    --gutter: 1.5rem;
+    --section-y: 5rem;
+    --card-padding: 1.5rem;
+  }
+}
+
+@media (min-width: 75rem) {
+  :root {
+    --gutter: 2rem;
+    --section-y: 6.5rem;
+    --card-padding: 1.75rem;
+    --header-height: 4.5rem;
+  }
+}
+
+.dark {
+  --ds-surface-sunken: oklch(0.2 0.015 282);
+  --ds-surface-brand: oklch(0.24 0.04 282);
+  --ds-heading: oklch(0.975 0.004 282);
+  --ds-hero-glow: oklch(0.628 0.172 279.5 / 0.22);
+  --shadow-card: 0 5px 20px oklch(0 0 0 / 0.35);
+  --shadow-card-hover: 0 12px 32px oklch(0 0 0 / 0.45);
+  --shadow-panel: 0 20px 50px oklch(0 0 0 / 0.5);
+  --shadow-btn: 0 6px 16px oklch(0.4 0.15 279.5 / 0.45);
+}
+
+/* ---------------------------------------------------------------------------
+   8. Reusable website classes. Prefixed `ds-` so they never collide with
+      dashboard code. Prefer Tailwind utilities inside components; these
+      exist for patterns repeated on every marketing page.
+   --------------------------------------------------------------------------- */
+
+@layer components {
+  .ds-container {
+    width: 100%;
+    max-width: var(--container-container);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  .ds-container-wide {
+    width: 100%;
+    max-width: var(--container-container-wide);
+    margin-inline: auto;
+    padding-inline: var(--gutter);
+  }
+
+  .ds-section {
+    padding-block: var(--section-y);
+  }
+
+  .ds-section-sunken {
+    background: var(--ds-surface-sunken);
+  }
+
+  .ds-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--text-caption);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--primary);
+  }
+
+  .ds-display,
+  .ds-h1,
+  .ds-h2,
+  .ds-h3,
+  .ds-h4,
+  .ds-h5,
+  .ds-h6 {
+    font-family: var(--font-display);
+    color: var(--ds-heading);
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+
+  .ds-display { font-size: var(--text-display); line-height: var(--text-display--line-height); letter-spacing: -0.035em; }
+  .ds-h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); letter-spacing: -0.03em; }
+  .ds-h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); }
+  .ds-h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); font-weight: 600; }
+  .ds-h4 { font-size: var(--text-h4); line-height: var(--text-h4--line-height); font-weight: 600; }
+  .ds-h5 { font-size: var(--text-h5); line-height: var(--text-h5--line-height); font-weight: 600; }
+  .ds-h6 { font-size: var(--text-h6); line-height: var(--text-h6--line-height); font-weight: 600; letter-spacing: 0; }
+
+  .ds-lead {
+    font-size: var(--text-lead);
+    line-height: var(--text-lead--line-height);
+    color: var(--ds-text-muted);
+    text-wrap: pretty;
+  }
+
+  .ds-card {
+    background: var(--ds-surface-raised);
+    border: 1px solid var(--ds-line);
+    border-radius: var(--radius-card);
+    padding: var(--card-padding);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ds-card-hover {
+    transition: transform 200ms var(--ease-out-soft), box-shadow 200ms var(--ease-out-soft);
+  }
+
+  .ds-card-hover:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  .ds-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 2.75rem;
+    padding-inline: 1.25rem;
+    border-radius: var(--radius-btn);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background-color 150ms, color 150ms, box-shadow 150ms, transform 150ms;
+  }
+
+  .ds-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+  }
+
+  .ds-btn-lg { height: 3.25rem; padding-inline: 1.75rem; font-size: 1rem; }
+  .ds-btn-sm { height: 2.25rem; padding-inline: 0.875rem; font-size: 0.875rem; }
+
+  .ds-btn-primary {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    box-shadow: var(--shadow-btn);
+  }
+
+  .ds-btn-primary:hover { background: color-mix(in oklab, var(--primary) 88%, black); }
+
+  .ds-btn-outline {
+    background: var(--ds-surface-raised);
+    color: var(--ds-heading);
+    border: 1px solid var(--ds-line);
+  }
+
+  .ds-btn-outline:hover { border-color: var(--primary); color: var(--primary); }
+
+  .ds-btn-ghost { color: var(--ds-text); }
+  .ds-btn-ghost:hover { background: var(--accent); color: var(--accent-foreground); }
+
+  .ds-input {
+    height: 3rem;
+    width: 100%;
+    border-radius: var(--radius-btn);
+    border: 1px solid var(--input);
+    background: var(--ds-surface-raised);
+    padding-inline: 1rem;
+    font-size: 1rem;
+    color: var(--ds-text);
+  }
+
+  .ds-input:focus { outline: none; border-color: var(--primary); box-shadow: var(--shadow-focus); }
+
+  .ds-icon-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: var(--radius-card);
+    background: var(--ds-surface-brand);
+    color: var(--primary);
+  }
+
+  .ds-prose { max-width: var(--container-prose); color: var(--ds-text); }
+  .ds-prose h2 { font-family: var(--font-display); font-size: var(--text-h3); line-height: var(--text-h3--line-height); font-weight: 600; color: var(--ds-heading); margin-top: 2.5rem; margin-bottom: 0.75rem; }
+  .ds-prose h3 { font-size: var(--text-h4); font-weight: 600; color: var(--ds-heading); margin-top: 1.75rem; margin-bottom: 0.5rem; }
+  .ds-prose p, .ds-prose li { line-height: 1.75; color: var(--ds-text-muted); }
+  .ds-prose p + p { margin-top: 1rem; }
+  .ds-prose ul { list-style: disc; padding-left: 1.25rem; margin-block: 1rem; }
+  .ds-prose li + li { margin-top: 0.375rem; }
+  .ds-prose a { color: var(--ds-link); text-decoration: underline; text-underline-offset: 3px; }
+}

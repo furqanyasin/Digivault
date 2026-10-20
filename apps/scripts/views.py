@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.audit.models import ActivityLog
 from apps.audit.services import AuditService
 from apps.common.mixins import TeamScopedMixin
-from apps.common.permissions import ROLE_MANAGER, IsTeamMember, TeamRolePermission
+from apps.common.permissions import IsTeamMember, TeamRolePermission
 from apps.scripts.js_errors import (
     browser_label,
     fingerprint as js_fingerprint,
@@ -787,7 +787,7 @@ class TeamFormErrorListView(generics.ListAPIView):
 class ExtensionLookupView(APIView):
     """GET /api/extension/lookup/?domain=example.com
 
-    The extension's toolbar badge: how many scripts Digivault watches on the
+    The extension's toolbar badge: how many scripts Stacks Monitor watches on the
     site in the current tab. Full src URLs are deliberately omitted.
 
     Authenticated and scoped to the caller's active team. It used to be public,

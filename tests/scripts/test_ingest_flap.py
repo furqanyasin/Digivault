@@ -132,7 +132,7 @@ class TestGenuineRemovalStillReported:
 
 
 class TestRealWorldStack:
-    """The digilatics.com stack that produced 31 repeating change-log rows.
+    """The acme-agency.com stack that produced 31 repeating change-log rows.
 
     Every volatile part rotates the way it does in production: HubSpot's epoch
     path segment, Clarity's release directory, Hotjar's bundle hash, GTM's
@@ -155,7 +155,7 @@ class TestRealWorldStack:
             f"https://www.googletagmanager.com/gtag/js?id=G-LC6FS8Y01E&cx=c&gtm=4e684{load}",
             "https://connect.facebook.net/en_US/fbevents.js",
             "https://connect.facebook.net/signals/config/7847387958713764"
-            f"?v=2.9.37{load}&r=stable&domain=digilatics.com"
+            f"?v=2.9.37{load}&r=stable&domain=acme-agency.com"
             "&hme=589ca7d2e122c6385be4e33d0bc38dace8e88b62db3f4bee0e6f01d386858e70"
             f"&ex_m=108%2C210%2C{load}",
             "https://www.clarity.ms/tag/i9x3wxzn9k",
@@ -169,7 +169,7 @@ class TestRealWorldStack:
 
     def _traffic(self, website, loads=8):
         for load in range(loads):
-            page = f"https://digilatics.com/page-{load % 3}"
+            page = f"https://acme-agency.com/page-{load % 3}"
             # Each iteration is a separate visit; its two posts are one load.
             ScriptSnapshot.objects.filter(website=website).update(
                 captured_at=F("captured_at") - timedelta(minutes=5)
@@ -192,7 +192,7 @@ class TestRealWorldStack:
         added = _changes(website, "added")
 
         # One row per installed tag, never a second for the same one. This is
-        # the digilatics.com header as installed: two GTM containers, the GA4
+        # the acme-agency.com header as installed: two GTM containers, the GA4
         # property one of them injects, Hotjar, HubSpot and WhatConverts. Meta
         # Pixel and Clarity load here too and are not monitored vendors; the
         # files HubSpot's and Hotjar's loaders fetch (analytics, cookie banner,

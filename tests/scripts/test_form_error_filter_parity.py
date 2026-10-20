@@ -21,7 +21,7 @@ from apps.scripts.form_errors import is_important_form_error
 
 SNIPPET = Path(__file__).resolve().parents[2] / "apps" / "scripts" / "snippet.js"
 
-# Verbatim status text from the plugins Digivault actually meets, each one a
+# Verbatim status text from the plugins Stacks Monitor actually meets, each one a
 # *delivery* failure the agency has to act on.
 DELIVERY_FAILURES = [
     # Contact Form 7

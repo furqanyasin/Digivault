@@ -13,7 +13,6 @@ import ssl
 from dataclasses import dataclass, field
 from datetime import datetime, timezone as dt_timezone
 from typing import Optional
-from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +87,7 @@ def check_email_auth(domain: str, *, resolve_txt=None) -> dict:
 
     Statuses describe *presence and syntax*, not correctness: verifying that an
     SPF policy actually lists the right senders needs the sending
-    infrastructure, which Digivault does not know.
+    infrastructure, which Stacks Monitor does not know.
     """
     resolve_txt = resolve_txt or _resolve_txt
     out = {

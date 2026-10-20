@@ -36,13 +36,13 @@ FAKE_SYNC = {
 def test_patching_the_chat_url_stores_it(auth_client, team):
     resp = auth_client.patch(
         _settings_url(team),
-        {"clickup_chat_url": "https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438"},
+        {"clickup_chat_url": "https://acme.clickup.com/25658037/chat/r/rf0nn-49438"},
         format="json",
     )
 
     assert resp.status_code == 200
     team.refresh_from_db()
-    assert team.clickup_chat_url == "https://digilatics.clickup.com/25658037/chat/r/rf0nn-49438"
+    assert team.clickup_chat_url == "https://acme.clickup.com/25658037/chat/r/rf0nn-49438"
     assert resp.data["clickup_chat_connected"] is True
 
 

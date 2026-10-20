@@ -1,6 +1,6 @@
 """Second opinion on a failed probe, from the people actually using the site.
 
-Digivault probes from one public IP. That IP can be challenged, rate-limited or
+Stacks Monitor probes from one public IP. That IP can be challenged, rate-limited or
 blackholed by any WAF on any of the client sites it watches, and when it is, the
 monitor reports an outage for a site that is serving visitors perfectly well.
 Buying probe capacity in a second region is the usual cure; this is the cure

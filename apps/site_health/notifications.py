@@ -43,9 +43,9 @@ def notify_team(website, subject: str, body: str, *, subject_key: str = "") -> N
         chat.notify_problem(
             website,
             subject=subject_key,
-            # The "[Digivault] " prefix is email framing; the channel already
+            # The "[Stacks Monitor] " prefix is email framing; the channel already
             # knows who is talking.
-            title=subject.replace("[Digivault] ", ""),
+            title=subject.replace("[Stacks Monitor] ", ""),
             detail=body,
         )
     except Exception:

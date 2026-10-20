@@ -13,7 +13,7 @@ The "@name" in a message is plain text and always will be: ClickUp's Chat API
 exposes no request-side @-mention syntax, so nothing we put in `content` becomes
 a real mention chip. Reaching a person is done with the message's `assignee`
 (the account owner) and `followers` (everyone else who manages the site), which
-is why the mapping between a Digivault user and their ClickUp id is resolved
+is why the mapping between a Stacks Monitor user and their ClickUp id is resolved
 here rather than left to whenever someone last opened Settings.
 
 Nothing here raises. By the time an alert path calls us, email and the

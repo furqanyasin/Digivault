@@ -6,11 +6,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: digivault
-      POSTGRES_USER: digivault
+      POSTGRES_DB: stacksmonitor
+      POSTGRES_USER: stacksmonitor
       POSTGRES_PASSWORD: password
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U digivault"]
+      test: ["CMD-SHELL", "pg_isready -U stacksmonitor"]
       interval: 5s
       timeout: 5s
       retries: 5

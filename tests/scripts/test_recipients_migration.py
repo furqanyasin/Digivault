@@ -12,7 +12,7 @@ class TestRecipientsBackfill:
         """Rows written before this migration hold one address in a CharField.
 
         Dropping the column without carrying the value over would silently
-        empty the Goes to column for every form Digivault had already learned.
+        empty the Goes to column for every form Stacks Monitor had already learned.
         """
         executor = MigrationExecutor(connection)
         app = "scripts"

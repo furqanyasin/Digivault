@@ -248,7 +248,7 @@ def handle_list_scripts(team, params):
 
     lines = [f"• **{s['provider']}** — {s['category'] or 'uncategorized'}" for s in scripts]
     return {
-        'reply': f"**Active script providers across all sites:**\n\n" + '\n'.join(lines),
+        'reply': "**Active script providers across all sites:**\n\n" + '\n'.join(lines),
         'type': 'scripts_list',
         'data': scripts,
     }
@@ -522,8 +522,8 @@ def handle_check_client(team, params):
 
         hosting = client.hosting_platform.capitalize() if client.hosting_platform else 'Unknown'
         access = client.domain_access_location or 'Not recorded'
-        built = client.website_built_by_digi or 'Unknown'
-        maintained = client.website_maintained_by_digi or 'Unknown'
+        built = client.website_built_by_us or 'Unknown'
+        maintained = client.website_maintained_by_us or 'Unknown'
         status_emoji = '✅' if client.status == 'active' else '⏸️'
 
         return {
@@ -532,8 +532,8 @@ def handle_check_client(team, params):
                 f"Website: {client.website_url or '—'}\n"
                 f"Hosting: {hosting}\n"
                 f"Domain access: {access}\n"
-                f"Built by Digi: {built}\n"
-                f"Maintained by Digi: {maintained}"
+                f"Built by us: {built}\n"
+                f"Maintained by us: {maintained}"
             ),
             'type': 'client_detail',
             'data': {'id': str(client.id), 'name': client.name},

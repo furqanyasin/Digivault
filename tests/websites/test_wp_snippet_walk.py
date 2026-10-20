@@ -28,7 +28,7 @@ def test_walk_is_chunked_with_a_cursor(php):
 
 
 def test_walk_marks_completion_explicitly(php):
-    # Digivault must not diff a partial manifest: every unwalked file would read
+    # Stacks Monitor must not diff a partial manifest: every unwalked file would read
     # as removed.
     assert "'complete'" in php
 

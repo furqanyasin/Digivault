@@ -94,7 +94,7 @@ def password_changed(credential, changed_by) -> None:
     ]
     who = display_name(changed_by) if changed_by else "Someone"
     mail(
-        f"[Digivault] The password for '{credential.label}' changed",
+        f"[Stacks Monitor] The password for '{credential.label}' changed",
         f"{who} changed the password for '{credential.label}'.\n\n"
         "If you saved the old one anywhere (a browser, an FTP client, a deploy "
         "setting), update it from the vault. The previous password is kept in "
@@ -105,7 +105,7 @@ def password_changed(credential, changed_by) -> None:
 
 def reported_broken(credential, reporter, note: str) -> None:
     mail(
-        f"[Digivault] '{credential.label}' was reported as not working",
+        f"[Stacks Monitor] '{credential.label}' was reported as not working",
         f"{display_name(reporter)} ({reporter.email}) reported that '{credential.label}' "
         f"no longer works.\n\nNote: {note or '(none)'}\n\n"
         "Update the password in the vault, or mark it fixed, so nobody else "

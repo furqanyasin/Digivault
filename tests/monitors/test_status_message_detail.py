@@ -44,11 +44,11 @@ def setup(db):
 
     client_rec = Client.objects.create(team=team, name="Inspiration Ltd", assigned_to=dev)
     website = Website.objects.create(
-        team=team, client=client_rec, name="Inspiration", domain="inspiration.digilatics.co",
+        team=team, client=client_rec, name="Inspiration", domain="inspiration.acme-agency.co",
     )
     monitor = Monitor.objects.create(
         team=team, website=website, name="Inspiration HTTP",
-        monitor_type="http", url="https://inspiration.digilatics.co/",
+        monitor_type="http", url="https://inspiration.acme-agency.co/",
         consecutive_failures=3,
     )
     return team, website, monitor, dev
@@ -73,7 +73,7 @@ def test_fields_carry_the_error_the_code_and_the_timing(setup):
     assert fields["HTTP status"] == 503
     assert fields["Response time"] == "4590 ms"
     assert fields["Status"] == "UP → DOWN"
-    assert fields["URL"] == "https://inspiration.digilatics.co/"
+    assert fields["URL"] == "https://inspiration.acme-agency.co/"
     assert fields["Failed checks"] == "3 in a row"
     assert fields["Checked at"]
 
@@ -131,7 +131,7 @@ def test_the_shared_channel_message_names_client_site_error_and_manager(setup):
     text = post.call_args.args[2]
     assert "🔴 **Inspiration Ltd** — Inspiration is DOWN" in text
     assert "Client: Inspiration Ltd" in text
-    assert "Website: Inspiration (inspiration.digilatics.co)" in text
+    assert "Website: Inspiration (inspiration.acme-agency.co)" in text
     assert "Error: HTTP 503: Service Unavailable" in text
     assert "HTTP status: 503" in text
     assert "Response time: 4590 ms" in text

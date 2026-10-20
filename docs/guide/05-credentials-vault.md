@@ -55,7 +55,7 @@ credential under that website with the chosen people).
 **Honest limit:** "view password off" is a workflow guardrail, not unbreakable.
 Autofill must place the real password into the login page to fill it, so a
 technically‑savvy person could extract it from the page. It reliably stops casual
-viewing/copying inside Digivault — which is what "hide password" does everywhere.
+viewing/copying inside Stacks Monitor — which is what "hide password" does everywhere.
 
 ## Browser extension & autofill
 

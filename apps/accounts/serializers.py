@@ -1,7 +1,6 @@
 from rest_framework import serializers
 
 from apps.accounts.models import (
-    PasswordResetRequest,
     SubTeam,
     Team,
     TeamInvitation,
@@ -13,11 +12,31 @@ from apps.common.serializers import BaseModelSerializer
 
 class UserSerializer(BaseModelSerializer):
     active_team = serializers.PrimaryKeyRelatedField(read_only=True)
+    # Platform owner (Django superuser): sees every workspace on /platform.
+    is_platform_admin = serializers.BooleanField(source="is_superuser", read_only=True)
+    show_2fa_reminder = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ("id", "email", "first_name", "last_name", "timezone", "active_team", "must_change_password", "created_at")
-        read_only_fields = ("id", "email", "active_team", "must_change_password", "created_at")
+        fields = (
+            "id", "email", "first_name", "last_name", "timezone", "active_team",
+            "must_change_password", "totp_enabled", "is_platform_admin",
+            "show_2fa_reminder", "created_at",
+        )
+        read_only_fields = (
+            "id", "email", "active_team", "must_change_password", "totp_enabled",
+            "is_platform_admin", "show_2fa_reminder", "created_at",
+        )
+
+    def get_show_2fa_reminder(self, obj) -> bool:
+        """True until 2FA is on, except for 24 hours after "Remind me tomorrow"."""
+        from django.utils import timezone
+        from datetime import timedelta
+
+        if obj.totp_enabled:
+            return False
+        dismissed = obj.twofa_reminder_dismissed_at
+        return dismissed is None or dismissed < timezone.now() - timedelta(hours=24)
 
 
 class TeamSerializer(BaseModelSerializer):
@@ -27,8 +46,14 @@ class TeamSerializer(BaseModelSerializer):
 
     class Meta:
         model = Team
-        fields = ("id", "name", "slug", "plan", "member_count", "my_role", "my_features", "created_at")
-        read_only_fields = ("id", "slug", "created_at")
+        fields = (
+            "id", "name", "slug", "plan", "require_2fa", "member_count", "my_role",
+            "my_features", "created_at",
+        )
+        # The plan is changed by the platform owner only (/platform or Django
+        # admin). It used to be writable here, so any owner could PATCH their
+        # own team onto an unlimited plan.
+        read_only_fields = ("id", "slug", "plan", "require_2fa", "created_at")
 
     def get_member_count(self, obj) -> int:
         return obj.memberships.count()
@@ -143,18 +168,3 @@ class TeamSettingsSerializer(serializers.ModelSerializer):
         data["clickup_api_token_masked"] = ("••••••" + token[-6:]) if len(token) > 6 else ("•" * len(token))
         data["clickup_api_token"] = ""  # never expose the full token
         return data
-
-
-class PasswordResetRequestSerializer(BaseModelSerializer):
-    user_email = serializers.EmailField(source="user.email", read_only=True)
-    user_name = serializers.SerializerMethodField()
-    approved_by_email = serializers.EmailField(source="approved_by.email", read_only=True, default=None)
-
-    class Meta:
-        model = PasswordResetRequest
-        fields = ("id", "user_email", "user_name", "status", "approved_by_email", "approved_at", "created_at")
-        read_only_fields = fields
-
-    def get_user_name(self, obj) -> str:
-        name = f"{obj.user.first_name} {obj.user.last_name}".strip()
-        return name or obj.user.email

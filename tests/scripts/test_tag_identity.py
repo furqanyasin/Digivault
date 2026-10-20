@@ -74,7 +74,7 @@ class TestGoogleTagIdentityIsTheContainerId:
             "https://www.googletagmanager.com/gtag/js?id=GTM-ABC"
         )
 
-    def test_digilatics_google_urls_keep_ids_but_drop_runtime_query(self):
+    def test_agency_google_urls_keep_ids_but_drop_runtime_query(self):
         urls = [
             "https://www.googletagmanager.com/gtag/js?id=G-0KTJ15QBB5&cx=c&gtm=4e6920h2",
             "https://www.googletagmanager.com/gtag/js?id=G-LC6FS8Y01E&cx=c&gtm=4e6911",

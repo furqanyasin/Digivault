@@ -13,15 +13,14 @@ from apps.accounts.totp_views import (
     TotpStatusView,
     TotpVerifyView,
 )
+from apps.accounts.signup_views import SignupView, TwoFactorReminderDismissView, VerifyEmailView
 from apps.accounts.views import (
     ClickUpChannelView,
     ClickUpMembersView,
     ClickUpTestView,
     InvitationAcceptView,
     MeView,
-    PasswordResetApproveView,
     PasswordResetConfirmView,
-    PasswordResetRejectView,
     PasswordResetRequestView,
     SubTeamDetailView,
     SubTeamListCreateView,
@@ -45,16 +44,17 @@ class ThrottledTokenRefreshView(TokenRefreshView):
 
 urlpatterns = [
     # Auth
-    # No self-registration: Digivault is an internal tool, so accounts are
-    # created by an owner or manager (TeamCreateUserView / invitations). A
-    # public POST /auth/register/ used to create an account for anyone who
-    # found it, even after the sign-up page had been turned into a redirect.
+    # Self-signup creates nothing until the email link is clicked; see
+    # apps/accounts/signup_views.py.
+    path("signup/", SignupView.as_view(), name="auth-signup"),
+    path("verify-email/", VerifyEmailView.as_view(), name="auth-verify-email"),
     path("login/", LoginView.as_view(), name="auth-login"),
     path("first-password/", FirstPasswordView.as_view(), name="auth-first-password"),
     # Password-only tokens: refused outside the dev/test 2FA bypass (see view).
     path("token/", PasswordTokenObtainPairView.as_view(), name="auth-token-obtain"),
     path("token/refresh/", ThrottledTokenRefreshView.as_view(), name="auth-token-refresh"),
     path("me/", MeView.as_view(), name="auth-me"),
+    path("me/2fa-reminder/dismiss/", TwoFactorReminderDismissView.as_view(), name="auth-2fa-reminder-dismiss"),
     # 2FA
     path("2fa/setup/", TotpSetupView.as_view(), name="2fa-setup"),
     path("2fa/confirm/", TotpConfirmView.as_view(), name="2fa-confirm"),
@@ -86,6 +86,4 @@ urlpatterns = [
     # Password reset
     path("password-reset/", PasswordResetRequestView.as_view(), name="password-reset-request"),
     path("password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
-    path("password-reset/<uuid:pk>/approve/", PasswordResetApproveView.as_view(), name="password-reset-approve"),
-    path("password-reset/<uuid:pk>/reject/", PasswordResetRejectView.as_view(), name="password-reset-reject"),
 ]

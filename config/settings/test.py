@@ -19,3 +19,7 @@ MONITOR_DETECT_EGRESS_IP = False
 # Never call Google PageSpeed from the suite; tests that need it enable it and
 # mock the HTTP call.
 MONITOR_SECOND_OPINION = False
+
+# Fixtures build teams of every size on the default (free) plan. Tests that
+# check the limits turn this back on with override_settings.
+ENFORCE_PLAN_LIMITS = False
